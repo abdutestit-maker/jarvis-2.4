@@ -1,13 +1,29 @@
 {
-  "started_utc": "2026-08-16T00:00:00",
+  "started_utc": "2026-08-15T00:00:00",
   "branch": "main",
-  "current_task_id": "Q09",
-  "last_commit": "eb09d3a",
+  "current_task_id": "P2",
+  "last_commit": "94825b1",
   "next_task_id": null,
-  "baseline_tests": "17/17 PASS",
-  "note": "Q01-Q08 done+committed. Q09 = morning report + checkpoint. Sibling WIP core/agent.py (unstaged, +40 lines, missing _start_confirmation_watchdog) breaks test_p0_high_risk_confirmation_loop — HIGH-risk flow, NOT touched. Q07 isolated green (4 passed); full pytest red is sibling's, not ours.",
-  "completed": ["Q01", "Q02", "Q03", "Q04", "Q05", "Q06", "Q07", "Q08"],
+  "baseline_tests": "45/45 PASS",
+  "note": "P2 SPRINT — Часть0 (сверка) ЗАВЕРШЕНА ПО ФАКТУ. Часть1 (первый живой запуск) ПРОЙДЕНА: tauri dev реально собрал Rust-бинарь и запустил окно (jarvis-frontend PID, title 'J.A.R.V.I.S.', Responding=True, порт 1420 отвечает 200). История линейна (только main); ветка feature/browser-automation — указатель на тот же коммит (расхождения нет). _start_confirmation_watchdog РЕАЛЬНО в core/agent.py:568, закоммичен в 6cb63a5. Свежий pytest: 45 passed, EXIT=0. tsc --noEmit чист в ОБОИХ корнях. Корень фронта: jarvis/ каноничен (65 tracked; jarvis-ui/ — 0 tracked, в .gitignore). ЧАСТЬ2: F1 proxy-сервер НЕ реализован (нет FastAPI/uvicorn в deps) — честно отложен на инфра-сессию, ключ НЕ хардкодится; Q07: 303 GAP, из них 16 HIGH-risk-подобных, 2 SAFETY-SENSITIVE без покрытия (#116 автоблокировка при уходе, #121 озвучка голосом — обе требуют confirmation/kill-логики, которой в UI нет).",
+  "completed": [
+    "Q01",
+    "Q02",
+    "Q03",
+    "Q04",
+    "Q05",
+    "Q06",
+    "Q07",
+    "Q08",
+    "Q09"
+  ],
   "blockers": {
-    "sibling_core_agent_py": "unstaged +40 lines, calls missing self._start_confirmation_watchdog at ~line 400; breaks test_p0_high_risk_confirmation_loop. do-not-touch per queue rules."
+    "sibling_core_agent_py": "RESOLVED 2026-08-15 (P2 Часть0, по факту): _start_confirmation_watchdog РЕАЛЬНО присутствует в core/agent.py:568 и вызывается на :400; метод и вызов закоммичены в 6cb63a5. Ночной STATE.json ошибочно помечал его отсутствующим (stale-отчёт sibling-WIP). Свежий full pytest = 45 passed, EXIT=0."
+  },
+  "frontend_root_resolution": {
+    "canonical_live_root": "jarvis/",
+    "evidence": "git ls-files jarvis => 65 tracked files, jarvis/package.json NOT in .gitignore; git ls-files jarvis-ui => 0 files, entire jarvis-ui/ in .gitignore:14 and never committed; HEAD 94825b1 + all Q* commits touch only jarvis/... (real proxy_client.py, useBackendBridge.ts); jarvis/src-tauri/tauri.conf.json has frontendDist '../dist' (working Tauri<Rust link).",
+    "jarvis_ui_status": "UNCOMMITTED duplicate/experimental fork, DEAD for production; do NOT commit/push. P1_BLOCKERS.md BLOCKER-2 inverted and corrected 2026-08-15.",
+    "decided_utc": "2026-08-15T13:40:00"
   }
 }

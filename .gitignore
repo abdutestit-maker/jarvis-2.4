@@ -23,3 +23,6 @@ config/settings.local.json
 # python env
 .venv/
 venv/
+
+# debug artifacts (live-run screenshots)
+_live_screenshot.png

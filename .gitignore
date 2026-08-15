@@ -26,3 +26,6 @@ venv/
 
 # debug artifacts (live-run screenshots)
 _live_screenshot.png
+
+# browser-automation (SPRINT P2-B): user-data-dir браузера (куки/сессии) — не коммитить
+browser-user-data/

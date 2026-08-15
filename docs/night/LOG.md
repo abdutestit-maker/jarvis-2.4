@@ -70,7 +70,27 @@
   'pyautogui' not in sys.modules — но он импортирован в среде через system.py).
   Переписан на AST-анализ (нет импортов + нет ссылок в коде вне docstring).
 
+## 2026-08-15 05:59 — Q07: Интеграция 1000+ команд (NEXT P1)
+- Чистый офлайн-парсинг docs/JARVIS_COMMAND_LIBRARY.md (1450 записей) →
+  реестр команд↔capabilities. `scripts/command_library_parser.py`.
+- КРИТИЧЕСКОЕ (как с core/security.py): НЕ зашивать keyword-map → сделал
+  ДИНАМИЧЕСКИ из `core.actions.DEFAULT_REGISTRY` (имена + description).
+  Убрал dead `_REAL_TOOLS`. Gap-анализ отражает АКТУАЛЬНЫЕ возможности,
+  не дрейфует при добавлении инструментов.
+- Результат: 1450 команд, покрыто 1147 (79.1%), GAP 303, SAFETY-SENSITIVE 7.
+  Топ GAP-категорий: SECURITY(54), CODING(46), DOCUMENTS(44). Отчёт в
+  docs/night/command_coverage.md (полный + --json dump). GAP-записи genuine
+  (проверено: #14 python/matplotlib, #29 defrag, #30 chkdsk — нет инструментов).
+- Тесты: tests/test_command_library_q07.py (count>1000, #001 parse, stats dict,
+  dynamic-registry index, _REAL_TOOLS удалён). Изолированно ЗЕЛЁНЫЙ (4 passed).
+- ИЗВЕСТНЫЙ BLOCKER (НЕ мой): sibling-агент изменил core/agent.py (M, unstaged)
+  — добавил вызов `self._start_confirmation_watchdog(conf_id)` в confirm-ветке
+  (~строка 400), метод НЕ существует → `test_p0_sprint::test_p0_high_risk_
+  confirmation_loop` падает AttributeError. Это HIGH-risk confirmation flow
+  (правило queue: НЕ трогать) — я его НЕ чиню и НЕ коммичу. Мой Q07 от agent.py
+  не зависит и зелёный в изоляции. Зафиксировано для координации.
+
 ## Следующий
-- Q07: Интеграция 1000+ команд (NEXT P1). Спарсить docs/JARVIS_COMMAND_LIBRARY.md
-  → реестр команд↔capabilities; подсчёт + маппинг + хот-споты (какие команды НЕ
-  покрыты инструментами). Чистый офлайн-парсинг, низкий риск.
+- Q08: UI `createRealBackend` (WS/мост) + маппинг статусов (P1 §5). СНАЧАЛА
+  поиск существующего backend/WS/`EntityState`/`BackendEventType` — та же
+  ловушка, что core/security.py (не дублировать). Re-read перед патчем.

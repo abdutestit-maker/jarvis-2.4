@@ -22,7 +22,7 @@ computer-use слой, UI polish). Базовая линия тестов: `base
 | Q03 | wrap_untrusted на все недоверенные источники | P0 §4 | web_fetch/web_search/read_file/rag-результат оборачиваются; тест: инъекция изолирована | done |
 | Q04 | redact_secrets() в логах args | P0 §4 | verifier/repair/agent печатают args без секретов; тест | done |
 | Q05 | SSRF-защита сетевых тулз | P0 §4 | web_fetch блокирует 127/10/192.168/169.254/localhost/file://; тест | done |
-| Q06 | Computer-use слой (FAKE/dry-run backend) | P1 §6 + NEXT | mouse/keyboard/screenshot как tools с dry-run; тесты НЕ двигают реальную мышь | todo |
+| Q06 | Computer-use FAKE/dry-run | P1 §6 + NEXT | mouse/keyboard/screenshot как tools с dry-run; тесты НЕ двигают реальную мышь | done |
 | Q07 | Интеграция 1000+ команд в тестовый корпус | NEXT P1 | скрипт парсит JARVIS_COMMAND_LIBRARY.md → реестр команд↔capabilities; подсчёт+маппинг+хот-споты | todo |
 | Q08 | UI: createRealBackend (WS/мост) + маппинг статусов | P1 §5 | BackendAdapter реальный мост; EntityState/BackendEventType расширены; типы консистентны | todo |
 | Q09 | Morning report + финальный checkpoint | — | docs/night/MORNING_REPORT.md | todo |

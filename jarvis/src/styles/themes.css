@@ -1,0 +1,198 @@
+/* ============================================================
+   OLYMPUS THEME SYSTEM — frontend-only
+   ------------------------------------------------------------
+   - --transparency (0..1) is set on :root by the ThemeProvider.
+     0 = panels near-opaque, 1 = glassy. A shared computation block
+     lerps each surface's alpha between its a-max (t=0) and a-min
+     (t=1). Message surfaces use a HIGH floor so text never becomes
+     unreadable when transparency is increased.
+   - Light theme (ivory) flips text/border tokens.
+   - [data-reduce-motion="true"] kills CSS motion globally.
+   ============================================================ */
+
+:root {
+  --transparency: 0.35;
+  color-scheme: dark;
+}
+
+[data-theme='ivory'] {
+  color-scheme: light;
+}
+
+/* ---- MIDNIGHT (default dark navy/graphite) ---- */
+[data-theme='midnight'] {
+  --bg-base: #07070d;
+  --panel-rgb: 10 11 18;     --panel-a-max: 0.92; --panel-a-min: 0.60;
+  --card-rgb: 16 17 26;      --card-a-max: 0.55;  --card-a-min: 0.30;
+  --input-rgb: 12 13 22;     --input-a-max: 0.72; --input-a-min: 0.42;
+  --app-rgb: 7 7 13;         --app-a-max: 0.82;  --app-a-min: 0.45;
+  --msg-jarvis-rgb: 14 15 24; --msg-jarvis-a-max: 0.96; --msg-jarvis-a-min: 0.92;
+  --msg-user-rgb: 22 24 36;   --msg-user-a-max: 0.94;  --msg-user-a-min: 0.90;
+  --code-bg: rgba(0, 0, 0, 0.42);
+
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.50);
+  --text-muted: rgba(255, 255, 255, 0.28);
+  --accent-cyan: #22d3ee;
+  --accent-gold: #d9a959;
+  --accent-green: #4ade80;
+  --accent-red: #f87171;
+  --accent-amber: #fbbf24;
+  --border-glass: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.10);
+  --border-focus: rgba(34, 211, 238, 0.55);
+  --atmos-1: radial-gradient(120% 80% at 18% 0%, rgba(34, 211, 238, 0.10) 0%, transparent 55%);
+  --atmos-2: radial-gradient(100% 90% at 92% 100%, rgba(217, 169, 89, 0.08) 0%, transparent 50%);
+  --atmos-3: radial-gradient(140% 120% at 50% 120%, rgba(76, 222, 128, 0.05) 0%, transparent 60%);
+  --statue-opacity: 0.10;
+  --statue-blend: screen;
+  --statue-filter: brightness(0.42) contrast(1.4) saturate(0.5);
+}
+
+/* ---- OLYMPUS (deep indigo + antique marble + gold/cyan) ---- */
+[data-theme='olympus'] {
+  --bg-base: #05060f;
+  --panel-rgb: 14 13 30;      --panel-a-max: 0.90; --panel-a-min: 0.58;
+  --card-rgb: 20 19 38;       --card-a-max: 0.52;  --card-a-min: 0.28;
+  --input-rgb: 16 15 32;      --input-a-max: 0.70; --input-a-min: 0.40;
+  --app-rgb: 6 6 16;          --app-a-max: 0.80;  --app-a-min: 0.42;
+  --msg-jarvis-rgb: 17 16 34;  --msg-jarvis-a-max: 0.96; --msg-jarvis-a-min: 0.92;
+  --msg-user-rgb: 26 24 46;    --msg-user-a-max: 0.94;  --msg-user-a-min: 0.90;
+  --code-bg: rgba(0, 0, 0, 0.45);
+
+  --text-primary: rgba(244, 246, 255, 0.92);
+  --text-secondary: rgba(210, 216, 240, 0.50);
+  --text-muted: rgba(190, 198, 230, 0.28);
+  --accent-cyan: #38d9e6;
+  --accent-gold: #d9a959;
+  --accent-green: #5ee0a0;
+  --accent-red: #f87171;
+  --accent-amber: #fbbf24;
+  --border-glass: rgba(170, 180, 230, 0.07);
+  --border-strong: rgba(170, 180, 230, 0.12);
+  --border-focus: rgba(56, 217, 230, 0.55);
+  --atmos-1: radial-gradient(120% 80% at 20% 0%, rgba(56, 217, 230, 0.10) 0%, transparent 55%);
+  --atmos-2: radial-gradient(110% 90% at 90% 100%, rgba(217, 169, 89, 0.10) 0%, transparent 52%);
+  --atmos-3: radial-gradient(140% 120% at 50% 120%, rgba(120, 110, 220, 0.06) 0%, transparent 60%);
+  --statue-opacity: 0.16;
+  --statue-blend: screen;
+  --statue-filter: brightness(0.5) contrast(1.3) saturate(0.6) hue-rotate(8deg);
+}
+
+/* ---- GLASS (visible background, glass panels) ---- */
+[data-theme='glass'] {
+  --bg-base: #06070e;
+  --panel-rgb: 14 16 26;      --panel-a-max: 0.72; --panel-a-min: 0.32;
+  --card-rgb: 18 20 32;       --card-a-max: 0.46;  --card-a-min: 0.18;
+  --input-rgb: 14 16 26;      --input-a-max: 0.58; --input-a-min: 0.26;
+  --app-rgb: 6 7 14;          --app-a-max: 0.50;  --app-a-min: 0.16;
+  --msg-jarvis-rgb: 16 18 30;  --msg-jarvis-a-max: 0.95; --msg-jarvis-a-min: 0.88;
+  --msg-user-rgb: 24 26 40;    --msg-user-a-max: 0.92;  --msg-user-a-min: 0.85;
+  --code-bg: rgba(0, 0, 0, 0.50);
+
+  --text-primary: rgba(255, 255, 255, 0.94);
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-muted: rgba(255, 255, 255, 0.30);
+  --accent-cyan: #28e0f0;
+  --accent-gold: #e6b86a;
+  --accent-green: #4ade80;
+  --accent-red: #f87171;
+  --accent-amber: #fbbf24;
+  --border-glass: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-focus: rgba(40, 224, 240, 0.6);
+  --atmos-1: radial-gradient(120% 80% at 18% 0%, rgba(40, 224, 240, 0.16) 0%, transparent 58%);
+  --atmos-2: radial-gradient(110% 90% at 92% 100%, rgba(230, 184, 106, 0.12) 0%, transparent 55%);
+  --atmos-3: radial-gradient(140% 120% at 50% 120%, rgba(76, 222, 128, 0.08) 0%, transparent 60%);
+  --statue-opacity: 0.14;
+  --statue-blend: screen;
+  --statue-filter: brightness(0.55) contrast(1.3) saturate(0.7);
+}
+
+/* ---- PERSONAL (user background; palette like olympus) ---- */
+[data-theme='personal'] {
+  --bg-base: #05060f;
+  --panel-rgb: 14 13 30;      --panel-a-max: 0.88; --panel-a-min: 0.55;
+  --card-rgb: 20 19 38;       --card-a-max: 0.50;  --card-a-min: 0.26;
+  --input-rgb: 16 15 32;      --input-a-max: 0.68; --input-a-min: 0.38;
+  --app-rgb: 6 6 16;          --app-a-max: 0.74;  --app-a-min: 0.34;
+  --msg-jarvis-rgb: 17 16 34;  --msg-jarvis-a-max: 0.96; --msg-jarvis-a-min: 0.92;
+  --msg-user-rgb: 26 24 46;    --msg-user-a-max: 0.94;  --msg-user-a-min: 0.90;
+  --code-bg: rgba(0, 0, 0, 0.45);
+
+  --text-primary: rgba(244, 246, 255, 0.92);
+  --text-secondary: rgba(210, 216, 240, 0.50);
+  --text-muted: rgba(190, 198, 230, 0.28);
+  --accent-cyan: #38d9e6;
+  --accent-gold: #d9a959;
+  --accent-green: #5ee0a0;
+  --accent-red: #f87171;
+  --accent-amber: #fbbf24;
+  --border-glass: rgba(170, 180, 230, 0.07);
+  --border-strong: rgba(170, 180, 230, 0.12);
+  --border-focus: rgba(56, 217, 230, 0.55);
+  --atmos-1: radial-gradient(120% 80% at 20% 0%, rgba(56, 217, 230, 0.10) 0%, transparent 55%);
+  --atmos-2: radial-gradient(110% 90% at 90% 100%, rgba(217, 169, 89, 0.10) 0%, transparent 52%);
+  --atmos-3: radial-gradient(140% 120% at 50% 120%, rgba(120, 110, 220, 0.06) 0%, transparent 60%);
+  --statue-opacity: 0.12;
+  --statue-blend: screen;
+  --statue-filter: brightness(0.5) contrast(1.3) saturate(0.6) hue-rotate(8deg);
+}
+
+/* ---- IVORY (light, soft white, cold grey-blue) ---- */
+[data-theme='ivory'] {
+  --bg-base: #f4f6fa;
+  --panel-rgb: 255 255 255;   --panel-a-max: 0.92; --panel-a-min: 0.66;
+  --card-rgb: 248 250 253;    --card-a-max: 0.90;  --card-a-min: 0.55;
+  --input-rgb: 255 255 255;   --input-a-max: 0.95; --input-a-min: 0.70;
+  --app-rgb: 240 243 248;     --app-a-max: 0.85;  --app-a-min: 0.55;
+  --msg-jarvis-rgb: 250 252 255; --msg-jarvis-a-max: 0.98; --msg-jarvis-a-min: 0.95;
+  --msg-user-rgb: 232 238 248;   --msg-user-a-max: 0.96;  --msg-user-a-min: 0.92;
+  --code-bg: rgba(20, 28, 48, 0.06);
+
+  --text-primary: rgba(22, 28, 44, 0.92);
+  --text-secondary: rgba(40, 50, 74, 0.62);
+  --text-muted: rgba(60, 72, 100, 0.42);
+  --accent-cyan: #0ea5c4;
+  --accent-gold: #b8862f;
+  --accent-green: #18a558;
+  --accent-red: #d64545;
+  --accent-amber: #c98a12;
+  --border-glass: rgba(20, 30, 60, 0.10);
+  --border-strong: rgba(20, 30, 60, 0.16);
+  --border-focus: rgba(14, 165, 196, 0.55);
+  --atmos-1: radial-gradient(120% 80% at 18% 0%, rgba(14, 165, 196, 0.10) 0%, transparent 55%);
+  --atmos-2: radial-gradient(100% 90% at 92% 100%, rgba(184, 134, 47, 0.08) 0%, transparent 50%);
+  --atmos-3: radial-gradient(140% 120% at 50% 120%, rgba(14, 165, 196, 0.05) 0%, transparent 60%);
+  --statue-opacity: 0.06;
+  --statue-blend: multiply;
+  --statue-filter: brightness(0.9) contrast(1.05) saturate(0.4);
+}
+
+/* ---- shared computation: lerp alpha by --transparency ---- */
+[data-theme] {
+  --t: var(--transparency, 0.35);
+  --panel-a: calc(var(--panel-a-max) - (var(--panel-a-max) - var(--panel-a-min)) * var(--t));
+  --card-a: calc(var(--card-a-max) - (var(--card-a-max) - var(--card-a-min)) * var(--t));
+  --input-a: calc(var(--input-a-max) - (var(--input-a-max) - var(--input-a-min)) * var(--t));
+  --app-a: calc(var(--app-a-max) - (var(--app-a-max) - var(--app-a-min)) * var(--t));
+  --msg-jarvis-a: calc(var(--msg-jarvis-a-max) - (var(--msg-jarvis-a-max) - var(--msg-jarvis-a-min)) * var(--t));
+  --msg-user-a: calc(var(--msg-user-a-max) - (var(--msg-user-a-max) - var(--msg-user-a-min)) * var(--t));
+
+  --bg-panel: rgba(var(--panel-rgb) / var(--panel-a));
+  --bg-card: rgba(var(--card-rgb) / var(--card-a));
+  --bg-input: rgba(var(--input-rgb) / var(--input-a));
+  --bg-app: rgba(var(--app-rgb) / var(--app-a));
+  --msg-jarvis: rgba(var(--msg-jarvis-rgb) / var(--msg-jarvis-a));
+  --msg-user: rgba(var(--msg-user-rgb) / var(--msg-user-a));
+}
+
+/* ---- reduced motion: disable all CSS animations/transitions ---- */
+[data-reduce-motion='true'] *,
+[data-reduce-motion='true'] *::before,
+[data-reduce-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}

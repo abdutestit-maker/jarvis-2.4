@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1400" width="1000" height="1400">
+  <defs>
+    <radialGradient id="marbleGlow" cx="62%" cy="38%" r="70%">
+      <stop offset="0%" stop-color="#38d9e6" stop-opacity="0.22"/>
+      <stop offset="48%" stop-color="#d9a959" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </radialGradient>
+    <linearGradient id="marble" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e9e6df"/>
+      <stop offset="55%" stop-color="#b9b4ac"/>
+      <stop offset="100%" stop-color="#6f6c66"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- soft glow -->
+  <ellipse cx="640" cy="540" rx="380" ry="460" fill="url(#marbleGlow)" opacity="0.5"/>
+
+  <g filter="url(#soft)" opacity="0.5">
+    <!-- drapery / shoulders -->
+    <path d="M470 1400 C500 1170 580 1110 700 1100 C840 1090 930 1140 980 1400 Z" fill="url(#marble)"/>
+    <!-- neck -->
+    <path d="M600 980 L770 980 L745 1085 L628 1085 Z" fill="url(#marble)"/>
+    <!-- head -->
+    <ellipse cx="700" cy="760" rx="158" ry="208" fill="url(#marble)"/>
+    <!-- Athena helmet crest -->
+    <path d="M560 600 C600 520 700 500 800 540 C840 560 850 600 820 620 C780 600 700 590 640 610 C600 622 575 640 560 600 Z" fill="url(#marble)"/>
+    <path d="M700 470 C720 430 760 420 800 450 C770 450 740 470 720 500 Z" fill="url(#marble)"/>
+  </g>
+
+  <!-- profile contour (facing left) -->
+  <path d="M640 600
+           C610 640 600 700 605 760
+           C608 800 590 820 600 850
+           C610 880 600 910 640 940"
+        fill="none" stroke="#38d9e6" stroke-width="2" opacity="0.30"/>
+
+  <!-- helmet / hair lines -->
+  <g fill="none" stroke="#d9a959" stroke-width="1.6" opacity="0.34">
+    <path d="M560 600 C520 640 510 720 545 800"/>
+    <path d="M575 575 C535 620 528 700 560 780"/>
+    <path d="M560 600 C600 560 690 548 780 575"/>
+    <path d="M545 800 C560 850 600 890 650 905"/>
+  </g>
+  <g fill="none" stroke="#38d9e6" stroke-width="1.4" opacity="0.26">
+    <path d="M700 565 C760 555 820 575 845 620"/>
+    <path d="M720 600 C770 600 815 625 835 665"/>
+  </g>
+
+  <!-- rim highlight -->
+  <ellipse cx="700" cy="760" rx="160" ry="210" fill="none" stroke="#38d9e6" stroke-width="0.6" opacity="0.16"/>
+  <path d="M470 1400 C500 1170 580 1110 700 1100 C840 1090 930 1140 980 1400" fill="none" stroke="#d9a959" stroke-width="0.6" opacity="0.14"/>
+</svg>

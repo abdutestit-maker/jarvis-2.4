@@ -1,0 +1,78 @@
+/**
+ * J.A.R.V.I.S. v3.0 — Global Styles
+ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root { color-scheme: dark; }
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background: var(--bg-base, #05050a);
+  min-height: 100vh;
+  min-width: 100vw;
+  overflow: hidden;
+  transition: background var(--duration-slow) var(--ease-out);
+}
+
+#root { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+p { line-height: var(--leading-relaxed); }
+
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+a { color: var(--accent-cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-focus);
+  border-radius: var(--radius-sm);
+}
+
+button {
+  font-family: inherit; font-size: inherit; line-height: inherit;
+  color: inherit; background: none; border: none; cursor: pointer;
+}
+input, textarea {
+  font-family: inherit; font-size: inherit; line-height: inherit; color: inherit;
+}
+
+.drag-region { -webkit-app-region: drag; -webkit-user-select: none; user-select: none; }
+button, input, textarea, [contenteditable] { -webkit-app-region: no-drag; }
+
+.no-select { -webkit-user-select: none; user-select: none; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.10); border-radius: 4px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); background-clip: content-box; }
+
+::selection { background: rgba(34,211,238,0.25); color: var(--text-primary); }

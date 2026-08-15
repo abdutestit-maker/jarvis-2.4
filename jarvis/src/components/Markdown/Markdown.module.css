@@ -1,0 +1,51 @@
+/* J.A.R.V.I.S. v3.0 — Markdown Styles */
+
+.md { color: var(--text-primary); }
+
+.p { margin: 0 0 var(--space-3); line-height: var(--leading-relaxed); }
+.p:last-child { margin-bottom: 0; }
+
+.h { margin: var(--space-4) 0 var(--space-2); line-height: var(--leading-tight); color: var(--text-primary); font-weight: 600; }
+.h:first-child { margin-top: 0; }
+.h1 { font-size: var(--text-2xl); }
+.h2 { font-size: var(--text-xl); }
+.h3 { font-size: var(--text-lg); }
+.h4 { font-size: var(--text-base); }
+
+.ul, .ol { margin: 0 0 var(--space-3); padding-left: var(--space-5); }
+.li, .ul li, .ol li { margin: var(--space-1) 0; line-height: var(--leading-relaxed); }
+.ul li::marker { color: var(--accent-cyan); }
+.ol li::marker { color: var(--text-muted); }
+
+.inlineCode {
+  font-family: var(--font-mono); font-size: 0.875em;
+  background: var(--code-bg); color: var(--accent-cyan);
+  padding: 1px 6px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-glass);
+}
+
+.link { color: var(--accent-cyan); text-decoration: none; border-bottom: 1px solid rgba(34,211,238,0.3); }
+.link:hover { border-bottom-color: var(--accent-cyan); }
+
+.codeWrap { position: relative; margin: var(--space-3) 0; }
+.copy {
+  position: absolute; top: 8px; right: 8px;
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--radius-sm);
+  background: rgba(0,0,0,0.4); color: var(--text-secondary);
+  opacity: 0; transition: opacity var(--duration-fast) var(--ease-out), color var(--duration-fast);
+  border: 1px solid var(--border-glass);
+}
+.codeWrap:hover .copy, .codeWrap:focus-within .copy { opacity: 1; }
+.copy:hover { color: var(--accent-cyan); }
+.code {
+  margin: 0; padding: var(--space-4);
+  background: var(--code-bg); border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono); font-size: var(--text-sm); line-height: var(--leading-normal);
+  color: var(--text-secondary); white-space: pre-wrap; overflow-x: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copy { transition: none; }
+}

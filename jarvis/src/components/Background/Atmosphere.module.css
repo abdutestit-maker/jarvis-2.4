@@ -1,0 +1,58 @@
+/**
+ * J.A.R.V.I.S. v3.0 — Atmosphere Styles
+ */
+
+.layer {
+  position: fixed; inset: 0; z-index: var(--z-bg);
+  pointer-events: none; overflow: hidden;
+}
+
+.g1, .g2, .g3 {
+  position: absolute; inset: -20%;
+  will-change: transform, opacity;
+}
+
+.g1 {
+  background: var(--atmos-1);
+  animation: drift1 38s ease-in-out infinite alternate;
+  opacity: 0.9;
+}
+.g2 {
+  background: var(--atmos-2);
+  animation: drift2 46s ease-in-out infinite alternate;
+  opacity: 0.8;
+}
+.g3 {
+  background: var(--atmos-3);
+  animation: drift3 54s ease-in-out infinite alternate;
+  opacity: 0.7;
+}
+
+/* subtle vignette so edges fall into shadow (command-center depth) */
+.grain {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(120% 120% at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%),
+    linear-gradient(180deg, rgba(0,0,0,0.25), transparent 30%);
+}
+
+.active .g1 { animation-duration: 22s; }
+.active .g2 { animation-duration: 28s; }
+.active .g3 { animation-duration: 30s; }
+
+@keyframes drift1 {
+  0%   { transform: translate3d(0,0,0) scale(1); }
+  100% { transform: translate3d(3%, -2%, 0) scale(1.08); }
+}
+@keyframes drift2 {
+  0%   { transform: translate3d(0,0,0) scale(1.05); }
+  100% { transform: translate3d(-3%, 2%, 0) scale(1); }
+}
+@keyframes drift3 {
+  0%   { transform: translate3d(0,0,0) scale(1); }
+  100% { transform: translate3d(2%, 3%, 0) scale(1.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g1, .g2, .g3 { animation: none; }
+}

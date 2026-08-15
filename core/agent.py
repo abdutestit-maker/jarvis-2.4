@@ -155,6 +155,7 @@ class AgentConfig:
     large_input_chars: int = 6000      # §7 — выше порога включаем ingest
     auto_confirm_high_risk: bool = False   # §21 — HIGH требует человека
     enable_skill_forge: bool = True    # §9
+    confirmation_timeout_sec: float = 30.0  # П1 §1.3: таймаут ожидания подтверждения -> авто-reject
 
 
 @dataclass
@@ -230,6 +231,7 @@ class Agent:
             log.warning("Граф памяти недоступен: %s", exc)
             self._graph = None
         self._pending_confirmations: Dict[str, Dict[str, Any]] = {}
+        self._confirmation_timers: Dict[str, "threading.Timer"] = {}
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------------ #
@@ -393,6 +395,9 @@ class Agent:
                     "cancel": cancel,
                     "trace": trace,
                 }
+            # П1 §1.3 (voice-first): если пользователь не ответит в голос/текст
+            # за confirmation_timeout_sec — безопасный авто-reject (отказ).
+            self._start_confirmation_watchdog(conf_id)
             return AgentOutcome(
                 text=exec_risk.confirmation_prompt(),
                 verified=False,
@@ -519,6 +524,10 @@ class Agent:
         """
         with self._lock:
             pending = self._pending_confirmations.pop(confirmation_id, None)
+            # Отменяем таймер ожидания — человек уже ответил (П1 §1.3).
+            timer = self._confirmation_timers.pop(confirmation_id, None)
+            if timer is not None:
+                timer.cancel()
         if pending is None:
             return None
 
@@ -551,6 +560,37 @@ class Agent:
             goal=goal, tool=tool, args=args, mission=mission,
             cancel=cancel, trace=trace, risk=risk, caps=caps,
         )
+
+    # ------------------------------------------------------------------ #
+    #  П1 §1.3 — voice-first confirmation watchdog
+    # ------------------------------------------------------------------ #
+
+    def _start_confirmation_watchdog(self, confirmation_id: str) -> None:
+        """Запускает таймер ожидания подтверждения (П1 §1.3).
+
+        Если пользователь не ответит голосом/текстом за
+        ``confirmation_timeout_sec`` — безопасный авто-reject (отказ).
+        Таймаут отключается значением <= 0.
+        """
+        timeout = float(getattr(self._config, "confirmation_timeout_sec", 30.0))
+        if timeout <= 0:
+            return
+
+        def _on_timeout() -> None:
+            with self._lock:
+                if confirmation_id not in self._pending_confirmations:
+                    return  # уже ответили или отменили
+            # Авто-reject: таймаут = молчаливый отказ (безопаснее).
+            self.answer_confirmation(confirmation_id, approved=False)
+
+        with self._lock:
+            old = self._confirmation_timers.pop(confirmation_id, None)
+            if old is not None:
+                old.cancel()
+            timer = threading.Timer(timeout, _on_timeout)
+            timer.daemon = True
+            self._confirmation_timers[confirmation_id] = timer
+            timer.start()
 
     # ------------------------------------------------------------------ #
     #  §18 — Research workflow

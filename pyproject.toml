@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "living-jarvis"
+version = "0.1.0"
+description = "Живой Джарвис — локальный ИИ-ассистент: Qwen 4B на лице, совет мудрецов из удалённых моделей, многослойная память"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Living Jarvis Team" }]
+keywords = ["assistant", "llm", "llama-cpp", "chromadb", "rag", "windows"]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Точные версии — в requirements.txt. Здесь только границы совместимости.
+dependencies = [
+    "llama-cpp-python>=0.3.0",
+    "chromadb>=0.5.0,<0.6",
+    "requests>=2.32",
+    "tenacity>=9.0",
+    "PyAutoGUI>=0.9.54",
+    "psutil>=6.0",
+    "pyperclip>=1.9",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "pystray>=0.19",
+    "Pillow>=10.0,<11",
+    "piper-tts>=1.3",
+    "pydantic>=2.8,<3",
+    "numpy<2",
+    "pypdf>=5.0",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+stt = ["faster-whisper>=1.0.3"]
+dev = ["pytest>=8.3", "pytest-mock>=3.14", "flake8>=7.1", "mypy>=1.11"]
+
+[project.scripts]
+jarvis = "main:main"
+
+[tool.setuptools]
+packages = ["config", "core", "core.llm", "core.utils"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.flake8]
+max-line-length = 110
+exclude = [".git", "__pycache__", "data", "build", "dist"]

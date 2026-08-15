@@ -1,0 +1,25 @@
+/**
+ * J.A.R.V.I.S. v3.0 — Rim Light Styles
+ */
+
+.container {
+  position: fixed; inset: 0; z-index: var(--z-bg);
+  pointer-events: none; overflow: hidden;
+}
+
+.glow {
+  position: absolute; inset: -25%;
+  background: radial-gradient(ellipse at 70% 40%,
+    rgba(34,211,238,0.12) 0%, rgba(217,169,89,0.06) 38%, transparent 68%);
+  animation: breathe var(--rim-breathe) ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.45; transform: scale(0.96); }
+  50%      { opacity: 1;    transform: scale(1.03); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow { animation: none; opacity: 0.5; }
+}

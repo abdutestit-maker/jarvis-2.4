@@ -29,19 +29,30 @@
     "architect": "claude"
   },
 
-  "_comment_primary_brain": "Главный «мозг»: тир, который опрашивается ПЕРВЫМ для обычных запросов (none/web/browser/file). По умолчанию 'analyst' = удалённая модель (облако). Локальная Qwen 4B (fast) теперь только офлайн-фолбэк.",
   "primary_brain": "analyst",
 
   "local_model": {
-    "gguf_path": "data/models/qwen3-4b-instruct-q4_k_m.gguf",
+    "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
     "embedding_gguf_path": "",
-    "n_gpu_layers": 0,
+    "n_gpu_layers": -1,
     "n_ctx": 4096,
     "n_threads": 0,
-    "n_batch": 512,
-    "quantization": "Q4_K_M",
+    "n_batch": 1024,
+    "quantization": "Q5_K_M",
     "temperature": 0.6,
     "max_tokens": 512,
+    "chat_format": null,
+    "verbose": false
+  },
+  "local_coder_model": {
+    "gguf_path": "",
+    "n_gpu_layers": -1,
+    "n_ctx": 8192,
+    "n_threads": 0,
+    "n_batch": 512,
+    "quantization": "Q5_K_M",
+    "temperature": 0.2,
+    "max_tokens": 2048,
     "chat_format": null,
     "verbose": false
   },
@@ -52,7 +63,29 @@
     "piper_model_path": "data/models/piper/jarvis-medium.onnx",
     "piper_binary_path": "piper",
     "speed": 1.0,
-    "volume": 1.0
+    "volume": 1.0,
+    "piper_speaker_id": 0,
+    "piper_length_scale": 1.0,
+    "piper_noise_scale": 0.667,
+    "piper_noise_w": 0.8,
+    "piper_voices": [
+      {
+        "model_path": "data/models/piper/jarvis-medium.onnx",
+        "language": "en",
+        "speaker_id": 0,
+        "length_scale": 1.0,
+        "noise_scale": 0.667,
+        "noise_w": 0.8
+      },
+      {
+        "model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
+        "language": "ru",
+        "speaker_id": 0,
+        "length_scale": 1.0,
+        "noise_scale": 0.667,
+        "noise_w": 0.8
+      }
+    ]
   },
 
   "paths": {
@@ -81,12 +114,6 @@
     "rag_top_k": 3,
     "memory_top_k": 5,
     "max_action_iterations": 6
-  },
-
-  "proxy": {
-    "enabled": false,
-    "endpoint": "",
-    "proxy_token": ""
   },
 
   "logging": {

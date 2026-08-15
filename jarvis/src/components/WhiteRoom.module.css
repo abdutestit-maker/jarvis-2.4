@@ -1,0 +1,57 @@
+/* J.A.R.V.I.S. v3.0 — White Room Styles */
+
+.room {
+  position: fixed; inset: 0; z-index: var(--z-white);
+  display: flex; align-items: center; justify-content: center;
+  background: #F7F9FC;
+  color: #1a2238;
+  padding: var(--space-6);
+}
+
+.center {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-10);
+  text-align: center;
+}
+
+.mark {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-4);
+}
+.word {
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 9vw, 6rem);
+  font-weight: 600; letter-spacing: 0.04em;
+  background: linear-gradient(90deg, #0a0e1a, #0891b2);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  line-height: 1;
+}
+.coreLine { color: #0891b2; }
+
+.form { width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-5); }
+.q { font-size: var(--text-lg); color: #2a3550; font-weight: 500; }
+
+.row { display: flex; gap: var(--space-3); align-items: stretch; }
+.input {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(20,30,60,0.16);
+  background: rgba(255,255,255,0.8);
+  color: #1a2238; font-size: var(--text-base); outline: none;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+.input:focus { border-color: #0891b2; }
+.input::placeholder { color: rgba(60,72,100,0.5); }
+
+.btn {
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #22d3ee, #0891b2);
+  color: #04141a; font-weight: 600; font-size: var(--text-base);
+  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast);
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(34,211,238,0.4); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.note { font-size: var(--text-xs); color: rgba(60,72,100,0.6); }
+
+.confirm { font-size: var(--text-base); color: #2a3550; max-width: 420px; line-height: var(--leading-relaxed); }

@@ -1,0 +1,100 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.core,
+.arc1,
+.arc2 {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.core {
+  fill: var(--accent-cyan);
+}
+
+.arc1,
+.arc2 {
+  fill: none;
+  stroke: var(--accent-cyan);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+.arc1 {
+  stroke-dasharray: 26 90;
+  animation: coreSpin 16s linear infinite;
+}
+
+.arc2 {
+  stroke-dasharray: 18 120;
+  opacity: 0.4;
+  animation: coreSpin 26s linear infinite reverse;
+}
+
+@keyframes coreSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes coreBreathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+/* ---- states ---- */
+.idle .core {
+  animation: coreBreathe 4.5s ease-in-out infinite;
+}
+
+.processing .core {
+  animation: coreBreathe 1.6s ease-in-out infinite;
+}
+.processing .arc1 {
+  animation-duration: 3s;
+  opacity: 0.9;
+}
+.processing .arc2 {
+  animation-duration: 5s;
+  opacity: 0.6;
+}
+
+.listening .core {
+  fill: var(--accent-gold);
+  animation: coreBreathe 2.4s ease-in-out infinite;
+}
+.listening .arc1,
+.listening .arc2 {
+  stroke: var(--accent-gold);
+}
+
+.cloud .core {
+  fill: var(--accent-amber);
+}
+.cloud .arc1,
+.cloud .arc2 {
+  stroke: var(--accent-amber);
+}
+
+.error .core {
+  fill: var(--accent-red);
+  animation: coreBreathe 1s ease-in-out infinite;
+}
+.error .arc1,
+.error .arc2 {
+  stroke: var(--accent-red);
+  opacity: 0.55;
+}

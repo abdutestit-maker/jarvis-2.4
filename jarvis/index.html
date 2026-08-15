@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>J.A.R.V.I.S.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Cormorant+Garamond:wght@400;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Apply persisted theme/reduce-motion before first paint (no flash).
+      (function () {
+        try {
+          var s = JSON.parse(localStorage.getItem('jarvis.settings.v3') || '{}');
+          if (s.theme) document.documentElement.setAttribute('data-theme', s.theme);
+          var rm = !!(s.reduceMotion || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches));
+          document.documentElement.setAttribute('data-reduce-motion', rm ? 'true' : 'false');
+          if (typeof s.transparency === 'number') {
+            document.documentElement.style.setProperty('--transparency', String(s.transparency));
+          }
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

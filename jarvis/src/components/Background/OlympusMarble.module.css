@@ -1,0 +1,40 @@
+/* J.A.R.V.I.S. v3.0 — Olympus Marble Styles */
+
+.container {
+  position: fixed; inset: 0; z-index: var(--z-bg);
+  pointer-events: none; overflow: hidden;
+}
+
+.statue {
+  position: absolute;
+  right: -6%;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 132%;
+  width: auto;
+  max-width: 62%;
+  object-fit: contain;
+  opacity: var(--statue-opacity);
+  mix-blend-mode: var(--statue-blend);
+  filter: var(--statue-filter);
+  transition: opacity var(--duration-slow) var(--ease-out);
+  -webkit-mask-image: radial-gradient(ellipse 62% 70% at 58% 46%, #000 30%, transparent 82%);
+  mask-image: radial-gradient(ellipse 62% 70% at 58% 46%, #000 30%, transparent 82%);
+}
+
+/* faint marble luminescence behind the bust */
+.glow {
+  position: absolute;
+  right: 4%;
+  top: 50%;
+  width: 46vw;
+  height: 70vh;
+  transform: translate(0, -50%);
+  background: radial-gradient(circle at 58% 46%, rgba(56,217,230,0.10), rgba(217,169,89,0.05) 42%, transparent 72%);
+  filter: blur(44px);
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statue { transition: none; }
+}

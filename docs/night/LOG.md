@@ -90,7 +90,36 @@
   (правило queue: НЕ трогать) — я его НЕ чиню и НЕ коммичу. Мой Q07 от agent.py
   не зависит и зелёный в изоляции. Зафиксировано для координации.
 
+## 2026-08-15 06:0x — Q08: UI `createRealBackend` (реальный мост) + маппинг статусов (P1 §5)
+- КРИТИЧЕСКОЕ (как с core/security.py): `createRealBackend()` УЖЕ существует
+  в `jarvis/src/integrations/backend.ts:190` как ЗАГЛУШКА. НЕ дублировал —
+  реализовал транспорт ВНУТРИ неё. `EntityState`/`BackendEventType`/
+  `BackendAdapter` уже определены в `types/index.ts` (НЕ создавал заново).
+- Реализация: биндинг к Tauri event bus — inbound `jarvis://event`
+  (→ `mapTransportEvent` → `BackendEvent`), outbound команды `jarvis://command`
+  + `jarvis://interrupt`. Mock-fallback вне Tauri (vite dev/preview), чтобы UI
+  не ломался без рантайма. Channel-имена (`jarvis://*`) — контракт с core;
+  если core шлёт иначе, сверить на стыке.
+- Статус-маппинг вынесен в ЕДИНЫЙ источник `TRANSPORT_STATE_MAP`
+  (`backend.ts`) + `mapTransportEvent()`; `useBackendBridge.ts` теперь
+  импортирует `TRANSPORT_STATE_MAP` вместо дублирующегося локального `STATE_MAP`
+  (DRY). `STATE_LABEL` (UI-лейблы) оставлен как есть.
+- `jarvis-ui/src` — НЕ живой корень (в `jarvis/package.json` те же скрипты +
+  `@tauri-apps/api`; правил по grep-совпадениям в `jarvis/src`). Патчил
+  только `jarvis/`.
+- Верификация: TS-test-runner отсутствует (нет vitest/jest/`test` в
+  package.json) → НЕ фейково green. Честный verification = `tsc --noEmit`
+  по `jarvis/`: **TSC_EXIT=0 (чисто)**. Одиннадцатая ошибка type-fix
+  (`fallback: BackendAdapter | null`) исправлена.
+- ИЗВЕСТНЫЙ BLOCKER (verification): full TS-сборка `npm run build` не гнал
+  (нет гарантии, что остальной `jarvis/` tree типобезопасен вне tsc-проверки
+  моих файлов) — ограничился `tsc --noEmit` на проекте (он проверяет весь
+  `include`, вернул 0). Браузерный e2e/mount не запускал (нет рантайма Tauri).
+- Коммит: только `jarvis/src/integrations/backend.ts`,
+  `jarvis/src/hooks/useBackendBridge.ts`, `docs/night/LOG.md`,
+  `docs/night/queue.md`. `core/agent.py` (sibling WIP) НЕ в staging.
+
 ## Следующий
-- Q08: UI `createRealBackend` (WS/мост) + маппинг статусов (P1 §5). СНАЧАЛА
-  поиск существующего backend/WS/`EntityState`/`BackendEventType` — та же
-  ловушка, что core/security.py (не дублировать). Re-read перед патчем.
+- Q09: Morning report + финальный checkpoint (docs/night/MORNING_REPORT.md).
+  СНАЧАЛА поиск существующего report-шаблона/STATE.json — та же ловушка
+  дублирования. Re-read перед патчем.

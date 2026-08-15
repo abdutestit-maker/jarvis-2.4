@@ -40,6 +40,20 @@ export function TitleBar() {
         <button className={styles.ctrl} onClick={() => appWindow?.toggleMaximize()} aria-label="Развернуть">
           <Square size={12} />
         </button>
+        <button
+          className={styles.ctrl}
+          onClick={async () => {
+            if (!appWindow) return;
+            try {
+              const fs = await appWindow.isFullscreen();
+              await appWindow.setFullscreen(!fs);
+            } catch { /* fullscreen unavailable */ }
+          }}
+          aria-label="Полноэкранный режим"
+          title="Полноэкранный режим (F11)"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
         <button className={`${styles.ctrl} ${styles.close}`} onClick={() => appWindow?.close()} aria-label="Закрыть">
           <X size={13} />
         </button>

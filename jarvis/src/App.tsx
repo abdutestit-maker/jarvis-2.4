@@ -6,14 +6,16 @@
  *   + Settings overlay + White Room first-run
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PanelRight } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TitleBar } from '@/components/TitleBar';
 import { Sidebar } from '@/components/Sidebar/Sidebar';
 import { ActivityStream } from '@/components/ActivityStream/ActivityStream';
 import { Composer } from '@/components/Composer';
 import { ContextDrawer } from '@/components/ContextDrawer';
 import { SettingsPanel } from '@/components/SettingsPanel';
+import { CommandPalette } from '@/components/CommandPalette';
 import { WhiteRoom } from '@/components/WhiteRoom';
 import { OlympusBackground } from '@/components/Background/OlympusBackground';
 import { useUIState } from '@/hooks/useUIState';
@@ -28,6 +30,50 @@ function App() {
   const { sendCommand, interrupt } = useBackendBridge();
   const { events } = useSessions();
   const { hasOnboarded } = useTheme();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+  const toggleFullscreen = async () => {
+    if (isTauri) {
+      try {
+        const win = getCurrentWindow();
+        const next = !isFullscreen;
+        await win.setFullscreen(next);
+        setIsFullscreen(next);
+      } catch {
+        // Tauri fullscreen unavailable — fall through to web fullscreen.
+      }
+      return;
+    }
+    // Web preview fallback: Fullscreen API.
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen().catch(() => {});
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    } else {
+      await document.exitFullscreen().catch(() => {});
+      setIsFullscreen(false);
+    }
+  };
+
+  // Global hotkeys: Ctrl/Cmd+K opens the palette; Esc closes it; F11 fullscreen.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const mod = event.ctrlKey || event.metaKey;
+      if (mod && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      } else if (event.key === 'F11') {
+        event.preventDefault();
+        void toggleFullscreen();
+      } else if (event.key === 'Escape' && paletteOpen) {
+        setPaletteOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [paletteOpen, isFullscreen]);
 
   const handleSend = (text: string, files: AttachedFile[]) => {
     if (!text.trim() && files.length === 0) return;
@@ -85,6 +131,16 @@ function App() {
         </div>
       </div>
 
+      {paletteOpen && (
+        <CommandPalette
+          isFullscreen={isFullscreen}
+          onClose={() => setPaletteOpen(false)}
+          onToggleFullscreen={() => void toggleFullscreen()}
+          onToggleSidebar={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
+          onToggleDrawer={() => dispatch({ type: 'TOGGLE_DRAWER' })}
+          onOpenSettings={() => dispatch({ type: 'SET_SETTINGS_OPEN', payload: true })}
+        />
+      )}
       {isSettingsOpen && <SettingsPanel />}
       {!hasOnboarded && <WhiteRoom />}
     </div>

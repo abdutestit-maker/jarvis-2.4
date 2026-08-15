@@ -119,7 +119,22 @@
   `jarvis/src/hooks/useBackendBridge.ts`, `docs/night/LOG.md`,
   `docs/night/queue.md`. `core/agent.py` (sibling WIP) НЕ в staging.
 
-## Следующий
-- Q09: Morning report + финальный checkpoint (docs/night/MORNING_REPORT.md).
-  СНАЧАЛА поиск существующего report-шаблона/STATE.json — та же ловушка
-  дублирования. Re-read перед патчем.
+## 2026-08-15 06:1x — Q09: Morning report + финальный checkpoint
+- КРИТИЧЕСКОЕ (ловушка дублирования, как Q03/Q08): `docs/night/STATE.json`
+  УЖЕ существовал (старый: branch night/p1-continuation, last_commit fe861cc).
+  НЕ перезаписал вслепую — обновил поля (branch=main, last=eb09d3a,
+  current=Q09, completed=[Q01..Q08], blockers) + добавил completed/blockers.
+- Создал `docs/night/MORNING_REPORT.md`: итоговая таблица Q01–Q09, дисциплины
+  (не дублировать / изолированный коммит / computer-use dry-run), известные
+  блокеры (sibling core/agent.py), verification-статус (PY isolated green,
+  TS tsc=0, baseline 17/17).
+- Все Q01–Q09 ЗАВЕРШЕНЫ и (кроме Q09) ЗАКОММИЧЕНЫ. Night P1 continuation закрыт.
+- Коммит: только docs/night/STATE.json, docs/night/MORNING_REPORT.md,
+  docs/night/LOG.md, docs/night/queue.md. core/agent.py (sibling WIP) НЕ в staging.
+
+## ФИНАЛ
+- Night autonomous sprint Q01–Q09: выполнен полностью, без пауз.
+- Полный `pytest` красный ТОЛЬКО из-за sibling-блокера в core/agent.py
+  (HIGH-risk confirmation flow, НЕ трогал). Мои задачи зелёные в изоляции.
+- Рекомендация дня: sibling-агенту добавить `_start_confirmation_watchdog`
+  (или убрать вызов), чтобы вернуть full-suite зелёным.

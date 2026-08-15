@@ -25,4 +25,4 @@ computer-use слой, UI polish). Базовая линия тестов: `base
 | Q06 | Computer-use FAKE/dry-run | P1 §6 + NEXT | mouse/keyboard/screenshot как tools с dry-run; тесты НЕ двигают реальную мышь | done |
 | Q07 | Интеграция 1000+ команд в тестовый корпус | NEXT P1 | парсер↔DEFAULT_REGISTRY (dynamic); 1450 команд, 79.1% покрытие, 303 GAP; отчёт+тест | done |
 | Q08 | UI: createRealBackend (WS/мост) + маппинг статусов | P1 §5 | BackendAdapter реальный мост; EntityState/BackendEventType расширены; типы консистентны | done |
-| Q09 | Morning report + финальный checkpoint | — | docs/night/MORNING_REPORT.md | todo |
+| Q09 | Morning report + финальный checkpoint | — | docs/night/MORNING_REPORT.md | done |

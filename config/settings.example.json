@@ -1,0 +1,98 @@
+{
+  "_comment": "Скопируйте этот файл в config/settings.json и заполните ключи. Пустой ключ = тир недоступен, совет мудрецов его пропустит.",
+
+  "api_keys": {
+    "deepseek": "",
+    "kimi": "",
+    "claude": "",
+    "openrouter": ""
+  },
+
+  "api_endpoints": {
+    "deepseek": "https://api.deepseek.com/v1",
+    "kimi": "https://api.moonshot.ai/v1",
+    "claude": "https://api.anthropic.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1"
+  },
+
+  "model_tiers": {
+    "fast": "qwen-4b-local",
+    "analyst": "deepseek-v4-flash",
+    "coder": "kimi-k3",
+    "architect": "claude-opus-5"
+  },
+
+  "tier_providers": {
+    "fast": "local",
+    "analyst": "deepseek",
+    "coder": "kimi",
+    "architect": "claude"
+  },
+
+  "_comment_primary_brain": "Главный «мозг»: тир, который опрашивается ПЕРВЫМ для обычных запросов (none/web/browser/file). По умолчанию 'analyst' = удалённая модель (облако). Локальная Qwen 4B (fast) теперь только офлайн-фолбэк.",
+  "primary_brain": "analyst",
+
+  "local_model": {
+    "gguf_path": "data/models/qwen3-4b-instruct-q4_k_m.gguf",
+    "embedding_gguf_path": "",
+    "n_gpu_layers": 0,
+    "n_ctx": 4096,
+    "n_threads": 0,
+    "n_batch": 512,
+    "quantization": "Q4_K_M",
+    "temperature": 0.6,
+    "max_tokens": 512,
+    "chat_format": null,
+    "verbose": false
+  },
+
+  "voice": {
+    "tts_enabled": true,
+    "stt_enabled": false,
+    "piper_model_path": "data/models/piper/jarvis-medium.onnx",
+    "piper_binary_path": "piper",
+    "speed": 1.0,
+    "volume": 1.0
+  },
+
+  "paths": {
+    "data_dir": "data",
+    "documents_dir": "data/documents",
+    "memory_dir": "data/memory",
+    "models_dir": "data/models",
+    "logs_dir": "data/logs",
+    "profile_dir": "data/profile",
+    "graph_dir": "data/graph"
+  },
+
+  "persona": {
+    "name": "Джарвис",
+    "address": "сэр",
+    "persona_file": "persona/persona.md",
+    "language": "ru"
+  },
+
+  "limits": {
+    "short_memory_size": 20,
+    "response_timeout_sec": 15,
+    "proactive_cooldown_min": 30,
+    "local_latency_target_sec": 1.5,
+    "max_retries": 3,
+    "rag_top_k": 3,
+    "memory_top_k": 5,
+    "max_action_iterations": 6
+  },
+
+  "proxy": {
+    "enabled": false,
+    "endpoint": "",
+    "proxy_token": ""
+  },
+
+  "logging": {
+    "level": "INFO",
+    "console": true,
+    "max_bytes": 5242880,
+    "backup_count": 5
+  }
+}

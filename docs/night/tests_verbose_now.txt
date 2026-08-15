@@ -1,0 +1,100 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
+rootdir: E:\jarvis-project
+configfile: pyproject.toml
+plugins: anyio-4.12.1
+collected 19 items
+
+tests\test_p0_sprint.py .......                                          [ 36%]
+tests\test_p1_sprint.py ...........F                                     [100%]
+
+================================== FAILURES ===================================
+______________________ test_p1_from_settings_proxy_mode _______________________
+
+self = Settings(api_keys=ApiKeys(deepseek='', kimi='', claude='', openrouter=''), api_endpoints=ApiEndpoints(deepseek='https:...руйте этот файл в config/settings.json и заполните ключи. Пустой ключ = тир недоступен, совет мудрецов его пропустит.')
+item = 'proxy'
+
+    def __getattr__(self, item: str) -> Any:
+        private_attributes = object.__getattribute__(self, '__private_attributes__')
+        if item in private_attributes:
+            attribute = private_attributes[item]
+            if hasattr(attribute, '__get__'):
+                return attribute.__get__(self, type(self))  # type: ignore
+    
+            try:
+                # Note: self.__pydantic_private__ cannot be None if self.__private_attributes__ has items
+                return self.__pydantic_private__[item]  # type: ignore
+            except KeyError as exc:
+                raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}') from exc
+        else:
+            # `__pydantic_extra__` can fail to be set if the model is not yet fully initialized.
+            # See `BaseModel.__repr_args__` for more details
+            try:
+                pydantic_extra = object.__getattribute__(self, '__pydantic_extra__')
+            except AttributeError:
+                pydantic_extra = None
+    
+            if pydantic_extra:
+                try:
+>                   return pydantic_extra[item]
+                           ^^^^^^^^^^^^^^^^^^^^
+E                   KeyError: 'proxy'
+
+C:\Users\WwW\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\pydantic\main.py:848: KeyError
+
+The above exception was the direct cause of the following exception:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000204F4E2BCD0>
+
+    def test_p1_from_settings_proxy_mode(monkeypatch):
+        """from_settings в proxy-режиме строит ProxyLLMClient без ключа автора (П1 §1.4)."""
+        from config import load_config
+        from core.llm.proxy_client import ProxyLLMClient
+        from core.llm.remote_api import RemoteAPIBackend
+    
+        settings = load_config()
+        # Включаем proxy-режим и прописываем локальный endpoint + proxy_token.
+>       settings.proxy.enabled = True
+        ^^^^^^^^^^^^^^
+
+tests\test_p1_sprint.py:320: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = Settings(api_keys=ApiKeys(deepseek='', kimi='', claude='', openrouter=''), api_endpoints=ApiEndpoints(deepseek='https:...руйте этот файл в config/settings.json и заполните ключи. Пустой ключ = тир недоступен, совет мудрецов его пропустит.')
+item = 'proxy'
+
+    def __getattr__(self, item: str) -> Any:
+        private_attributes = object.__getattribute__(self, '__private_attributes__')
+        if item in private_attributes:
+            attribute = private_attributes[item]
+            if hasattr(attribute, '__get__'):
+                return attribute.__get__(self, type(self))  # type: ignore
+    
+            try:
+                # Note: self.__pydantic_private__ cannot be None if self.__private_attributes__ has items
+                return self.__pydantic_private__[item]  # type: ignore
+            except KeyError as exc:
+                raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}') from exc
+        else:
+            # `__pydantic_extra__` can fail to be set if the model is not yet fully initialized.
+            # See `BaseModel.__repr_args__` for more details
+            try:
+                pydantic_extra = object.__getattribute__(self, '__pydantic_extra__')
+            except AttributeError:
+                pydantic_extra = None
+    
+            if pydantic_extra:
+                try:
+                    return pydantic_extra[item]
+                except KeyError as exc:
+>                   raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}') from exc
+E                   AttributeError: 'Settings' object has no attribute 'proxy'
+
+C:\Users\WwW\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\pydantic\main.py:850: AttributeError
+---------------------------- Captured stdout call -----------------------------
+2026-08-15 05:06:35 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\jarvis-project\config\settings.json
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:611 Конфигурация загружена: E:\jarvis-project\config\settings.json
+=========================== short test summary info ===========================
+FAILED tests/test_p1_sprint.py::test_p1_from_settings_proxy_mode - AttributeE...
+======================== 1 failed, 18 passed in 5.17s =========================

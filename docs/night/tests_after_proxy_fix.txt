@@ -1,0 +1,11 @@
+ImportError while loading conftest 'E:\jarvis-project\tests\conftest.py'.
+tests\conftest.py:18: in <module>
+    from config.settings import Settings
+config\__init__.py:14: in <module>
+    from config.settings import (
+config\settings.py:378: in <module>
+    class Settings(BaseModel):
+config\settings.py:406: in Settings
+    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
+                                               ^^^^^^^^^^^
+E   NameError: name 'ProxyConfig' is not defined

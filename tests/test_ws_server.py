@@ -21,6 +21,7 @@ import time
 
 import websockets  # type: ignore
 
+from config.settings import Settings
 from core.ws_server import JarvisWSServer
 
 

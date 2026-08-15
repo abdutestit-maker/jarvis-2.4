@@ -8,16 +8,15 @@
  * transport (Tauri events / WebSocket / IPC) is wired.
  */
 
-import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   ActivityEvent,
   AttachedFile,
   BackendAdapter,
   BackendEvent,
-  BackendEventType,
   EntityState,
   VitalsData,
 } from '@/types';
+import { WebSocketBackend } from './wsBackend';
 
 /* ===== Event emitter for the mock ===== */
 type Listener = (e: BackendEvent) => void;
@@ -198,69 +197,16 @@ export const TRANSPORT_STATE_MAP: Record<string, EntityState> = {
   'state:listening': 'listening',
 };
 
-/** Raw envelope the Python core emits over the Tauri event bus. */
-export interface RawBackendEvent {
-  type: string;
-  payload?: unknown;
-  timestamp?: number;
-}
-
-/** Map a raw transport event to a BackendEvent, or null if the type is unknown. */
-export function mapTransportEvent(raw: RawBackendEvent): BackendEvent | null {
-  const t = raw.type;
-  const known =
-    t.startsWith('state:') ||
-    t.startsWith('event:') ||
-    t === 'vitals:update' ||
-    t === 'model:status' ||
-    t === 'workspace:update';
-  if (!known) return null;
-  return { type: t as BackendEventType, payload: raw.payload ?? null, timestamp: raw.timestamp ?? Date.now() };
-}
+const WS_ENDPOINT = 'ws://127.0.0.1:8771';
 
 /**
- * Real adapter — binds to the live Tauri event bus and maps backend events onto
- * the BackendAdapter contract. Falls back to the mock adapter when the app is
- * not running inside Tauri (vite dev / preview), so the UI stays fully
- * functional. Outbound commands are emitted on `jarvis://command`; these channel
- * names MUST match the bridge the core exposes.
+ * Real adapter — binds to the live Python WebSocket core on localhost,
+ * maps backend events onto the BackendAdapter contract, and exposes
+ * cloud-provider settings (masked — never the raw API key).
+ * Falls back to the mock adapter when a live WebSocket connection cannot be
+ * established (e.g. vite preview without the Python core), so the UI stays
+ * fully functional.
  */
 export function createRealBackend(): BackendAdapter {
-  const listeners = new Set<Listener>();
-  const emitEvt = (e: BackendEvent) => listeners.forEach((l) => l(e));
-
-  let unlisten: UnlistenFn | null = null;
-  // Eager mock fallback: keeps the UI working in vite dev (no Tauri) and before
-  // the event bus binds. Cleared once the live transport connects.
-  let fallback: BackendAdapter | null = createMockBackend();
-
-  listen<RawBackendEvent>('jarvis://event', (e) => {
-    const mapped = mapTransportEvent(e.payload);
-    if (mapped) emitEvt(mapped);
-  })
-    .then((off) => { unlisten = off; fallback = null; })
-    .catch(() => { /* stay on mock */ });
-
-  return {
-    sendCommand(text: string, files: AttachedFile[]): Promise<void> {
-      if (fallback) return fallback.sendCommand(text, files);
-      return emit('jarvis://command', { text, files }).catch(() => { /* transport unavailable: no fallback */ });
-    },
-    subscribeToEvents(cb: Listener): () => void {
-      listeners.add(cb);
-      return () => {
-        listeners.delete(cb);
-        if (listeners.size === 0 && unlisten) { unlisten(); unlisten = null; }
-      };
-    },
-    getSystemVitals(): Promise<VitalsData> {
-      return fallback
-        ? fallback.getSystemVitals()
-        : Promise.resolve({ cpu: 0, ram: 0, modelStatus: 'local', externalApi: 'standby', uptime: Date.now() });
-    },
-    interrupt(): Promise<void> {
-      if (fallback) return fallback.interrupt();
-      return emit('jarvis://interrupt', {}).catch(() => { /* transport unavailable */ });
-    },
-  };
+  return new WebSocketBackend(WS_ENDPOINT);
 }

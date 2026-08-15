@@ -31,9 +31,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 import time
 from typing import Any, Dict, Optional, Set
+from urllib.parse import urlparse
 
 from config import load_config
 from config.settings import Settings
@@ -94,6 +96,13 @@ class JarvisWSServer:
         port: int = DEFAULT_PORT,
     ) -> None:
         self._orch = orchestrator
+        # Settings — единый runtime-объект, переданный Orchestrator. Его
+        # обновление через WS сразу доступно CouncilRouter/Agent без
+        # параллельного формата или перезапуска процесса.
+        orchestrator_settings = getattr(orchestrator, "_settings", None)
+        self._settings: Settings = (
+            orchestrator_settings if orchestrator_settings is not None else Settings()
+        )
         self._host = host
         self._port = port
         self._clients: Set[Any] = set()
@@ -150,6 +159,106 @@ class JarvisWSServer:
                 self._clients.discard(ws)
             log.info("WS клиент отключён: %s", peer)
 
+    def _cloud_settings_payload(self) -> Dict[str, Any]:
+        """Безопасное представление cloud-профиля для UI.
+
+        API-ключ намеренно НИКОГДА не входит в WebSocket-ответ: клиенту
+        доступны лишь флаг наличия и маска последних четырёх символов.
+        """
+        provider = self._settings.tier_providers.get("analyst")
+        key = self._settings.api_keys.get(provider) or ""
+        suffix = key[-4:] if key else ""
+        return {
+            "provider": provider,
+            "base_url": self._settings.api_endpoints.get(provider) or "",
+            "model": self._settings.model_tiers.get("analyst") or "",
+            "has_api_key": bool(key),
+            "api_key_masked": f"••••{suffix}" if key else "",
+        }
+
+    @staticmethod
+    def _validate_cloud_provider(value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("provider должен быть строкой")
+        provider = value.strip().lower()
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", provider):
+            raise ValueError("provider должен содержать латинские буквы, цифры, '_' или '-'")
+        if provider == "local":
+            raise ValueError("provider 'local' нельзя назначить облачному профилю")
+        return provider
+
+    @staticmethod
+    def _validate_base_url(value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("base_url должен быть строкой")
+        url = value.strip().rstrip("/")
+        if not url or len(url) > 2048:
+            raise ValueError("base_url должен содержать от 1 до 2048 символов")
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("base_url должен быть корректным http(s) URL")
+        if parsed.username or parsed.password:
+            raise ValueError("base_url не должен содержать учётные данные")
+        return url
+
+    @staticmethod
+    def _validate_model(value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("model должен быть строкой")
+        model = value.strip()
+        if not model or len(model) > 256:
+            raise ValueError("model должен содержать от 1 до 256 символов")
+        return model
+
+    def _update_cloud_settings(self, patch: Any) -> Dict[str, Any]:
+        """Валидирует и атомарно применяет allowlist-патч cloud-профиля."""
+        if not isinstance(patch, dict):
+            raise ValueError("settings должен быть объектом")
+
+        allowed = {"provider", "base_url", "model", "api_key", "clear_api_key"}
+        unknown = set(patch) - allowed
+        if unknown:
+            raise ValueError(f"Недопустимые поля settings: {', '.join(sorted(unknown))}")
+
+        provider = self._settings.tier_providers.get("analyst")
+        if "provider" in patch:
+            provider = self._validate_cloud_provider(patch["provider"])
+
+        endpoint = self._settings.api_endpoints.get(provider) or ""
+        if "base_url" in patch:
+            endpoint = self._validate_base_url(patch["base_url"])
+
+        model = self._settings.model_tiers.get("analyst") or ""
+        if "model" in patch:
+            model = self._validate_model(patch["model"])
+
+        clear_key = patch.get("clear_api_key", False)
+        if not isinstance(clear_key, bool):
+            raise ValueError("clear_api_key должен быть boolean")
+        key_patch = patch.get("api_key")
+        if key_patch is not None and not isinstance(key_patch, str):
+            raise ValueError("api_key должен быть строкой")
+        if isinstance(key_patch, str) and len(key_patch) > 512:
+            raise ValueError("api_key не должен превышать 512 символов")
+
+        # Не делаем частичную запись: весь набор валидирован до мутации.
+        self._settings.tier_providers.analyst = provider
+        self._settings.api_endpoints.__setattr__(provider, endpoint)
+        self._settings.model_tiers.analyst = model
+        if clear_key:
+            self._settings.api_keys.__setattr__(provider, "")
+        elif isinstance(key_patch, str) and key_patch.strip():
+            self._settings.api_keys.__setattr__(provider, key_patch.strip())
+        # Пустая password-строка означает «ключ не менять».
+
+        self._settings.save_config()
+        # Новые ключ/base URL должны использоваться следующим запросом, а не
+        # остаться в кэше RemoteAPIBackend.
+        from core.llm.factory import clear_backend_cache
+
+        clear_backend_cache()
+        return self._cloud_settings_payload()
+
     async def _on_message(self, ws, raw: str) -> None:
         try:
             msg = json.loads(raw)
@@ -158,7 +267,18 @@ class JarvisWSServer:
             return
 
         mtype = (msg.get("type") or "").lower()
-        if mtype == "command":
+        if mtype == "settings:get":
+            await ws.send(json.dumps({"type": "settings", "settings": self._cloud_settings_payload()}))
+        elif mtype == "settings:update":
+            try:
+                settings = self._update_cloud_settings(msg.get("settings"))
+            except Exception as exc:
+                # Не логируем payload: в нём мог быть API-ключ.
+                log.warning("Отклонено обновление cloud-настроек: %s", exc)
+                await ws.send(json.dumps({"type": "error", "message": str(exc)}))
+                return
+            await ws.send(json.dumps({"type": "settings:saved", "ok": True, "settings": settings}))
+        elif mtype == "command":
             text = (msg.get("text") or "").strip()
             if not text:
                 return

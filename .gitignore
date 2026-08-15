@@ -23,3 +23,6 @@ config/settings.local.json
 # python env
 .venv/
 venv/
+
+# browser-automation (SPRINT P2-B): user-data-dir браузера (куки/сессии) — не коммитить
+browser-user-data/

@@ -40,6 +40,10 @@ dependencies = [
     "numpy<2",
     "pypdf>=5.0",
     "pywin32>=306; sys_platform == 'win32'",
+    # Браузерная автоматизация (SPRINT P2-B): единственная зависимость для
+    # управления браузером (Browser Use style). Selenium/Playwright ранее
+    # в проекте не было.
+    "playwright>=1.45",
 ]
 
 [project.optional-dependencies]

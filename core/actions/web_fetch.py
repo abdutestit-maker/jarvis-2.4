@@ -87,6 +87,11 @@ def fetch_page(url: str, max_length: int = _MAX_TEXT_LENGTH) -> str:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
+    # §21/Q05 — SSRF-защита: блокируем внутренние/зарезервированные адреса
+    # (loopback, private, link-local/cloud-metadata, file:// и пр.) ДО запроса.
+    from core.network_guard import assert_safe_url
+    assert_safe_url(url)
+
     headers = {"User-Agent": _USER_AGENT}
     resp = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
     resp.raise_for_status()

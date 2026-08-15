@@ -28,7 +28,31 @@
 - ИСПРАВЛЕНИЕ: первый вариант теста имел неверный assertion (ждал "api_key=***",
   реально "<secret>" — весь секретный кусок маскируется единым маркером, это
   корректное поведение). Поправлен assertion, НЕ код.
+- Коммит 898f7c7.
+
+## 2026-08-15 05:5x — Q05: SSRF-защита сетевых тулз (P0 §4)
+- Создал `core/network_guard.py`: `is_ssrf_blocked(url)`, `assert_safe_url(url)`,
+  `SSRFBlocked(ValueError)`. Блокирует loopback/127.0.0.0/8, private (10/8, 172.16/12,
+  192.168/16), link-local/cloud-metadata (169.254.0.0/16, вкл. 169.254.169.254),
+  unspecified (0.0.0.0/::), а также не-http(s) схемы (file://, ftp://, gopher://) и
+  явные опасные имена (localhost, metadata.google.internal). Резолвит имя хоста в IP
+  и проверяет результирующий IP (ловит внутреннее имя/DNS-имя), не только литерал.
+- Применил в `core/actions/web_fetch.py:fetch_page` — `assert_safe_url(url)` ДО
+  `requests.get`. `web_search.py` только парсит DDG (не фетчит URL) — поверхность
+  атака только web_fetch.
+- Тесты: tests/test_security_q05.py — блокировка internal/metadata/file/ftp + пропуск
+  public + WebFetchTool.run возвращает ok=False на заблокированный URL (не уходит в
+  сеть, не падает).
+- Верификация: FULL SUITE = **32 passed (27+5), EXIT=0**. Без skip/удаления ассертов.
+- ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ (non-blocking): DNS-rebinding TOCTOU — `network_guard`
+  резолвит, а `requests.get` резолвит повторно; между проверкой и коннектом имя
+  теоретически может сменить IP. Для P0 §4 (офлайн/тест, блокируются все private
+  диапазоны) приемлемо. Для полной стойкости нужно пинить резолвленный IP —
+  оставлено на будущий харденинг.
+- Коммит: (ниже).
 
 ## Следующий
-- Q05: SSRF-защита сетевых тулз (web_fetch блокирует 127/10/192.168/169.254/
-  localhost/file://; тест). Check: уже есть ли валидация URL в web_fetch/web_search?
+- Q06: Computer-use слой (FAKE/dry-run backend). ЖЁСТКО: НИКАКОЙ реальной мыши/
+  клавиатуры/скриншота (необратимые эффекты в 3 ночи). Tools записывают намерение
+  и возвращают dry-run подтверждение; никаких pyautogui/ctypes/SendInput. Тесты НЕ
+  двигают реальную мышь.

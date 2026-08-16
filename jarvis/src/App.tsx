@@ -16,6 +16,7 @@ import { Composer } from '@/components/Composer';
 import { ContextDrawer } from '@/components/ContextDrawer';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { CommandPalette } from '@/components/CommandPalette';
+import { ConfirmationCard } from '@/components/ConfirmationCard';
 import { WhiteRoom } from '@/components/WhiteRoom';
 import { OlympusBackground } from '@/components/Background/OlympusBackground';
 import { useUIState } from '@/hooks/useUIState';
@@ -27,7 +28,7 @@ import styles from './App.module.css';
 
 function App() {
   const { dispatch, isSidebarOpen, isSettingsOpen } = useUIState();
-  const { sendCommand, interrupt } = useBackendBridge();
+  const { sendCommand, interrupt, answerConfirmation, pendingConfirmation } = useBackendBridge();
   const { events } = useSessions();
   const { hasOnboarded } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -143,6 +144,9 @@ function App() {
       )}
       {isSettingsOpen && <SettingsPanel />}
       {!hasOnboarded && <WhiteRoom />}
+      {pendingConfirmation && (
+        <ConfirmationCard confirmation={pendingConfirmation} onResolve={answerConfirmation} />
+      )}
     </div>
   );
 }

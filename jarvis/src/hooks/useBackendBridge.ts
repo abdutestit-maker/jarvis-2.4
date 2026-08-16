@@ -8,7 +8,7 @@
  * (Tauri events / WebSocket / IPC). UI-логика не меняется.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUIState } from '@/hooks/useUIState';
 import { useSessions } from '@/stores/sessionStore';
 import {
@@ -16,7 +16,7 @@ import {
   TRANSPORT_STATE_MAP,
 } from '@/integrations/backend';
 import type {
-  ActivityEvent, AttachedFile, EntityState, BackendAdapter, VitalsData,
+  ActivityEvent, AttachedFile, EntityState, BackendAdapter, VitalsData, PendingConfirmation,
 } from '@/types';
 
 // ===== CONNECT BACKEND HERE =====
@@ -37,6 +37,7 @@ export function useBackendBridge() {
   updateRef.current = updateEvent;
 
   const streamingId = useRef<string | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
 
   useEffect(() => {
     const unsub = backend.subscribeToEvents((e) => {
@@ -80,6 +81,12 @@ export function useBackendBridge() {
         return;
       }
 
+      // Pending HIGH-risk confirmation from backend
+      if (e.type === 'confirmation:required') {
+        setPendingConfirmation(e.payload as PendingConfirmation);
+        return;
+      }
+
       // Любые другие события активности
       if (e.type.startsWith('event:')) {
         appendRef.current(e.payload as ActivityEvent);
@@ -101,5 +108,12 @@ export function useBackendBridge() {
     await backend.interrupt();
   }, []);
 
-  return { sendCommand, interrupt, isConnected: true };
+  const answerConfirmation = useCallback(async (approved: boolean) => {
+    const current = pendingConfirmation;
+    if (!current) return;
+    await backend.answerConfirmation(current.id, approved);
+    setPendingConfirmation(null);
+  }, [pendingConfirmation]);
+
+  return { sendCommand, interrupt, answerConfirmation, pendingConfirmation, isConnected: true };
 }

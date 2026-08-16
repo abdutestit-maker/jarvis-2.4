@@ -153,12 +153,22 @@ export interface AttachedFile {
   preview?: string;
 }
 
+/* ===== Pending HIGH-risk confirmation (from backend) ===== */
+export interface PendingConfirmation {
+  id: string;
+  prompt: string;
+  tool: string;
+  risk: { level?: string; [key: string]: unknown };
+}
+
 /* ===== Backend adapter contract (src/integrations/backend.ts) ===== */
 export interface BackendAdapter {
   sendCommand(text: string, files: AttachedFile[]): Promise<void>;
   subscribeToEvents(cb: (e: BackendEvent) => void): () => void;
   getSystemVitals(): Promise<VitalsData>;
   interrupt(): Promise<void>;
+  /** Ответить на ожидающее HIGH-risk подтверждение backend. */
+  answerConfirmation(confirmationId: string, approved: boolean): Promise<void>;
 }
 
 export interface BackendEvent {
@@ -188,4 +198,5 @@ export type BackendEventType =
   | 'state:listening'
   | 'vitals:update'
   | 'model:status'
-  | 'workspace:update';
+  | 'workspace:update'
+  | 'confirmation:required';

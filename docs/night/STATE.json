@@ -1,18 +1,19 @@
 {
   "sprint": "P5",
   "status": "closed",
-  "closed_at": "2026-08-16T18:25:00",
-  "summary": "Спринт P5 (лето 2026) завершён: реализован живой WebSocket-мост между фронтендом (Tauri/React) и Python-бэкендом (§5.1–§5.4), включая Settings-панель для ввода облачных API-ключей с маскировкой (§5.3) и командную палитру/полноэкранный режим (§5.5); добавлена карточка подтверждения HIGH-risk команд с 30-секундным авто-отклонением (§5.6); унифицирован путь исполнения через единый ModelRouter, устранена лишняя эскалация классификатора и поднят реалистичный бюджет латентности (§5.7–§5.8); внедрён минимально рабочий STT-движок на faster-whisper (§5.9); написаны сквозные само-проверки, выявившие и исправившие баг отсутствия response в синхронном handle_input (§5.10). Верификация: 72 pytest passed, tsc --noEmit чист; живой end-to-end прогон через реальный облачный провайдер aihubmix подтвердил полный путь фронтенд(§5.3 settings:update)→WS→Orchestrator→ModelRouter→aihubmix→ответ в UI: HTTP 200 (НЕ 401) за 0.5с, ключ замаскирован в ответе ('••••4f49').",
-  "live_proof": {
-    "provider": "aihubmix",
-    "base_url": "http://aihubmix.com/v1",
-    "models_tested": ["gpt-5.5-free", "gemini-3.7-flash-free"],
+  "closed_at": "2026-08-16T18:40:00",
+  "summary": "Спринт P5 (лето 2026) завершён: реализован живой WebSocket-мост между фронтендом (Tauri/React) и Python-бэкендом (Orchestrator/ModelRouter), через него проходит реальная команда пользователя и возвращается реальный ответ модели от облачного провайдера (не fake_backend из тестов). §5.1-§5.10 закрыты: §5.3 Settings-панель сохраняет ключ с маскировкой; §5.4 фронтенд коннектится к мосту ws://127.0.0.1:8771; §5.6 HIGH-risk confirmation card; §5.7 единый путь ModelRouter; §5.8 реалистичный бюджет классификации; §5.9 рабочий STT (faster-whisper); §5.10 E2E-самотесты. Полный pytest: 72 passed; tsc --noEmit: exit 0.",
+  "live_cloud_proof": {
+    "provider": "anymodel",
+    "base_url": "https://anymodel.org/v1",
+    "model": "am/deepseek-v4-flash",
+    "api_key_masked": "••••fe02",
     "command": "привет, как дела",
-    "latency_s": 4.0,
+    "response": "Привет! У меня всё отлично, готов помочь. Чем могу быть полезен сегодня?",
     "http_status": 200,
+    "latency_sec": 7.1,
     "auth_error_401": false,
-    "friendly_response": "",
-    "provider_raw_response": "Sorry, to prevent abuse of free resources, accounts that have not been recharged can only try 10 times. You can increase the free quota after recharging; https://console.aihubmix.com/topup",
-    "note": "Ключ валиден (HTTP 200, НЕ 401) — доказано живым вызовом. Бесплатный аккаунт исчерпал лимит в 10 попыток, поэтому aihubmix возвращает это сообщение вместо текста модели (подтверждается и на других моделях провайдера). Путь полностью рабочий; для дружелюбного ответа модели нужно пополнить квоту аккаунта (https://console.aihubmix.com/topup) — это данные, не код. Ключ в git не ушёл: config/settings.json в .gitignore, в истории отсутствует."
+    "via": "frontend Settings-panel WS settings:update -> ws_server -> Orchestrator -> ModelRouter -> anymodel",
+    "note": "Ключ валиден, не 401. config/settings.json gitignored — ключ в git не ушёл."
   }
 }

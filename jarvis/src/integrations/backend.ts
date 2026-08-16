@@ -178,6 +178,11 @@ export function createMockBackend(): BackendAdapter {
       emitState('idle');
       return Promise.resolve();
     },
+
+    answerConfirmation(): Promise<void> {
+      // Mock: никаких ожидающих подтверждений нет.
+      return Promise.resolve();
+    },
   };
 }
 

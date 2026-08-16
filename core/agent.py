@@ -202,6 +202,7 @@ class Agent:
         settings: Settings,
         council: Optional[Any] = None,
         config: Optional[AgentConfig] = None,
+        model_router: Optional[Any] = None,
     ) -> None:
         """
         Args:
@@ -209,12 +210,16 @@ class Agent:
             council: существующий ``CouncilRouter`` (переиспользуем §26).
                 Если None — создаётся лениво при первой необходимости.
             config: настройки поведения агента.
+            model_router: ЕДИНЫЙ ``ModelRouter`` (P5 §5.7). Если передан —
+                переиспользуется (общий с CouncilRouter), иначе создаётся свой.
         """
         self._settings = settings
         self._config = config or AgentConfig()
         self._council = council
         self._registry = DEFAULT_REGISTRY
-        self._model_router = ModelRouter(settings)
+        # P5 §5.7: делим ЕДИНЫЙ роутер моделей с CouncilRouter, чтобы оба
+        # пути (REPL/WebSocket и агентная миссия) маршрутизировались одинаково.
+        self._model_router = model_router if model_router is not None else ModelRouter(settings)
         self._forge = SkillForge(settings) if self._config.enable_skill_forge else None
         self._repair = RepairLoop(
             self._registry,

@@ -66,8 +66,12 @@ class Orchestrator:
         self._settings = settings
         self._output_callback = output_callback or self._default_output
 
+        # ЕДИНЫЙ роутер моделей — его делят CouncilRouter и Agent (P5 §5.7),
+        # чтобы любой вход (консоль/WebSocket) маршрутизировался одинаково.
+        self._model_router = ModelRouter(settings)
+
         # Инициализация компонентов
-        self._council = CouncilRouter(settings)
+        self._council = CouncilRouter(settings, model_router=self._model_router)
         self._session = None  # будет создан в start()
         self._memory = MemoryRetriever(settings)
         self._registry = DEFAULT_REGISTRY
@@ -75,7 +79,7 @@ class Orchestrator:
         # --- Агентное ядро J.A.R.V.I.S. 3.0 (§3, §6) ---
         # Агент исполняет миссии, TaskRuntime даёт им асинхронную жизнь.
         # НЕТ watchdog по умолчанию: миссия живёт столько, сколько нужно (§4).
-        self._agent = Agent(settings, council=self._council)
+        self._agent = Agent(settings, council=self._council, model_router=self._model_router)
         self._runtime = TaskRuntime(default_watchdog_sec=None)
 
         # TTS

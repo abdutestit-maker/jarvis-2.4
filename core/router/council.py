@@ -4,13 +4,15 @@
 обработки запроса пользователя:
 
     1. keyword-роутер определяет категорию намерения (мгновенно, офлайн);
-    2. «лицо» (локальная Qwen 4B) решает: ответить самой (``self``) или
-       эскалировать (``escalate``) к более сильной модели;
-    3. при ``self`` — генерируем ответ локально;
-    4. при ``escalate`` — ищем первый доступный тир выше запрошенного и
-       зовём его; при сбое (нет ключа / сеть / лимит) шаг за шагом
-       поднимаемся выше, а если доступных моделей нет вообще — деградируем
-       до локальной с честным сообщением.
+    2. **ЕДИНЫЙ** выбор тира делегируется ``ModelRouter`` — именно он
+       решает, отвечает ли локальная модель (FAST) или нужна эскалация
+       к более сильной (analyst/coder/architect). Это устраняет второй,
+       параллельный путь классификации (P5 §5.7: REPL/CouncilRouter и
+       submit_goal → Agent.run_mission теперь используют один и тот же
+       ModelRouter, поэтому любой ввод — консольный или через WebSocket —
+       маршрутизируется одинаково);
+    3. генерируем ответ выбранным бэкендом (или честный fallback на
+       локальную FAST при недоступности внешних).
 
 Метод НЕ бросает необработанных исключений наружу: любая ошибка ловится,
 логируется и записывается в ``state["error"]`` + ``state["response"]``.
@@ -27,32 +29,15 @@ from core.llm import (
     BackendUnavailable,
     get_llm_backend,
     LLMBackend,
-    resolve_tier,
     Tier,
 )
+from core.model_router import ModelRouter
 from core.router.intent_router import resolve_keyword_tool
 from core.router.local_face import LocalFace
-from core.router.tier_resolver import resolve_next_available_tier
 from core.state import JarvisState, Message
 from core.utils.logger import get_logger
 
 __all__ = ["CouncilRouter"]
-
-
-def _find_heavier_available_tier(settings: Settings, current: Tier) -> Optional[Tier]:
-    """Первый доступный тир СТРОГО выше ``current`` по цепочке эскалации.
-
-    Возвращает ``None``, если выше ``current`` нет ни одного доступного тира.
-    """
-    resolved = resolve_tier(current)
-    try:
-        start_index = ESCALATION_ORDER.index(resolved)
-    except ValueError:
-        start_index = 0
-    for tier in ESCALATION_ORDER[start_index + 1:]:
-        if settings.is_tier_available(tier):
-            return tier
-    return None
 
 
 log = get_logger(__name__)
@@ -65,14 +50,22 @@ _OFFLINE_FALLBACK = (
 
 
 class CouncilRouter:
-    """Диспетчер «совета мудрецов»."""
+    """Диспетчер «совета мудрецов».
 
-    def __init__(self, settings: Settings) -> None:
+    Делегирует выбор тира единому ``ModelRouter``, оставляя за собой
+    генерацию ответа выбранным бэкендом (P5 §5.7).
+    """
+
+    def __init__(self, settings: Settings, model_router: Optional[ModelRouter] = None) -> None:
         """
         Args:
             settings: конфигурация проекта.
+            model_router: явный экземпляр ModelRouter (чтобы НЕ создавать
+                второй независимый роутер — оба пути делят один и тот же).
+                Если не передан — создаётся локальный (best-effort).
         """
         self._settings = settings
+        self._model_router = model_router if model_router is not None else ModelRouter(settings)
         self._local_face: Optional[LocalFace] = None
         self._local_backend: Optional[LLMBackend] = None
 
@@ -123,26 +116,21 @@ class CouncilRouter:
             state["latency"]["intent"] = round(time.perf_counter() - t0, 4)
             log.info("Намерение: '%s' | запрос: %r", intent, user_input[:80])
 
-            # 2) Решение «лица»: self или escalate.
+            # 2) ЕДИНЫЙ выбор тира — делегируем ModelRouter (P5 §5.7).
             t1 = time.perf_counter()
-            face = self._get_local_face()
-            decision = face.classify(_CLASSIFY_SYSTEM, user_input, intent)
-            state["latency"]["classify"] = round(time.perf_counter() - t1, 4)
+            decision = self._model_router.route(user_input)
+            state["latency"]["route"] = round(time.perf_counter() - t1, 4)
             log.info(
-                "Классификация: scope=%s tier=%s | %s",
-                decision.scope, decision.tier, decision.reason,
+                "Роутинг (ModelRouter): tier=%s | %s",
+                decision.tier.value, decision.reason,
             )
 
-            if decision.scope == "self":
-                response = self._handle_self(face, state)
-            else:
-                response = self._handle_escalate(state, decision.tier, intent)
-
+            response = self._generate(state, decision.tier)
             state["response"] = response
             state["error"] = None
 
         except (BackendUnavailable, BackendConfigError) as exc:
-            # Неожиданная недоступность на этапе классификации/лица.
+            # Неожиданная недоступность на этапе генерации.
             log.error("Сбой совета мудрецов: %s", exc)
             state["error"] = str(exc)
             state["response"] = _OFFLINE_FALLBACK
@@ -171,99 +159,36 @@ class CouncilRouter:
         return state
 
     # ------------------------------------------------------------------ #
-    #  Ветка «self» — отвечает локальная модель
+    #  Генерация ответа выбранным тиром
     # ------------------------------------------------------------------ #
 
-    def _handle_self(self, face: LocalFace, state: JarvisState) -> str:
-        """Генерирует ответ локальной моделью.
-
-        Raises:
-            BackendUnavailable / BackendConfigError: если локальная модель
-                недоступна (например, нет GGUF-файла) — поймёт route().
-        """
-        self._settings  # используется для построения системного промпта позже
-        system = _build_system_prompt(state, self._settings)
-        messages = _state_to_messages(state)
-        state["tier"] = "fast"
-        log.info("Отвечает локальная модель (FAST)")
-        return face.respond(system, messages)
-
-    # ------------------------------------------------------------------ #
-    #  Ветка «escalate» — идём к более сильной модели
-    # ------------------------------------------------------------------ #
-
-    def _handle_escalate(self, state: JarvisState, requested_tier: Optional[str],
-                         intent: str) -> str:
-        """Эскалирует запрос к более сильной УДАЛЁННОЙ модели (П1 §1.1).
-
-        Локальной тяжёлой модели (7B-coder) БОЛЬШЕ НЕТ в цепочке эскалации —
-        решение владельца: J.A.R.V.I.S. не грузит 7B «просто так» на локальном
-        железе. Эскалация идёт ТОЛЬКО к удалённым провайдерам (Kimi/DeepSeek/
-        Claude). Если удалённый тир недоступен (нет ключа/сети) — честная
-        деградация до локальной FAST-модели (Qwen 4B) с сообщением о сбое
-        внешних моделей. Никакой загрузки 7B ради «голос добавить».
-
-        Raises:
-            BackendConfigError / BackendUnavailable: только если и локальный
-                fallback недоступен (поймает route()).
-        """
-        start = resolve_tier(requested_tier or "analyst")
-
-        # 1) Прямая попытка запрошенного удалённого тира.
-        if self._settings.is_tier_available(start):
-            return self._call_tier(state, start)
-
-        # 2) Запрошенный тир недоступен. Поднимаемся выше ПО ЦЕПОЧКЕ эскалации,
-        #    но ТОЛЬКО к реально доступным (удалённым) тирам. Локальных
-        #    тяжёлых моделей в цепочке больше нет (П1 §1.1).
-        heavier = _find_heavier_available_tier(self._settings, start)
-        if heavier is not None:
-            return self._call_tier(state, heavier)
-
-        log.warning(
-            "Эскалация '%s' невозможна (нет доступных удалённых тиров выше). "
-            "Деградация до локальной FAST.",
-            start.value,
-        )
-        return self._degrade_to_local(state, intent)
-
-    def _call_tier(self, state: JarvisState, tier: Tier) -> str:
-        """Вызывает конкретный тир и возвращает ответ (или кидает при сбое)."""
-        backend = get_llm_backend(self._settings, tier)
+    def _generate(self, state: JarvisState, tier: Tier) -> str:
+        """Генерирует ответ через выбранный тир (с graceful fallback)."""
         state["tier"] = tier.value
-        log.info("Эскалация -> тир '%s' (%s)", tier.value, backend.name)
-        system = _build_system_prompt(state, self._settings)
-        messages = _state_to_messages(state)
-        return backend.chat(messages, system=system)
+        try:
+            backend = get_llm_backend(self._settings, tier)
+            log.info("Отвечает тир '%s' (%s)", tier.value, backend.name)
+            system = _build_system_prompt(state, self._settings)
+            messages = _state_to_messages(state)
+            return backend.chat(messages, system=system)
+        except (BackendUnavailable, BackendConfigError) as exc:
+            log.warning("Тир '%s' недоступен (%s), деградация до локальной FAST", tier.value, exc)
+            return self._degrade_to_local(state)
 
-    def _degrade_to_local(self, state: JarvisState, intent: str) -> str:
-        """Последняя линия обороны: отвечаем локальной моделью.
-
-        Raises:
-            BackendUnavailable / BackendConfigError: если и локальная модель
-                недоступна (поймает route()).
-        """
+    def _degrade_to_local(self, state: JarvisState) -> str:
+        """Последняя линия обороны: отвечаем локальной моделью."""
         face = self._get_local_face()
         state["tier"] = "fast"
         log.info("Деградация: отвечает локальная модель (FAST)")
-        try:
-            system = _build_system_prompt(state, self._settings)
-            messages = _state_to_messages(state)
-            local_response = face.respond(system, messages)
-            return f"{_OFFLINE_FALLBACK}\n\n{local_response}"
-        except (BackendUnavailable, BackendConfigError) as exc:
-            log.error("Локальная деградация не удалась: %s", exc)
-            raise
+        system = _build_system_prompt(state, self._settings)
+        messages = _state_to_messages(state)
+        local_response = face.respond(system, messages)
+        return f"{_OFFLINE_FALLBACK}\n\n{local_response}"
 
 
 # --------------------------------------------------------------------------- #
 #  Вспомогательные функции модуля
 # --------------------------------------------------------------------------- #
-
-_CLASSIFY_SYSTEM = (
-    "Ты — диспетчер запросов ИИ-ассистента Джарвиса. "
-    "Верни строго JSON без пояснений."
-)
 
 
 def _state_to_messages(state: JarvisState) -> List[Message]:
@@ -278,13 +203,7 @@ def _state_to_messages(state: JarvisState) -> List[Message]:
 
 
 def _build_system_prompt(state: JarvisState, settings: Settings) -> str:
-    """Системный промпт для генерации ответа (единый стиль для ВСЕХ запросов).
-
-    Не только для приветствий — работает для любого запроса: вопрос,
-    объяснение, инструкция, анализ. Задаёт роль, тон и правила ответа, чтобы
-    генерация была естественной и в характере J.A.R.V.I.S. (а не
-    «Привет, сэр. Готов к действию» на всё подряд).
-    """
+    """Системный промпт для генерации ответа (единый стиль для ВСЕХ запросов)."""
     persona_name = settings.persona.name
     address = settings.persona.address
     context = state.get("retrieved_context") or {}

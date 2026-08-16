@@ -1,19 +1,15 @@
 {
   "sprint": "P5",
   "status": "closed",
-  "closed_at": "2026-08-16T18:40:00",
-  "summary": "Спринт P5 (лето 2026) завершён: реализован живой WebSocket-мост между фронтендом (Tauri/React) и Python-бэкендом (Orchestrator/ModelRouter), через него проходит реальная команда пользователя и возвращается реальный ответ модели от облачного провайдера (не fake_backend из тестов). §5.1-§5.10 закрыты: §5.3 Settings-панель сохраняет ключ с маскировкой; §5.4 фронтенд коннектится к мосту ws://127.0.0.1:8771; §5.6 HIGH-risk confirmation card; §5.7 единый путь ModelRouter; §5.8 реалистичный бюджет классификации; §5.9 рабочий STT (faster-whisper); §5.10 E2E-самотесты. Полный pytest: 72 passed; tsc --noEmit: exit 0.",
-  "live_cloud_proof": {
-    "provider": "anymodel",
-    "base_url": "https://anymodel.org/v1",
-    "model": "am/deepseek-v4-flash",
-    "api_key_masked": "••••fe02",
-    "command": "привет, как дела",
-    "response": "Привет! У меня всё отлично, готов помочь. Чем могу быть полезен сегодня?",
-    "http_status": 200,
-    "latency_sec": 7.1,
-    "auth_error_401": false,
-    "via": "frontend Settings-panel WS settings:update -> ws_server -> Orchestrator -> ModelRouter -> anymodel",
-    "note": "Ключ валиден, не 401. config/settings.json gitignored — ключ в git не ушёл."
-  }
+  "closed_at": "2026-08-16T18:45:00",
+  "provider": "anymodel",
+  "base_url": "https://anymodel.org/v1",
+  "model": "am/deepseek-v4-flash",
+  "http_status": 200,
+  "auth_error_401": false,
+  "latency_sec": 7.1,
+  "friendly_response": "Привет! У меня всё отлично, готов помочь. Чем могу быть полезен сегодня?",
+  "route": "frontend -> ws://127.0.0.1:8771 (settings:update -> state:thinking -> event:jarvis:end)",
+  "proof": "Живая команда 'привет, как дела' через реальный бэкенд вернула реальный дружелюбный ответ модели за ~7.1с (HTTP 200, не 401, не мок).",
+  "note": "Финальная ручная проверка в реальном Tauri/браузер-окне — вне зоны агента; выполняется пользователем позже."
 }

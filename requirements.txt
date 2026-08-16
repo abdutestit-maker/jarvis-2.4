@@ -60,6 +60,16 @@ pypdf==5.1.0
 # После установки выполните:  python -m playwright install chromium
 playwright>=1.45
 
+# --- STT (распознавание речи, P5 §5.9) -----------------------------------
+# ОПЦИОНАЛЬНО: ставится только если нужен голосовой ввод.
+# faster-whisper — MIT, локальное распознавание без юридических рисков.
+# sounddevice + scipy нужны для записи с микрофона (listen_once).
+# Активируется флагом settings.voice.stt_enabled=True.
+#     pip install faster-whisper sounddevice scipy
+faster-whisper>=1.0
+sounddevice>=0.4
+scipy>=1.11
+
 
 # ============================================================================
 #  УСТАНОВКА llama-cpp-python НА WINDOWS

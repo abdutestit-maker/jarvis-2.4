@@ -266,6 +266,9 @@ class VoiceConfig(_Section):
 
     tts_enabled: bool = True
     stt_enabled: bool = False
+    # P5 §5.9: параметры STT-движка (faster-whisper, MIT).
+    stt_model: str = "small"          # размер модели faster-whisper
+    stt_device: str = "cpu"           # cpu / cuda
     piper_model_path: str = "data/models/piper/jarvis-medium.onnx"
     piper_binary_path: str = "piper"
     speed: float = 1.0

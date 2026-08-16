@@ -215,6 +215,7 @@ class Orchestrator:
         # Output callback (печать/тост)
         self._output_callback(response)
 
+        state["response"] = response
         state["tts_text"] = response
         if outcome.needs_confirmation:
             state["confirmation_id"] = getattr(outcome, "confirmation_id", None)

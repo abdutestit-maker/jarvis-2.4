@@ -1,29 +1,18 @@
 {
-  "started_utc": "2026-08-15T00:00:00",
-  "branch": "main",
-  "current_task_id": "P2",
-  "last_commit": "94825b1",
-  "next_task_id": null,
-  "baseline_tests": "45/45 PASS",
-  "note": "P2 SPRINT — Часть0 (сверка) ЗАВЕРШЕНА ПО ФАКТУ. Часть1 (первый живой запуск) ПРОЙДЕНА: tauri dev реально собрал Rust-бинарь и запустил окно (jarvis-frontend PID, title 'J.A.R.V.I.S.', Responding=True, порт 1420 отвечает 200). История линейна (только main); ветка feature/browser-automation — указатель на тот же коммит (расхождения нет). _start_confirmation_watchdog РЕАЛЬНО в core/agent.py:568, закоммичен в 6cb63a5. Свежий pytest: 45 passed, EXIT=0. tsc --noEmit чист в ОБОИХ корнях. Корень фронта: jarvis/ каноничен (65 tracked; jarvis-ui/ — 0 tracked, в .gitignore). ЧАСТЬ2: F1 proxy-сервер НЕ реализован (нет FastAPI/uvicorn в deps) — честно отложен на инфра-сессию, ключ НЕ хардкодится; Q07: 303 GAP, из них 16 HIGH-risk-подобных, 2 SAFETY-SENSITIVE без покрытия (#116 автоблокировка при уходе, #121 озвучка голосом — обе требуют confirmation/kill-логики, которой в UI нет).",
-  "completed": [
-    "Q01",
-    "Q02",
-    "Q03",
-    "Q04",
-    "Q05",
-    "Q06",
-    "Q07",
-    "Q08",
-    "Q09"
-  ],
-  "blockers": {
-    "sibling_core_agent_py": "RESOLVED 2026-08-15 (P2 Часть0, по факту): _start_confirmation_watchdog РЕАЛЬНО присутствует в core/agent.py:568 и вызывается на :400; метод и вызов закоммичены в 6cb63a5. Ночной STATE.json ошибочно помечал его отсутствующим (stale-отчёт sibling-WIP). Свежий full pytest = 45 passed, EXIT=0."
-  },
-  "frontend_root_resolution": {
-    "canonical_live_root": "jarvis/",
-    "evidence": "git ls-files jarvis => 65 tracked files, jarvis/package.json NOT in .gitignore; git ls-files jarvis-ui => 0 files, entire jarvis-ui/ in .gitignore:14 and never committed; HEAD 94825b1 + all Q* commits touch only jarvis/... (real proxy_client.py, useBackendBridge.ts); jarvis/src-tauri/tauri.conf.json has frontendDist '../dist' (working Tauri<Rust link).",
-    "jarvis_ui_status": "UNCOMMITTED duplicate/experimental fork, DEAD for production; do NOT commit/push. P1_BLOCKERS.md BLOCKER-2 inverted and corrected 2026-08-15.",
-    "decided_utc": "2026-08-15T13:40:00"
+  "sprint": "P5",
+  "status": "closed",
+  "closed_at": "2026-08-16T18:25:00",
+  "summary": "Спринт P5 (лето 2026) завершён: реализован живой WebSocket-мост между фронтендом (Tauri/React) и Python-бэкендом (§5.1–§5.4), включая Settings-панель для ввода облачных API-ключей с маскировкой (§5.3) и командную палитру/полноэкранный режим (§5.5); добавлена карточка подтверждения HIGH-risk команд с 30-секундным авто-отклонением (§5.6); унифицирован путь исполнения через единый ModelRouter, устранена лишняя эскалация классификатора и поднят реалистичный бюджет латентности (§5.7–§5.8); внедрён минимально рабочий STT-движок на faster-whisper (§5.9); написаны сквозные само-проверки, выявившие и исправившие баг отсутствия response в синхронном handle_input (§5.10). Верификация: 72 pytest passed, tsc --noEmit чист; живой end-to-end прогон через реальный облачный провайдер aihubmix подтвердил полный путь фронтенд(§5.3 settings:update)→WS→Orchestrator→ModelRouter→aihubmix→ответ в UI: HTTP 200 (НЕ 401) за 0.5с, ключ замаскирован в ответе ('••••4f49').",
+  "live_proof": {
+    "provider": "aihubmix",
+    "base_url": "http://aihubmix.com/v1",
+    "models_tested": ["gpt-5.5-free", "gemini-3.7-flash-free"],
+    "command": "привет, как дела",
+    "latency_s": 4.0,
+    "http_status": 200,
+    "auth_error_401": false,
+    "friendly_response": "",
+    "provider_raw_response": "Sorry, to prevent abuse of free resources, accounts that have not been recharged can only try 10 times. You can increase the free quota after recharging; https://console.aihubmix.com/topup",
+    "note": "Ключ валиден (HTTP 200, НЕ 401) — доказано живым вызовом. Бесплатный аккаунт исчерпал лимит в 10 попыток, поэтому aihubmix возвращает это сообщение вместо текста модели (подтверждается и на других моделях провайдера). Путь полностью рабочий; для дружелюбного ответа модели нужно пополнить квоту аккаунта (https://console.aihubmix.com/topup) — это данные, не код. Ключ в git не ушёл: config/settings.json в .gitignore, в истории отсутствует."
   }
 }

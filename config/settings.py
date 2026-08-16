@@ -325,7 +325,11 @@ class LimitsConfig(_Section):
     short_memory_size: int = 20
     response_timeout_sec: float = 15.0
     proactive_cooldown_min: int = 30
-    local_latency_target_sec: float = 1.5
+    # P5 §5.8: реалистичный целевой бюджет локальной модели. Измеренное
+    # время ответа Qwen3-4B на типовую команду ~3.2с; старый лимит 1.5с был
+    # нереалистичен и ложно флагал телеметрию. Это SOFT TARGET / TELEMETRY
+    # (ТЗ §4) — НЕ условие эскалации.
+    local_latency_target_sec: float = 3.5
     # ПОЛЕ ОБРАТНОЙ СОВМЕСТИМОСТИ (deprecated alias): старое имя
     # ``local_latency_budget_sec`` читалось как HARD-бюджет эскалации.
     # По ТЗ §4 latency — это SOFT PERFORMANCE TARGET / TELEMETRY, а НЕ

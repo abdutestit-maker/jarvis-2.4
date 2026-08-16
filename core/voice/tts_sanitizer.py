@@ -37,6 +37,23 @@ _RE_SECRET = re.compile(
 )
 # Обрывки мысли (многоточие в конце / незакрытая скобка / начало <think>).
 _RE_FRAGMENT = re.compile(r"(?i)(^\s*<\s*think\s*>|…\s*$|[\(\[]\s*$|\[\.\.\.\]\s*$)")
+# HTTP-коды (401/403/404/429/500/503 и т.п.) и фразы ошибок провайдера/связи.
+# Намеренно ЛОВИМ только технические сигналы — живой язык модели (вопросы,
+# цифры в ответах) не должен глушиться этим правилом.
+_RE_PROVIDER_ERR = re.compile(
+    r"(?i)("
+    r"http\s*/?\s*\d{3}|"            # "HTTP 401" / "http 429"
+    r"verнул\s+http|"               # "вернул HTTP 401"
+    r"authentication\s+fails|"       # "Authentication Fails"
+    r"unauthor|invalid\s+(api_?key|token|api key)|"  # 401-причины
+    r"quota|rate\s*limit|too\s+many\s+requests|"     # 429/квота
+    r"service\s+unavailable|bad\s+gateway|gateway\s+timeout|"  # 503/502
+    r"не\s+задан\s+endpoint|endpoint\s+провайдера|"  # ошибки конфигурации бэкенда
+    r"модель\s+недоступна|провайдер\s+\w+\s+вернул|"  # "Провайдер X вернул HTTP ..."
+    r"could\s+not\s+connect|connection\s+(refused|error|reset)|"  # сетевые сбои
+    r"timed?\s*out|timeout|время\s+ожидания"          # таймауты
+    r")"
+)
 
 __all__ = ["sanitize_for_tts", "looks_unsafe_for_tts"]
 
@@ -45,7 +62,7 @@ def looks_unsafe_for_tts(text: str) -> bool:
     """True, если строка содержит сырые ошибки/JSON/секреты/служебное."""
     if not text or not text.strip():
         return False
-    for rx in (_RE_SECRET, _RE_JSON, _RE_EVENT, _RE_TRACEBACK, _RE_FRAGMENT):
+    for rx in (_RE_SECRET, _RE_JSON, _RE_EVENT, _RE_TRACEBACK, _RE_FRAGMENT, _RE_PROVIDER_ERR):
         if rx.search(text):
             return True
     # Попытка распарсить как JSON — если это чистый JSON, озвучивать нельзя.
@@ -59,7 +76,7 @@ def looks_unsafe_for_tts(text: str) -> bool:
     return False
 
 
-def sanitize_for_tts(text: str, *, fallback: str = "Сэр, произошла техническая заминка. Уточните запрос.") -> str:
+def sanitize_for_tts(text: str, *, fallback: str = "Сэр, сейчас не могу дозвониться до модели. Попробуйте чуть позже.") -> str:
     """Возвращает безопасный для озвучки текст.
 
     Если в исходнике есть сырые ошибки/JSON/секреты — возвращает

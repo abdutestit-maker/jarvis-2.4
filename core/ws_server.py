@@ -107,6 +107,9 @@ class JarvisWSServer:
         self._port = port
         self._clients: Set[Any] = set()
         self._lock = threading.RLock()
+        # task_id, для которых уже отправлен event:jarvis:start (чтобы не
+        # дублировать start на каждый токен в streaming-пути).
+        self._streaming_started: Set[str] = set()
         self._running = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._unsub: Optional[Any] = None
@@ -121,6 +124,23 @@ class JarvisWSServer:
             except Exception:
                 pass
             # Транслируем в событие J.A.R.V.I.S. ответа.
+            # ВАЖНО (P5 §5.4/frontend): фронт рендерит пузырь ответа ТОЛЬКО после
+            # event:jarvis:start (useBackendBridge создаёт пузырь по start, а token/end
+            # лишь обновляют его). Без start пузырь не создаётся и ответ не виден в
+            # чате. Поэтому шлём start непосредственно перед end (fast-path без
+            # токенов), чтобы контракт совпадал с streaming-путём.
+            self._emit({
+                "type": "event",
+                "event": {
+                    "type": "event:jarvis:start",
+                    "payload": {
+                        "id": f"sync-{_now_ms()}",
+                        "kind": "jarvis",
+                        "content": "",
+                    },
+                    "timestamp": _now_ms(),
+                },
+            })
             self._emit({
                 "type": "event",
                 "event": {
@@ -366,6 +386,23 @@ class JarvisWSServer:
             self._emit({"type": "state", "state": "error"})
 
         if et == EVENT_STREAM_CHUNK:
+            # Фронт создаёт пузырь ответа только после event:jarvis:start
+            # (useBackendBridge). Шлём start ровно один раз — перед первым
+            # токеном этого task_id.
+            if event.task_id not in self._streaming_started:
+                self._streaming_started.add(event.task_id)
+                self._emit({
+                    "type": "event",
+                    "event": {
+                        "type": "event:jarvis:start",
+                        "payload": {
+                            "id": event.task_id,
+                            "kind": "jarvis",
+                            "content": "",
+                        },
+                        "timestamp": _now_ms(),
+                    },
+                })
             self._emit({
                 "type": "event",
                 "event": {

@@ -146,7 +146,7 @@ def test_p1_tts_sanitizer_blocks_raw_errors_and_secrets():
     assert looks_unsafe_for_tts("Traceback (most recent call last):\n  File ...")
     cleaned_trace = sanitize_for_tts("Traceback (most recent call last):\n  File ...")
     assert "Traceback" not in cleaned_trace, "сырой traceback не должен попадать в голос"
-    assert "техническая заминка" in cleaned_trace
+    assert "дозвониться до модели" in cleaned_trace or "техническая заминка" in cleaned_trace
 
     # Внутренний JSON плана -> тоже fallback, без сырого JSON.
     assert looks_unsafe_for_tts('{"tool": "write_file", "arguments": {"path": "x"}}')
@@ -154,14 +154,52 @@ def test_p1_tts_sanitizer_blocks_raw_errors_and_secrets():
     assert "write_file" not in cleaned_json, "внутренний JSON плана не должен попадать в голос"
 
     # Секрет/ключ -> fallback, без сырого ключа.
-    assert looks_unsafe_for_tts("sk-abcd1234efgh5678token")
-    cleaned_secret = sanitize_for_tts("sk-abcd1234efgh5678token")
-    assert "sk-abcd" not in cleaned_secret, "секрет не должен попадать в голос"
+    assert looks_unsafe_for_tts("redacted token sk-abcdefgh12345678")
+    cleaned_secret = sanitize_for_tts("redacted token sk-abcdefgh12345678")
+    assert "sk-abcdefgh12345678" not in cleaned_secret, "секрет не должен попадать в голос"
 
     # Безопасный живой текст проходит как есть.
     safe = "Сэр, файл записан. Готов к следующей задаче."
     assert not looks_unsafe_for_tts(safe)
     assert sanitize_for_tts(safe) == safe
+
+
+def test_p1_tts_sanitizer_blocks_provider_http_errors():
+    """Сырые HTTP-коды/ошибки провайдера НЕ читаются вслух (пункт 1 из live-теста).
+
+    Голос должен звучать по-человечески («сэр, сейчас не могу дозвониться до
+    модели…»), без кодов 401/404/429/503 и технических деталей. При этом живой
+    язык модели (числа, время, суммы) НЕ должен глушиться ложными срабатываниями.
+    """
+    from core.voice.tts_sanitizer import looks_unsafe_for_tts, sanitize_for_tts
+
+    # Реальные сырые ошибки из живого теста.
+    err_samples = [
+        "Провайдер deepseek вернул HTTP 404: Not Found.",
+        "Authentication Fails, Your api key is invalid.",
+        "429 Too Many Requests — rate limit exceeded.",
+        "503 Service Unavailable — model overloaded.",
+        "Не задан endpoint провайдера 'aihubmix'.",
+        "Ошибка ModelRouter: модель недоступна, провайдер anymodel вернул HTTP 401.",
+    ]
+    for sample in err_samples:
+        assert looks_unsafe_for_tts(sample), f"ошибка провайдера должна блокироваться: {sample!r}"
+        out = sanitize_for_tts(sample)
+        # Никаких сырых кодов/деталей в голосе.
+        assert "401" not in out and "404" not in out and "429" not in out and "503" not in out, \
+            f"HTTP-код не должен попадать в голос: {out!r}"
+        assert "дозвониться до модели" in out, f"ожидали дружелюбную фразу: {out!r}"
+
+    # Живой язык модели НЕ глушится (ложноположительные срабатывания недопустимы).
+    safe_live = [
+        "Сэр, я нашёл 500 рублей в кошельке.",
+        "Сейчас 12:45, сэр. Начинаю.",
+        "Проверил 3 файла, всё в порядке.",
+        "Привет! У меня всё отлично, готов помочь.",
+    ]
+    for s in safe_live:
+        assert not looks_unsafe_for_tts(s), f"живой текст не должен глушиться: {s!r}"
+        assert sanitize_for_tts(s) == s, f"живой текст должен идти как есть: {s!r}"
 
 
 def test_p1_tts_queue_interrupt_clears_pending():
@@ -195,9 +233,20 @@ def test_p1_tts_queue_interrupt_clears_pending():
 #  TEST 14 (B1) — ACK: LLM-обогащение с жёстким fallback к canned-фразам
 # --------------------------------------------------------------------------- #
 
-def test_p1_acknowledgement_falls_back_offline():
-    """pick_acknowledgement не падает офлайн и возвращает canned base (П1 §1.2)."""
+def test_p1_acknowledgement_falls_back_offline(monkeypatch):
+    """pick_acknowledgement не падает офлайн и возвращает canned base (П1 §1.2).
+
+    Тест детерминирован: явно мокает LLM-бэкенд как недоступный, чтобы
+    проверить именно offline-fallback независимо от наличия живого ключа
+    в settings.json (реальный ключ делает путь онлайн-обогащения рабочим,
+    см. test_p1_acknowledgement_enriches_when_model_available).
+    """
     from core.agent import pick_acknowledgement
+    from core.llm.backend import BackendUnavailable
+
+    def _boom(*a, **k):
+        raise BackendUnavailable("мок: модель недоступна (offline)")
+    monkeypatch.setattr("core.llm.get_llm_backend", _boom)
 
     # Без settings/goal — мгновенно базовая фраза по intent.
     assert pick_acknowledgement("app") == "Принято, сэр."

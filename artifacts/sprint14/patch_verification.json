@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "verification": "git apply --check + apply + normalized UTF-8 content",
+  "verified_files": 22,
+  "mismatches": [],
+  "line_endings": "exact bytes are packaged separately"
+}

@@ -1,0 +1,121 @@
+{
+  "recorded_at": "2026-08-17T11:50:17.964263+00:00",
+  "workspace": "E:\\jarvis-project",
+  "baseline": {
+    "command": "$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; python -m pytest -o addopts='' -q",
+    "input": "Voice Runtime Hotfix working tree before Sprint 10 source changes",
+    "literal_output": ".............................................ss......................... [ 33%]\n........................................................................ [ 66%]\n.......................................................................  [100%]\n============================== warnings summary ===============================\ncore\\ws_server.py:58\n  E:\\jarvis-project\\core\\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated\n    from websockets.server import serve\n\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6\n  C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions\n    warnings.warn(  # deprecated in 14.0 - 2024-11-09\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n213 passed, 2 skipped, 2 warnings in 67.15s (0:01:07)",
+    "exit_status": 0,
+    "voice_command": "python scripts\\voice_runtime_smoke.py E:\\jarvis-project\\artifacts\\sprint10\\baseline_voice.wav",
+    "voice_output": {
+      "channels": 1,
+      "sample_rate": 22050,
+      "frames": 71540,
+      "duration_seconds": 3.244
+    },
+    "voice_exit_status": 0
+  },
+  "modified": {
+    "command": "$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; python -m pytest -o addopts='' -q",
+    "input": "Final Sprint 10 modified working tree",
+    "literal_output": ".............................................ss......................... [ 29%]\n........................................................................ [ 58%]\n........................................................................ [ 88%]\n.............................                                            [100%]\n============================== warnings summary ===============================\ncore\\ws_server.py:58\n  E:\\jarvis-project\\core\\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated\n    from websockets.server import serve\n\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6\n  C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions\n    warnings.warn(  # deprecated in 14.0 - 2024-11-09\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n243 passed, 2 skipped, 2 warnings in 70.83s (0:01:10)",
+    "exit_status": 0,
+    "voice_command": "python scripts\\voice_runtime_smoke.py E:\\jarvis-project\\artifacts\\sprint10\\final_voice.wav",
+    "voice_literal_output": "2026-08-17 16:38:06 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\\jarvis-project\\config\\settings.json\n2026-08-17 16:38:06 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-17 16:38:07 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n{\n  \"success\": true,\n  \"input\": \"Сэр, я вас понял. Это тестовый ответ Джарвиса.\",\n  \"runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"expected_runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"output\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\final_voice.wav\",\n  \"channels\": 1,\n  \"sample_rate\": 22050,\n  \"sample_width\": 2,\n  \"frames\": 70516,\n  \"duration_seconds\": 3.198,\n  \"error\": null\n}",
+    "voice_exit_status": 0,
+    "compile_command": "python -m compileall -q core config scripts",
+    "compile_output": "",
+    "compile_exit_status": 0,
+    "diff_command": "git diff --check",
+    "diff_output": "line-ending conversion warnings only; no diff errors",
+    "diff_exit_status": 0
+  },
+  "live_demo": {
+    "precondition_command": "winget list --id Notepad++.Notepad++ --exact --source winget --accept-source-agreements --disable-interactivity",
+    "precondition_literal_output": "- \n   \\ \n                                                                                                                        \nНе найдены установленные пакеты, соответствующие введенным условиям.",
+    "precondition_exit_status": -1978335212,
+    "command": "python scripts\\sprint10_live_demo.py --fresh-knowledge",
+    "literal_output": "2026-08-17 16:34:46 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']\nСейчас разберусь, сэр.\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pywinauto\\__init__.py:80: UserWarning: Revert to STA COM threading mode\n  warnings.warn(\"Revert to STA COM threading mode\", UserWarning)\n{\n  \"verified\": true,\n  \"report\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\live_demo_report.json\",\n  \"installer\": {\n    \"installer_exit\": 0,\n    \"installed\": true,\n    \"verified\": true,\n    \"executable\": \"C:\\\\Program Files\\\\Notepad++\\\\notepad++.exe\",\n    \"version\": \"8.9.7\",\n    \"signature_status\": \"Valid\",\n    \"launched\": true,\n    \"window\": {\n      \"handle\": 2951304,\n      \"title\": \"новый 1 - Notepad++\",\n      \"process_id\": 23708\n    },\n    \"checks\": {\n      \"installed_package\": true,\n      \"version_detected\": true,\n      \"executable_exists\": true,\n      \"signature\": true,\n      \"application_launched\": true,\n      \"window_appeared\": true\n    },\n    \"failed_checks\": []\n  },\n  \"ui_controls\": 68,\n  \"final_state\": {\n    \"remember_last_session\": false,\n    \"word_wrap\": true\n  },\n  \"second_run_reuse\": {\n    \"reused_knowledge\": true,\n    \"reused_episode\": true,\n    \"calls_after_first\": {\n      \"resolver\": 1,\n      \"installer\": 1,\n      \"explorer\": 1\n    },\n    \"calls_after_second\": {\n      \"resolver\": 1,\n      \"installer\": 1,\n      \"explorer\": 1\n    },\n    \"research_calls\": [\n      1,\n      0\n    ],\n    \"discovery_steps\": [\n      1,\n      0\n    ]\n  }\n}\nГотово. Проверяйте, сэр.",
+    "exit_status": 0,
+    "report": "E:\\jarvis-project\\artifacts\\sprint10\\live_demo_report.json",
+    "installer_reverification": {
+      "candidate": {
+        "name": "Notepad++",
+        "package_id": "Notepad++.Notepad++",
+        "official_source": "winget://Notepad++.Notepad++",
+        "source_kind": "package_manager",
+        "package_manager": "winget",
+        "installer_type": "nullsoft",
+        "architecture": "x64",
+        "version": "8.9.7",
+        "publisher": "Notepad++ Team",
+        "signature_expected": true,
+        "trusted": true,
+        "download_url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.9.7/npp.8.9.7.Installer.x64.exe",
+        "sha256": "1884e093bae261c4942210334e1f2eae71354913e4ded3cc1a4a18c5320741ec",
+        "expected_executable": "notepad++.exe",
+        "silent_args": [],
+        "launch_args": [
+          "-multiInst",
+          "-nosession"
+        ]
+      },
+      "installer_exit": 0,
+      "installed": true,
+      "version": "8.9.7",
+      "executable": "C:\\Program Files\\Notepad++\\notepad++.exe",
+      "signature_status": "Valid",
+      "launched": true,
+      "process_id": 8424,
+      "window": {
+        "handle": 1180240,
+        "title": "новый 1 - Notepad++",
+        "process_id": 8424
+      },
+      "checks": {
+        "architecture_compatible": true,
+        "installed_package": true,
+        "version_detected": true,
+        "executable_exists": true,
+        "signature": true,
+        "application_launched": true,
+        "window_appeared": true
+      },
+      "verified": true,
+      "failed_checks": []
+    }
+  },
+  "video_reference": {
+    "command": "VideoReferenceProvider(max_keyframes=12).analyze(C:\\Users\\WwW\\Videos\\NVIDIA\\Desktop\\Desktop 2026.08.17 - 15.10.50.02.mp4)",
+    "literal_output": "{\n  \"source\": \"C:\\\\Users\\\\WwW\\\\Videos\\\\NVIDIA\\\\Desktop\\\\Desktop 2026.08.17 - 15.10.50.02.mp4\",\n  \"metadata\": {\n    \"duration_seconds\": 22.032667,\n    \"width\": 1920,\n    \"height\": 1080,\n    \"fps\": 60.002,\n    \"codec\": \"hevc\"\n  },\n  \"keyframes\": [\n    \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\video_reference\\\\sample_001.jpg\",\n    \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\video_reference\\\\sample_002.jpg\",\n    \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\video_reference\\\\sample_003.jpg\",\n    \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\video_reference\\\\sample_004.jpg\",\n    \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\video_reference\\\\sample_005.jpg\",\n    \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\video_reference\\\\sample_006.jpg\"\n  ],\n  \"transcript\": \"\",\n  \"steps\": [],\n  \"observed_settings\": {},\n  \"uncertain_items\": [\n    \"frame_analysis_unavailable\"\n  ],\n  \"desired_state\": {}\n}",
+    "exit_status": 0
+  },
+  "rollback": {
+    "command": "& E:\\jarvis-project\\scripts\\rollback_sprint10.ps1 -TargetRoot E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817 -KeepDemoApp",
+    "literal_output": "{\n  \"rolled_back\": true,\n  \"target_root\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\",\n  \"kept_demo_app\": true,\n  \"actions\": [\n    {\n      \"action\": \"restore\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\capability_engine.py\"\n    },\n    {\n      \"action\": \"restore\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\platform\\\\__init__.py\"\n    },\n    {\n      \"action\": \"restore\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\platform\\\\browser.py\"\n    },\n    {\n      \"action\": \"restore\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\platform\\\\windows.py\"\n    },\n    {\n      \"action\": \"restore\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\pyproject.toml\"\n    },\n    {\n      \"action\": \"restore\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\requirements.txt\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\__init__.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\adapters.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\knowledge.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\mission.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\reference.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\semantic.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\session.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\software.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\core\\\\operator\\\\windows.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\tests\\\\test_sprint10_adapters.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\tests\\\\test_sprint10_browser.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\tests\\\\test_sprint10_mission.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\tests\\\\test_sprint10_reference.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\tests\\\\test_sprint10_software.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\tests\\\\test_sprint10_windows.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\scripts\\\\sprint10_live_demo.py\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\scripts\\\\rollback_sprint10.ps1\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\docs\\\\sprints\\\\SPRINT10_SPEC.md\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\tasks\\\\plan.md\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\tasks\\\\todo.md\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\data\\\\app_knowledge\\\\Notepad.json\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\data\\\\capabilities\\\\operator_Notepad.json\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\data\\\\capabilities\\\\episodes\\\\c610b6f38ab0488886b33a53d39e2c0a.json\"\n    },\n    {\n      \"action\": \"remove\",\n      \"path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint10\\\\rollback_verification\\\\workspace_20260817\\\\data\\\\capabilities\\\\episodes\\\\24e13fdcb04740ccb4da39075afc1942.json\"\n    }\n  ]\n}\nROLLBACK_STAGE_VERIFIED=True",
+    "exit_status": 0,
+    "live_state_command": "CheckpointManager.rollback(first_live_checkpoint); reapply desired config fields; launch and observe window",
+    "live_state_literal_output": "2026-08-17 16:40:57 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']\n{\n  \"rollback\": {\n    \"restored\": true,\n    \"target\": \"C:\\\\Users\\\\WwW\\\\AppData\\\\Roaming\\\\Notepad++\\\\config.xml\"\n  },\n  \"rolled_back_state\": {\n    \"remember_last_session\": true,\n    \"word_wrap\": false\n  },\n  \"reapplied_state\": {\n    \"remember_last_session\": false,\n    \"word_wrap\": true\n  },\n  \"window\": {\n    \"handle\": 7407864,\n    \"title\": \"новый 1 - Notepad++\",\n    \"process_id\": 21704\n  },\n  \"verified\": true\n}",
+    "live_state_exit_status": 0
+  },
+  "patch": {
+    "check_command": "git apply --check --directory=artifacts/sprint10/rollback_verification/workspace_patch_check3 artifacts\\sprint10\\sprint10.patch",
+    "apply_command": "git apply --directory=artifacts/sprint10/rollback_verification/workspace_patch_check3 artifacts\\sprint10\\sprint10.patch",
+    "literal_output": "PATCH_FORWARD_CHECK_EXIT=0\nPATCH_STAGE_APPLY_EXIT=0\nPATCH_STAGE_TEXT_MATCH_EXIT=0\nPATCH_STAGE_FILES=26",
+    "check_exit_status": 0,
+    "apply_exit_status": 0
+  },
+  "artifacts": {
+    "patch": "E:\\jarvis-project\\artifacts\\sprint10\\sprint10.patch",
+    "patch_sha256": "1d19c19faddfaafd786e547cd468c19234f9164046579d79e9810767063f7bb8",
+    "patch_bytes": 194270,
+    "changed_files": "E:\\jarvis-project\\artifacts\\sprint10\\changed_files.json",
+    "artifact": "E:\\jarvis-project\\artifacts\\sprint10\\sprint10_modified_artifact.zip",
+    "artifact_sha256": "096686135f9d407ebcfbf4add52b448b14d8b674d519e10093f439174ecba71b",
+    "artifact_entries": 36,
+    "zip_test": "OK"
+  },
+  "frontend_changed_by_sprint10": false,
+  "new_llm_models": [],
+  "completion_invariant": "installer exit and ActionResult.ok are insufficient; desired-state diff must be empty after observation"
+}

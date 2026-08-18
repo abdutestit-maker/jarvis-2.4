@@ -50,6 +50,11 @@ __all__ = [
     "LimitsConfig",
     "LoggingConfig",
     "ProxyConfig",
+    "LauncherConfig",
+    "STTConfig",
+    "WakeWordConfig",
+    "ShadowConfig",
+    "BrainPolicyConfig",
     "Settings",
     "ConfigError",
     "load_config",
@@ -261,15 +266,37 @@ class LocalCoderModelConfig(_Section):
         return None
 
 
+class VoiceModeConfig(_Section):
+    rate: float = Field(default=1.0, ge=0.5, le=2.0)
+    volume: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+def _default_voice_modes() -> dict[str, VoiceModeConfig]:
+    return {
+        "normal": VoiceModeConfig(rate=1.00, volume=1.00),
+        "focused": VoiceModeConfig(rate=1.03, volume=1.00),
+        "quiet": VoiceModeConfig(rate=0.96, volume=0.72),
+        "urgent": VoiceModeConfig(rate=1.04, volume=1.00),
+        "amused": VoiceModeConfig(rate=1.02, volume=0.95),
+        "background": VoiceModeConfig(rate=0.98, volume=0.85),
+    }
+
+
 class VoiceConfig(_Section):
     """Голосовой ввод-вывод. У пользователя нет микрофона -> stt выключен."""
 
     tts_enabled: bool = True
+    #: Sprint 5: озвучивать КАЖДЫЙ ответ backend (любой канал ввода).
+    tts_always_on: bool = True
+    provider: str = "piper"
+    language: str = "ru"
+    voice: str = "ru_RU-dmitri-medium"
+    fallback: str = "none"
     stt_enabled: bool = False
     # P5 §5.9: параметры STT-движка (faster-whisper, MIT).
     stt_model: str = "small"          # размер модели faster-whisper
     stt_device: str = "cpu"           # cpu / cuda
-    piper_model_path: str = "data/models/piper/jarvis-medium.onnx"
+    piper_model_path: str = "data/models/piper/ru_RU-dmitri-medium.onnx"
     piper_binary_path: str = "piper"
     speed: float = 1.0
     volume: float = 1.0
@@ -278,6 +305,7 @@ class VoiceConfig(_Section):
     piper_noise_scale: float = 0.667
     piper_noise_w: float = 0.8
     piper_voices: list[dict] = Field(default_factory=list)
+    modes: dict[str, VoiceModeConfig] = Field(default_factory=_default_voice_modes)
 
     @property
     def resolved_piper_model(self) -> Optional[Path]:
@@ -312,7 +340,7 @@ class PathsConfig(_Section):
 class PersonaConfig(_Section):
     """Личность ассистента."""
 
-    name: str = "Джарвис"
+    name: str = "АТЛАС"
     address: str = "сэр"
     persona_file: str = "persona/persona.md"
     language: str = "ru"
@@ -343,21 +371,83 @@ class LimitsConfig(_Section):
     rag_top_k: int = 3
     memory_top_k: int = 5
     max_action_iterations: int = 6
+    # Разговорный FAST-тир: сбой провайдера должен признаваться БЫСТРО.
+    # 3×15 c ожидания для простого «привет» неприемлемы — короткий таймаут
+    # и минимум попыток, затем честный фолбэк/ошибка. Аналитические тиры
+    # (analyst/coder/architect) остаются на общих response_timeout_sec/max_retries.
+    fast_tier_timeout_sec: float = 7.0
+    fast_tier_max_retries: int = 2
+    # Sprint 3 TIER 3: глубокие тиры (coder/architect) — качество важнее
+    # скорости, им нужен щедрый бюджет (30-60 c), а не общий 15-секундный.
+    deep_tier_timeout_sec: float = 45.0
+    # Sprint 3 STEP 3: executor safety — таймауты инструментов по категориям.
+    tool_timeout_file_sec: float = 10.0
+    tool_timeout_web_sec: float = 30.0
+    tool_timeout_system_sec: float = 5.0
+    #: Максимум параллельных вызовов инструментов (изоляция ресурсов).
+    max_parallel_tools: int = 4
+    #: Потолок вывода одного инструмента, байты (50 KB; больше — усечение).
+    tool_output_max_bytes: int = 50 * 1024
+    # Sprint 4 — bounded memory:
+    #: Сообщений в session memory (10 пар user/assistant; FIFO).
+    session_memory_messages: int = 20
+    #: Контекстные бюджеты, токены (оценка ~3 символа/токен).
+    context_budget_fast_tokens: int = 2000    # TIER 1: разговор
+    context_budget_plan_tokens: int = 4000    # TIER 2: планирование
+    context_budget_deep_tokens: int = 8000    # TIER 3: research/coding
+
+    @field_validator("session_memory_messages")
+    @classmethod
+    def _non_negative_session(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("не может быть отрицательным")
+        return value
+
+    @field_validator("context_budget_fast_tokens", "context_budget_plan_tokens",
+                     "context_budget_deep_tokens")
+    @classmethod
+    def _positive_budget(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("бюджет должен быть больше нуля")
+        return value
 
     @field_validator("short_memory_size", "max_retries", "rag_top_k",
-                     "memory_top_k", "max_action_iterations")
+                     "memory_top_k", "max_action_iterations", "fast_tier_max_retries")
     @classmethod
     def _non_negative(cls, value: int) -> int:
         if value < 0:
             raise ValueError("значение не может быть отрицательным")
         return value
 
-    @field_validator("response_timeout_sec")
+    @field_validator("response_timeout_sec", "fast_tier_timeout_sec",
+                     "deep_tier_timeout_sec", "tool_timeout_file_sec",
+                     "tool_timeout_web_sec", "tool_timeout_system_sec")
     @classmethod
     def _positive_timeout(cls, value: float) -> float:
         if value <= 0:
-            raise ValueError("response_timeout_sec должен быть больше нуля")
+            raise ValueError("таймаут должен быть больше нуля")
         return value
+
+    @field_validator("max_parallel_tools", "tool_output_max_bytes")
+    @classmethod
+    def _positive_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("лимит должен быть больше нуля")
+        return value
+
+
+class LatencyBudgetConfig(_Section):
+    """First-class performance budgets for the Wave 0 gates (milliseconds)."""
+
+    fast_p50_ms: float = 600.0
+    fast_p95_ms: float = 1000.0
+    fast_hard_max_ms: float = 1500.0
+    deliberate_first_progress_p95_ms: float = 2500.0
+    deliberate_p50_ms: float = 8000.0
+    deliberate_p95_ms: float = 15000.0
+    research_first_progress_p95_ms: float = 3000.0
+    research_source_timeout_ms: float = 8000.0
+    background_enqueue_p95_ms: float = 100.0
 
 
 class LoggingConfig(_Section):
@@ -394,6 +484,103 @@ class ProxyConfig(_Section):
     proxy_token: str = ""       # локальный маркер доступа к proxy (НЕ ключ провайдера)
 
 
+class LauncherConfig(_Section):
+    """Sprint 5: запуск приложения — автостарт, hotkey, backend-процесс.
+
+    Секция читается и Python'ом (приветствие/TTS), и Tauri/Rust
+    (реестр автозапуска, глобальный hotkey, spawn python-backend).
+    """
+
+    #: Автозагрузка Windows (HKCU\\...\\Run) — включает фронтенд при старте.
+    autostart: bool = False
+    #: Глобальный hotkey (Tauri globalShortcut; работает и в полноэкранных играх).
+    hotkey: str = "Ctrl+Space"
+    #: Команда запуска python-backend (Tauri поднимает её при старте).
+    backend_command: List[str] = Field(default_factory=lambda: [
+        "python", "-m", "core.ws_server",
+    ])
+    #: Рабочая директория backend (корень проекта).
+    backend_workdir: str = ""
+    #: Приветствие при старте сессии (голос + текст).
+    greeting_enabled: bool = True
+
+class STTConfig(_Section):
+    enabled: bool = False
+    model: str = "faster-whisper-small"
+    vad: str = "webrtc"
+    language: str = "auto"
+    hotkey_mode: str = "hold_ctrl_space"
+
+class WakeWordConfig(_Section):
+    enabled: bool = False
+    phrase: str = "ATLAS"
+    sensitivity: float = 0.5
+
+
+class ShadowConfig(_Section):
+    """Local, opt-in settings for Sprint 8 Shadow Engine.
+
+    It is opt-in because command history and screen summaries are personal
+    data. Enabling it never grants screen-capture permission by itself.
+    """
+
+    enabled: bool = False
+    auto_generate: bool = True
+    interval_sec: int = 300
+    code_model_path: str = "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
+
+    @field_validator("interval_sec")
+    @classmethod
+    def _valid_interval(cls, value: int) -> int:
+        if value < 30:
+            raise ValueError("interval_sec должен быть не меньше 30")
+        return value
+
+    @property
+    def resolved_code_model_path(self) -> Optional[Path]:
+        return resolve_path(self.code_model_path)
+
+
+class BrainPolicyConfig(_Section):
+    """Provider-independent model routing policy (safe/local by default)."""
+
+    mode: str = "BALANCED"
+    prefer_local: bool = True
+    allow_cloud: bool = False
+    allow_sensitive_cloud: bool = False
+    background_allow_cloud: bool = False
+    max_fallbacks: int = 2
+    failure_timeout_seconds: float = 3.0
+    max_cost_tier: int = 3
+    providers_path: str = "data/brain/providers.json"
+
+    @field_validator("mode")
+    @classmethod
+    def _known_mode(cls, value: str) -> str:
+        normalized = str(value).strip().upper()
+        if normalized not in {"LOCAL_ONLY", "BALANCED", "QUALITY", "SPEED", "CUSTOM"}:
+            raise ValueError("unknown brain policy mode")
+        return normalized
+
+    @field_validator("max_fallbacks", "max_cost_tier")
+    @classmethod
+    def _non_negative_brain_limit(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("brain policy limit must be non-negative")
+        return value
+
+    @field_validator("failure_timeout_seconds")
+    @classmethod
+    def _positive_brain_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("failure_timeout_seconds must be positive")
+        return value
+
+    @property
+    def resolved_providers_path(self) -> Optional[Path]:
+        return resolve_path(self.providers_path)
+
+
 # --------------------------------------------------------------------------- #
 #  Корневая модель
 # --------------------------------------------------------------------------- #
@@ -418,6 +605,12 @@ class Settings(BaseModel):
     #: остаётся только офлайн-фолбэком. Значение должно быть одним из ключей
     #: model_tiers (обычно 'analyst'). Пустая строка/None -> 'analyst'.
     primary_brain: str = "analyst"
+    #: Local-only safety switch. Disabled on bare Settings() for test/API
+    #: compatibility; production config enables it explicitly.
+    offline_mode: bool = False
+    #: Load the local FAST model in a daemon warmup thread at service start.
+    #: False for bare Settings() keeps unit tests and library imports cheap.
+    warmup_local_on_start: bool = False
 
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
     local_coder_model: LocalCoderModelConfig = Field(default_factory=LocalCoderModelConfig)
@@ -425,8 +618,15 @@ class Settings(BaseModel):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    latency_budgets: LatencyBudgetConfig = Field(default_factory=LatencyBudgetConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
+    launcher: LauncherConfig = Field(default_factory=LauncherConfig)
+    stt: STTConfig = Field(default_factory=STTConfig)
+    wake_word: WakeWordConfig = Field(default_factory=WakeWordConfig)
+    shadow: ShadowConfig = Field(default_factory=ShadowConfig)
+    brain_policy: BrainPolicyConfig = Field(default_factory=BrainPolicyConfig)
+    system_triggers: List[Dict[str, Any]] = Field(default_factory=list)
 
     #: Откуда конфиг был загружен (не сериализуется в JSON).
     source_path: Optional[Path] = Field(default=None, exclude=True)
@@ -469,6 +669,8 @@ class Settings(BaseModel):
 
     def get_provider(self, tier: Union[str, "Tier"]) -> str:
         """Провайдер, обслуживающий тир ('local' / 'deepseek' / ...)."""
+        if self.offline_mode:
+            return LOCAL_PROVIDER
         from core.llm.tiers import resolve_tier, tier_to_backend_key
         key = tier_to_backend_key(resolve_tier(str(tier)))
         return self.tier_providers.get(key)

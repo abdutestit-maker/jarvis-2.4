@@ -1,0 +1,34 @@
+2026-08-17 20:59:34 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']
+Сейчас разберусь, сэр.
+{
+  "verified": false,
+  "report": "E:\\jarvis-project\\artifacts\\sprint10\\live_demo_report.json",
+  "installer": null,
+  "ui_controls": 68,
+  "final_state": {
+    "remember_last_session": false,
+    "word_wrap": true
+  },
+  "second_run_reuse": {
+    "reused_knowledge": true,
+    "reused_episode": true,
+    "calls_after_first": {
+      "resolver": 0,
+      "installer": 0,
+      "explorer": 0
+    },
+    "calls_after_second": {
+      "resolver": 0,
+      "installer": 0,
+      "explorer": 0
+    },
+    "research_calls": [
+      0,
+      0
+    ],
+    "discovery_steps": [
+      0,
+      0
+    ]
+  }
+}

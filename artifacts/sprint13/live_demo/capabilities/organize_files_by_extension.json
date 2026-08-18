@@ -1,0 +1,70 @@
+{
+  "id": "organize_files_by_extension",
+  "description": "организуй локальные файлы по расширению",
+  "inputs": [],
+  "prerequisites": [],
+  "tools": [
+    "list_files",
+    "file_move",
+    "list_files_recursive"
+  ],
+  "learned_from": [],
+  "success_criteria": [
+    "organized_by_extension=True"
+  ],
+  "risk_class": "low",
+  "confidence": 0.935,
+  "kind": "learned",
+  "generalized_procedure": [
+    "observe current state",
+    "apply minimal delta",
+    "verify desired state"
+  ],
+  "procedure_steps": [
+    {
+      "id": "discover",
+      "tool": "list_files",
+      "args": {},
+      "depends_on": [],
+      "produces": {},
+      "verification": []
+    },
+    {
+      "id": "move",
+      "tool": "file_move",
+      "args": {
+        "foreach": "root_files",
+        "group_by": "extension"
+      },
+      "depends_on": [
+        "discover"
+      ],
+      "produces": {
+        "files_moved": true
+      },
+      "verification": []
+    },
+    {
+      "id": "verify",
+      "tool": "list_files_recursive",
+      "args": {},
+      "depends_on": [
+        "move"
+      ],
+      "produces": {
+        "organized_by_extension": true
+      },
+      "verification": []
+    }
+  ],
+  "desired_state": {
+    "organized_by_extension": true
+  },
+  "times_used": 1,
+  "success_count": 1,
+  "failure_count": 0,
+  "average_duration": 0.015549799998552771,
+  "last_used": "2026-08-17T14:12:34.584227+00:00",
+  "last_verified": "2026-08-17T14:12:34.584227+00:00",
+  "environment": {}
+}

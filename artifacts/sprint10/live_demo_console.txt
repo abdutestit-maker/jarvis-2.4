@@ -1,0 +1,59 @@
+2026-08-17 16:34:46 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']
+Сейчас разберусь, сэр.
+C:\Users\WwW\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\pywinauto\__init__.py:80: UserWarning: Revert to STA COM threading mode
+  warnings.warn("Revert to STA COM threading mode", UserWarning)
+{
+  "verified": true,
+  "report": "E:\\jarvis-project\\artifacts\\sprint10\\live_demo_report.json",
+  "installer": {
+    "installer_exit": 0,
+    "installed": true,
+    "verified": true,
+    "executable": "C:\\Program Files\\Notepad++\\notepad++.exe",
+    "version": "8.9.7",
+    "signature_status": "Valid",
+    "launched": true,
+    "window": {
+      "handle": 2951304,
+      "title": "новый 1 - Notepad++",
+      "process_id": 23708
+    },
+    "checks": {
+      "installed_package": true,
+      "version_detected": true,
+      "executable_exists": true,
+      "signature": true,
+      "application_launched": true,
+      "window_appeared": true
+    },
+    "failed_checks": []
+  },
+  "ui_controls": 68,
+  "final_state": {
+    "remember_last_session": false,
+    "word_wrap": true
+  },
+  "second_run_reuse": {
+    "reused_knowledge": true,
+    "reused_episode": true,
+    "calls_after_first": {
+      "resolver": 1,
+      "installer": 1,
+      "explorer": 1
+    },
+    "calls_after_second": {
+      "resolver": 1,
+      "installer": 1,
+      "explorer": 1
+    },
+    "research_calls": [
+      1,
+      0
+    ],
+    "discovery_steps": [
+      1,
+      0
+    ]
+  }
+}
+Готово. Проверяйте, сэр.

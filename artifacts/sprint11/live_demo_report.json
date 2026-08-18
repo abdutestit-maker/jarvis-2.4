@@ -1,0 +1,439 @@
+{
+  "run_id": "20260817T124613847815Z",
+  "generated_at": "2026-08-17T12:46:17.651427+00:00",
+  "native_context_sample": {
+    "source": "native_windows_metadata",
+    "application": "",
+    "process": "",
+    "window_title": "",
+    "idle_seconds": 0.016,
+    "fullscreen": false
+  },
+  "background_resources": {
+    "snapshot": {
+      "cpu_percent": 14.9,
+      "gpu_percent": 0.0,
+      "ram_percent": 77.1,
+      "foreground_latency_ms": 0.0,
+      "gaming": false,
+      "fullscreen": false,
+      "active_tts": false,
+      "active_user_mission": false,
+      "on_battery": false,
+      "battery_percent": 100.0
+    },
+    "decision": {
+      "mode": "RUN",
+      "load_score": 0.173,
+      "cpu_quota": 0.327,
+      "reasons": []
+    }
+  },
+  "repeated_workflow": {
+    "verified": true,
+    "workspace": "E:\\jarvis-project\\artifacts\\sprint11\\live_workspace\\20260817T124613847815Z",
+    "manual_runs": 4,
+    "manual_verified": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "living_context": {
+      "active_application": "File Explorer",
+      "active_process": "",
+      "window_title": "",
+      "browser_domain": "",
+      "page_title": "",
+      "session_duration": 0.006387,
+      "current_project": "local_reports",
+      "probable_activity": "",
+      "goal": "",
+      "goal_confidence": 0.686,
+      "recent_actions": [
+        "move_report_to_archive",
+        "workflow_observed",
+        "discover_incoming_report",
+        "move_report_to_archive",
+        "workflow_observed",
+        "discover_incoming_report",
+        "move_report_to_archive",
+        "workflow_observed"
+      ],
+      "repetition_score": 0.281,
+      "friction_score": 0.0,
+      "user_busy": false,
+      "jarvis_should_interrupt": false,
+      "evidence": [
+        "observation_count=12",
+        "application context"
+      ],
+      "updated_at": "2026-08-17T12:46:13.864683+00:00"
+    },
+    "living_context_observations": 12,
+    "candidate": {
+      "id": "workflow_discover_folder_inbox_move_file_new_report",
+      "description": "discover folder inbox move file new report",
+      "actions": [
+        {
+          "verb": "discover",
+          "target_role": "folder",
+          "target_name": "inbox",
+          "provider": "filesystem.list",
+          "parameters": {
+            "path": "E:\\jarvis-project\\artifacts\\sprint11\\live_workspace\\20260817T124613847815Z\\inbox"
+          },
+          "risk": "low"
+        },
+        {
+          "verb": "move",
+          "target_role": "file",
+          "target_name": "new report",
+          "provider": "filesystem.move",
+          "parameters": {
+            "destination": {
+              "$slot": "destination"
+            },
+            "source": {
+              "$slot": "source"
+            }
+          },
+          "risk": "low"
+        }
+      ],
+      "frequency": 4,
+      "similarity": 1.0,
+      "time_saved_seconds": 23.5,
+      "reliability": 1.0,
+      "risk": "low",
+      "confidence": 0.931,
+      "desired_state": {
+        "organized": true
+      },
+      "evidence": [
+        "frequency=4",
+        "similarity=1.000",
+        "reliability=1.000",
+        "time_saved=23.500s"
+      ],
+      "ready_threshold": 0.75
+    },
+    "service_opportunity_candidates": [
+      {
+        "id": "workflow_discover_folder_inbox_move_file_new_report",
+        "topic": "discover folder inbox move file new report",
+        "opportunity": "automate semantic workflow: discover folder inbox move file new report",
+        "confidence": 0.931,
+        "expected_value": 0.5,
+        "reversible": true,
+        "risk": "low",
+        "evidence": [
+          "frequency=4",
+          "similarity=1.000",
+          "reliability=1.000",
+          "time_saved=23.500s"
+        ],
+        "ambiguity": 0.0,
+        "urgency": 0.0,
+        "can_prepare": true,
+        "external_side_effect": false,
+        "requires_credentials": false,
+        "missing_information": "",
+        "danger": false,
+        "capability_id": "workflow_discover_folder_inbox_move_file_new_report"
+      }
+    ],
+    "proactive_decision": {
+      "action": "SUGGEST",
+      "user_message": "Сэр, эта последовательность повторяется. Автоматизировать local report organization 20260817T124613847815Z?",
+      "score": 0.877,
+      "evidence": [
+        "frequency=4",
+        "similarity=1.000",
+        "reliability=1.000",
+        "time_saved=23.500s"
+      ],
+      "reason": "useful opportunity awaiting consent",
+      "attention_level": "PASSIVE",
+      "background_allowed": false
+    },
+    "mock_user_response": "accepted",
+    "rehearsal": {
+      "verified": true,
+      "observed": {
+        "organized": true
+      },
+      "missing": {},
+      "action_results": [
+        {
+          "provider": "filesystem.list",
+          "verb": "discover",
+          "accepted": true
+        },
+        {
+          "provider": "filesystem.move",
+          "verb": "move",
+          "accepted": true
+        }
+      ]
+    },
+    "capability_path": "E:\\jarvis-project\\data\\living\\live_service\\20260817T124613847815Z\\capabilities\\workflow_discover_folder_inbox_move_file_new_report.json",
+    "capability_kind": "learned",
+    "second_run": {
+      "verified": true,
+      "observed": {
+        "organized": true
+      },
+      "missing": {},
+      "action_results": [
+        {
+          "provider": "filesystem.list",
+          "verb": "discover",
+          "accepted": true
+        },
+        {
+          "provider": "filesystem.move",
+          "verb": "move",
+          "accepted": true
+        }
+      ]
+    },
+    "second_run_reused_persistent_workflow": true,
+    "second_run_reused_capability": true,
+    "raw_coordinates_used": false
+  },
+  "attention_aware": {
+    "verified": true,
+    "browser_provider": "BrowserAutomationProvider",
+    "url": "http://127.0.0.1:49184/attention-20260817T124613847815Z.html",
+    "dom_nodes": 1,
+    "dom_state": {
+      "media_active": true,
+      "fullscreen": true,
+      "current_time": 0.752106,
+      "ready_state": 4
+    },
+    "while_busy": {
+      "action": "PREPARE",
+      "user_message": "",
+      "score": 0.804,
+      "evidence": [
+        "repeated semantic workflow",
+        "verified filesystem rehearsal"
+      ],
+      "reason": "safe background preparation",
+      "attention_level": "NONE",
+      "background_allowed": true
+    },
+    "after_video": {
+      "action": "SUGGEST",
+      "user_message": "Сэр, эта последовательность повторяется. Автоматизировать attention demo 20260817T124613847815Z?",
+      "score": 0.804,
+      "evidence": [
+        "repeated semantic workflow",
+        "verified filesystem rehearsal"
+      ],
+      "reason": "useful opportunity awaiting consent",
+      "attention_level": "PASSIVE",
+      "background_allowed": false
+    },
+    "foreground_message_while_busy": "",
+    "raw_coordinates_used": false
+  },
+  "beginner_assistance": {
+    "verified": true,
+    "profile": "beginner",
+    "assistant_message": "Я сам выполню безопасные шаги. Если понадобится ввод, скажу.",
+    "message_words": 9,
+    "executed_safe_parts": true,
+    "installer_verification": {
+      "candidate": {
+        "name": "Notepad++",
+        "package_id": "Notepad++.Notepad++",
+        "official_source": "winget://Notepad++.Notepad++",
+        "source_kind": "package_manager",
+        "package_manager": "winget",
+        "installer_type": "nullsoft",
+        "architecture": "x64",
+        "version": "8.9.7",
+        "publisher": "Notepad++ Team",
+        "signature_expected": true,
+        "trusted": true,
+        "download_url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.9.7/npp.8.9.7.Installer.x64.exe",
+        "sha256": "1884e093bae261c4942210334e1f2eae71354913e4ded3cc1a4a18c5320741ec",
+        "expected_executable": "notepad++.exe",
+        "silent_args": [],
+        "launch_args": []
+      },
+      "installer_exit": null,
+      "installed": true,
+      "version": "8.9.7",
+      "executable": "C:\\Program Files\\Notepad++\\notepad++.exe",
+      "signature_status": "Valid",
+      "launched": false,
+      "process_id": null,
+      "window": null,
+      "checks": {
+        "architecture_compatible": true,
+        "installed_package": true,
+        "version_detected": true,
+        "executable_exists": true,
+        "signature": true
+      },
+      "verified": true,
+      "failed_checks": []
+    },
+    "source_resolver": "SoftwareResolver/winget trusted source",
+    "long_instruction_dumped": false
+  },
+  "shadow_prepare": {
+    "verified": true,
+    "decision": {
+      "action": "PREPARE",
+      "user_message": "",
+      "score": 0.798,
+      "evidence": [
+        "repeated local list counting",
+        "standard-library-only template"
+      ],
+      "reason": "safe background preparation",
+      "attention_level": "NONE",
+      "background_allowed": true
+    },
+    "foreground_message": "",
+    "mission": {
+      "task_id": "JARVIS-2026-00001",
+      "goal": "Prepare: prepare a local deterministic item counter",
+      "status": "completed",
+      "created_at": "2026-08-17T12:46:17.549067+00:00",
+      "updated_at": "2026-08-17T12:46:17.638833+00:00",
+      "progress": 1.0,
+      "current_step": "prepared and verified",
+      "model_used": null,
+      "tools_used": [],
+      "result": "{\"verified\": true, \"name\": \"shadow_safe_item_counter\", \"status\": \"registered\", \"confidence\": 100, \"path\": \"E:\\\\jarvis-project\\\\data\\\\living\\\\live_shadow\\\\tools\\\\shadow\\\\shadow_safe_item_counter.py\", \"syntax\": true, \"safety\": true, \"functional\": true, \"style\": true, \"research\": {\"template\": \"E:\\\\jarvis-project\\\\data\\\\tools\\\\templates\\\\basic_tool.py\", \"template_read\": true, \"existing_tool_examples\": 1}}",
+      "error": null,
+      "errors": [],
+      "verification": {
+        "verified": true,
+        "evidence": [
+          "repeated local list counting",
+          "standard-library-only template"
+        ]
+      },
+      "acknowledgement": null,
+      "plan": [],
+      "metadata": {
+        "proactive": true,
+        "candidate_id": "shadow-20260817T124613847815Z",
+        "risk": "low",
+        "evidence": [
+          "repeated local list counting",
+          "standard-library-only template"
+        ],
+        "foreground_interruption": false,
+        "background_mode": "RUN",
+        "cpu_quota": 0.453
+      },
+      "events": [
+        {
+          "task_id": "JARVIS-2026-00001",
+          "event_type": "task_started",
+          "timestamp": "2026-08-17T12:46:17.549067+00:00",
+          "phase": "queued",
+          "payload": {
+            "goal": "Prepare: prepare a local deterministic item counter",
+            "watchdog_sec": null
+          }
+        },
+        {
+          "task_id": "JARVIS-2026-00001",
+          "event_type": "task_progress",
+          "timestamp": "2026-08-17T12:46:17.550071+00:00",
+          "phase": "acknowledging",
+          "payload": {
+            "status": "acknowledging",
+            "reason": "mission accepted",
+            "progress": 0.0
+          }
+        },
+        {
+          "task_id": "JARVIS-2026-00001",
+          "event_type": "acknowledged",
+          "timestamp": "2026-08-17T12:46:17.550071+00:00",
+          "phase": "acknowledging",
+          "payload": {
+            "ack": "Принято, сэр. Разбираюсь."
+          }
+        },
+        {
+          "task_id": "JARVIS-2026-00001",
+          "event_type": "task_progress",
+          "timestamp": "2026-08-17T12:46:17.551096+00:00",
+          "phase": "acknowledging",
+          "payload": {
+            "progress": 0.0,
+            "current_step": "prepare attempt 1"
+          }
+        },
+        {
+          "task_id": "JARVIS-2026-00001",
+          "event_type": "task_progress",
+          "timestamp": "2026-08-17T12:46:17.636813+00:00",
+          "phase": "acknowledging",
+          "payload": {
+            "progress": 1.0,
+            "current_step": "prepared and verified"
+          }
+        },
+        {
+          "task_id": "JARVIS-2026-00001",
+          "event_type": "task_progress",
+          "timestamp": "2026-08-17T12:46:17.637828+00:00",
+          "phase": "completed",
+          "payload": {
+            "status": "completed",
+            "reason": null,
+            "progress": 1.0
+          }
+        },
+        {
+          "task_id": "JARVIS-2026-00001",
+          "event_type": "task_completed",
+          "timestamp": "2026-08-17T12:46:17.638833+00:00",
+          "phase": "completed",
+          "payload": {
+            "status": "completed",
+            "result": "{\"verified\": true, \"name\": \"shadow_safe_item_counter\", \"status\": \"registered\", \"confidence\": 100, \"path\": \"E:\\\\jarvis-project\\\\data\\\\living\\\\live_shadow\\\\tools\\\\shadow\\\\shadow_safe_item_counter.py\", \"syntax\": true, \"safety\": true, \"functional\": true, \"style\": true, \"research\": {\"template\": \"E:\\\\jarvis-project\\\\data\\\\tools\\\\templates\\\\basic_tool.py\", \"template_read\": true, \"existing_tool_examples\": 1}}"
+          }
+        }
+      ]
+    },
+    "prepared_tool": {
+      "name": "shadow_safe_item_counter",
+      "status": "registered",
+      "confidence": 100,
+      "path": "E:\\jarvis-project\\data\\living\\live_shadow\\tools\\shadow\\shadow_safe_item_counter.py",
+      "syntax": true,
+      "safety": true,
+      "functional": true,
+      "style": true,
+      "research": {
+        "template": "E:\\jarvis-project\\data\\tools\\templates\\basic_tool.py",
+        "template_read": true,
+        "existing_tool_examples": 1
+      }
+    },
+    "registered_in_action_registry": true,
+    "foreground_interrupted": false
+  },
+  "privacy": {
+    "screen_pixels_stored": false,
+    "keystrokes_stored": false,
+    "clipboard_values_stored": false,
+    "secrets_stored": false
+  },
+  "frontend_changed_by_sprint11": false,
+  "new_llm_models": [],
+  "verified": true
+}

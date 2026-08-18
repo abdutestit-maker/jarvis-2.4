@@ -1,16 +1,18 @@
 /**
- * J.A.R.V.I.S. v3.0 — Settings Panel (frontend-only)
- * Theme · Panel transparency · Reduce motion · Personal background · Honorific.
- * No backend dependency. Reduce-motion is also respected via OS preference
- * (ThemeProvider merges system + user setting).
+ * J.A.R.V.I.S. v3.0 — Settings Panel
+ * Theme · Panel transparency · Reduce motion · Personal background · Honorific
+ * · Cloud LLM provider (провайдер/модель/ключ) через существующий WS-транспорт.
+ * Логика ключа не меняется — только интерфейс к готовым методам транспорта.
  */
 
-import { useState, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { motion } from 'framer-motion';
-import { X, Sun, Moon, Layers, Crown, User } from 'lucide-react';
+import { X, Sun, Moon, Layers, Crown, User, Cloud, KeyRound, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUIState } from '@/hooks/useUIState';
 import { useTheme } from '@/stores/themeStore';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { cloudSettingsApi } from '@/hooks/useBackendBridge';
+import type { CloudSettings } from '@/integrations/wsBackend';
 import type { ThemeName } from '@/types';
 import styles from './SettingsPanel.module.css';
 
@@ -30,6 +32,137 @@ function themeSwatch(t: ThemeName): string {
     case 'olympus': return 'linear-gradient(135deg,#0a0a1e,#1a1640)';
     case 'personal': return 'linear-gradient(135deg,#1a1030,#2a1a4a)';
   }
+}
+
+type CloudStatus = 'loading' | 'ready' | 'saving' | 'error';
+
+/** Секция «Облако»: провайдер/модель/ключ через существующий WS-транспорт. */
+function CloudSection() {
+  const [status, setStatus] = useState<CloudStatus>('loading');
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [cloud, setCloud] = useState<CloudSettings | null>(null);
+  const [provider, setProvider] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    cloudSettingsApi.getCloudSettings()
+      .then((s) => {
+        if (!alive) return;
+        setCloud(s);
+        setProvider(s.provider);
+        setBaseUrl(s.base_url);
+        setModel(s.model);
+        setStatus('ready');
+      })
+      .catch((e: unknown) => {
+        if (!alive) return;
+        setError(e instanceof Error ? e.message : 'Backend недоступен');
+        setStatus('error');
+      });
+    return () => { alive = false; };
+  }, []);
+
+  const save = async (clearKey = false) => {
+    if (status === 'saving') return;
+    setStatus('saving');
+    setError(null);
+    setSaved(false);
+    try {
+      const s = await cloudSettingsApi.updateCloudSettings({
+        provider: provider.trim() || undefined,
+        base_url: baseUrl.trim() || undefined,
+        model: model.trim() || undefined,
+        api_key: clearKey ? undefined : (apiKey ? apiKey : undefined),
+        clear_api_key: clearKey || undefined,
+      });
+      setCloud(s);
+      setProvider(s.provider);
+      setBaseUrl(s.base_url);
+      setModel(s.model);
+      setApiKey('');
+      setStatus('ready');
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2200);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить');
+      setStatus('error');
+    }
+  };
+
+  const dirty = status === 'ready' && cloud != null && (
+    provider !== cloud.provider || baseUrl !== cloud.base_url
+    || model !== cloud.model || apiKey.trim().length > 0
+  );
+
+  return (
+    <section className={styles.group}>
+      <label className={styles.label}>
+        Облако · LLM-провайдер
+        {cloud && (
+          <span className={styles.value} data-has-key={cloud.has_api_key}>
+            {cloud.has_api_key ? `ключ: ${cloud.api_key_masked}` : 'ключ не задан'}
+          </span>
+        )}
+      </label>
+
+      {status === 'loading' && (
+        <div className={styles.cloudNote}><Loader2 size={14} className={styles.spinSoft} /> Читаю настройки backend…</div>
+      )}
+      {status === 'error' && (
+        <div className={styles.cloudNoteError}><AlertCircle size={14} /> {error ?? 'Backend недоступен'}</div>
+      )}
+
+      {(status === 'ready' || status === 'saving' || status === 'error') && cloud && (
+        <>
+          <div className={styles.cloudGrid}>
+            <label className={styles.field}>
+              <span>Провайдер</span>
+              <input className={styles.text} value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Провайдер" />
+            </label>
+            <label className={styles.field}>
+              <span>Модель</span>
+              <input className={styles.text} value={model} onChange={(e) => setModel(e.target.value)} aria-label="Модель" />
+            </label>
+          </div>
+          <label className={styles.field}>
+            <span>Base URL</span>
+            <input className={styles.text} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} aria-label="Base URL" spellCheck={false} />
+          </label>
+          <label className={styles.field}>
+            <span>API-ключ {cloud.has_api_key && <em className={styles.keyMask}>текущий: {cloud.api_key_masked}</em>}</span>
+            <input
+              className={styles.text}
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Новый ключ (не отображается и не возвращается обратно)"
+              aria-label="API-ключ"
+              autoComplete="off"
+            />
+          </label>
+          <div className={styles.cloudActions}>
+            <button className={styles.saveBtn} onClick={() => void save()} disabled={status === 'saving' || !dirty}>
+              {status === 'saving'
+                ? <><Loader2 size={14} className={styles.spinSoft} /> Сохранение…</>
+                : saved
+                  ? <><CheckCircle2 size={14} /> Сохранено</>
+                  : <><Cloud size={14} /> Сохранить</>}
+            </button>
+            {cloud.has_api_key && (
+              <button className={styles.resetBtn} onClick={() => void save(true)} disabled={status === 'saving'}>
+                <KeyRound size={13} /> Стереть ключ
+              </button>
+            )}
+          </div>
+          <p className={styles.hint}>Ключ передаётся только в settings:update и хранится на стороне backend; интерфейс получает лишь маску.</p>
+        </>
+      )}
+    </section>
+  );
 }
 
 export function SettingsPanel() {
@@ -150,6 +283,8 @@ export function SettingsPanel() {
               />
               <p className={styles.hint}>Как J.A.R.V.I.S. обращается к вам (например: сэр).</p>
             </section>
+
+            <CloudSection />
           </div>
         </motion.div>
       </motion.div>

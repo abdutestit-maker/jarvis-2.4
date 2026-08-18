@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -25,6 +27,7 @@ __all__ = [
     "save_profile",
     "update_profile",
     "get_profile_context",
+    "get_relevant_profile_context",
     "profile_path",
 ]
 
@@ -64,19 +67,25 @@ def load_profile(settings: Settings) -> Dict[str, Any]:
     path = profile_path(settings)
     if not path.is_file():
         log.info("Файл профиля не найден (%s) — использую дефолтный пустой профиль", path)
-        return dict(DEFAULT_PROFILE)
+        # Глубокая копия: DEFAULT_PROFILE содержит списки (interests/...),
+        # поверхностная копия отдала бы их по ссылке — и первый же
+        # learn_facts мутировал бы «дефолт» для всех будущих сессий.
+        return copy.deepcopy(DEFAULT_PROFILE)
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         log.warning("Профиль повреждён (%s), возвращаю дефолт: %s", path, exc)
-        return dict(DEFAULT_PROFILE)
+        return copy.deepcopy(DEFAULT_PROFILE)
 
     if not isinstance(data, dict):
         log.warning("Профиль не является объектом JSON, возвращаю дефолт")
-        return dict(DEFAULT_PROFILE)
-    # Дополняем недостающие ключи дефолтами, чтобы не ловить KeyError.
-    return {**DEFAULT_PROFILE, **data}
+        return copy.deepcopy(DEFAULT_PROFILE)
+    # Дополняем недостающие ключи дефолтами, чтобы не ловить KeyError
+    # (вложенные списки тоже копируем — см. замечание выше).
+    merged = copy.deepcopy(DEFAULT_PROFILE)
+    merged.update(data)
+    return merged
 
 
 def save_profile(settings: Settings, profile: Dict[str, Any]) -> Path:
@@ -141,6 +150,10 @@ def get_profile_context(settings: Settings) -> str:
     profile = load_profile(settings)
     parts: list[str] = []
 
+    name = (profile.get("name") or "").strip()
+    if name:
+        parts.append(f"Пользователя зовут {name}.")
+
     conditions = profile.get("conditions") or []
     if conditions:
         parts.append(", ".join(conditions) + ".")
@@ -172,3 +185,44 @@ def get_profile_context(settings: Settings) -> str:
         parts.append(notes)
 
     return " ".join(parts).strip()
+
+
+def get_relevant_profile_context(settings: Settings, query: str, *, max_chars: int = 800) -> str:
+    """Return only profile facts that overlap the current query.
+
+    Explicit profile questions can see the profile; ordinary turns receive a
+    bounded overlap-gated slice so unrelated interests do not leak into the
+    response prompt.
+    """
+    profile = load_profile(settings)
+    text = " ".join((query or "").casefold().split())
+    query_tokens = set(re.findall(r"[\w-]{2,}", text, flags=re.UNICODE))
+    explicit_profile = any(marker in text for marker in
+                           ("профиль", "обо мне", "мои интерес", "моё имя", "предпочт"))
+
+    def relevant(value: Any) -> bool:
+        value_tokens = set(re.findall(r"[\w-]{2,}", str(value).casefold(), flags=re.UNICODE))
+        return explicit_profile or bool(query_tokens & value_tokens)
+
+    parts: list[str] = []
+    name = (profile.get("name") or "").strip()
+    # A confirmed name is relationship identity, not topical memory; keeping
+    # it in every prompt preserves continuity without leaking interest lists.
+    if name:
+        parts.append(f"Пользователя зовут {name}.")
+    for key, prefix in (("conditions", ""), ("interests", "Любит "), ("dislikes", "Не любит ")):
+        values = profile.get(key) or []
+        if not isinstance(values, list):
+            values = [values]
+        selected = [str(item) for item in values if relevant(item)]
+        if selected:
+            parts.append(prefix + ", ".join(selected) + ".")
+    preferences = profile.get("preferences") or {}
+    if isinstance(preferences, dict):
+        length = preferences.get("response_length")
+        if length in {"short", "long"} and (explicit_profile or "ответ" in text or "крат" in text or "подроб" in text):
+            parts.append("Предпочитает " + ("короткие" if length == "short" else "подробные") + " ответы.")
+    notes = (profile.get("notes") or "").strip()
+    if notes and relevant(notes):
+        parts.append(notes)
+    return " ".join(parts).strip()[:max(80, int(max_chars))]

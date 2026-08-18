@@ -1,0 +1,2776 @@
+--- a/core/cognitive/models.py
++++ b/core/cognitive/models.py
+@@ -32,6 +32,12 @@
+     last_verified_result: str = ""
+     pending_user_question: str = ""
+     active_mission_id: str = ""
++    known: list[str] = field(default_factory=list)
++    unknown: list[str] = field(default_factory=list)
++    uncertain: list[str] = field(default_factory=list)
++    conflicted: list[str] = field(default_factory=list)
++    needs_verification: list[str] = field(default_factory=list)
++    active_epistemic_key: str = ""
+     updated_at: str = field(default_factory=utcnow)
+ 
+     def to_safe_dict(self) -> dict[str, Any]:
+--- a/core/cognitive/state.py
++++ b/core/cognitive/state.py
+@@ -17,6 +17,8 @@
+     "recalled_memory_refs", "mission_state", "uncertainties",
+     "pending_verification", "interaction_mode", "confidence",
+     "last_verified_result", "pending_user_question", "active_mission_id",
++    "known", "unknown", "uncertain", "conflicted", "needs_verification",
++    "active_epistemic_key",
+     "updated_at",
+ )
+ 
+--- a/core/cognitive/orchestrator.py
++++ b/core/cognitive/orchestrator.py
+@@ -2,8 +2,10 @@
+ 
+ from __future__ import annotations
+ 
++import hashlib
+ import re
+ from dataclasses import dataclass
++from datetime import datetime, timezone
+ from pathlib import Path
+ from typing import Any
+ 
+@@ -12,6 +14,18 @@
+ from core.cognitive.models import CurrentMindState, GoalFrame
+ from core.cognitive.self_model import CapabilitySelfModel
+ from core.cognitive.state import MindStateStore
++from core.metacognition import (
++    AuditTrail,
++    BeliefStore,
++    EpistemicStatus,
++    EvidenceRef,
++    FailureEpisodeStore,
++    Freshness,
++    MetacognitionEngine,
++    SelfCorrectionEngine,
++    SourceType,
++    VerificationStatus,
++)
+ from core.voice.tts_sanitizer import sanitize_for_tts
+ 
+ 
+@@ -56,6 +70,15 @@
+         self.continuity = ContinuityResolver(self.goal_stack)
+         self.addressing = address_recognizer or AddressRecognizer(AddressFormStore(root / "addressing"))
+         self.risk_policy = risk_policy or self._default_risk_policy()
++        self.audit = AuditTrail(root / "metacognition" / "audit")
++        self.belief_store = BeliefStore(root / "metacognition" / "beliefs")
++        self.failure_store = FailureEpisodeStore(root / "metacognition" / "failures")
++        self.metacognition = MetacognitionEngine(
++            self.belief_store, risk_policy=self.risk_policy, audit=self.audit,
++        )
++        self.correction = SelfCorrectionEngine(
++            self.failure_store, risk_policy=self.risk_policy, audit=self.audit,
++        )
+         self.self_model = CapabilitySelfModel(
+             registry, capability_registry=capability_registry,
+             providers=providers, risk_policy=self.risk_policy,
+@@ -75,6 +98,7 @@
+         self.state = self.store.reconstruct(
+             task_runtime=task_runtime, living_context=living_context,
+         )
++        self.sync_epistemic_state()
+ 
+     @staticmethod
+     def _default_risk_policy() -> Any:
+@@ -94,6 +118,13 @@
+         if match.addressed_to_atlas:
+             self.addressing.confirm(match, accepted=True)
+         command = match.remaining_text if match.addressed_to_atlas and match.remaining_text else raw
++
++        epistemic = self._metacognition_answer(command)
++        if epistemic is not None:
++            return CognitiveTurn(
++                command, True, "metacognition", response=epistemic,
++                confidence=1.0, evidence=(self.state.active_epistemic_key,),
++            )
+ 
+         continuation = self.continuity.resolve(command, self.state)
+         if continuation.action == "clarify":
+@@ -175,6 +206,48 @@
+         report = self.capability_engine.execute(turn.plan)
+         return self.complete_execution(turn, report), report
+ 
++    def execute_with_correction(self, *, goal: str, task_class: str,
++                                strategies: list[Any], expectation: Any,
++                                observer: Any, environment: dict[str, Any],
++                                evidence_provider: Any = None,
++                                risk: str = "low") -> tuple[str, Any]:
++        """Run bounded correction and update durable state only from observation."""
++        self.state.current_goal = goal
++        self.state.active_task = "expect, act, observe and compare"
++        self.state.mission_state = "executing"
++        report = self.correction.run(
++            goal=goal, task_class=task_class, strategies=strategies,
++            expectation=expectation, observer=observer, environment=environment,
++            evidence_provider=evidence_provider, risk=risk,
++        )
++        if report.needs_confirmation:
++            self.state.mission_state = "waiting_for_user"
++            self.store.observe_result(
++                self.state, result="", verified=False, pending=["user confirmation"],
++            )
++            return "Мне потребуется ваше подтверждение.", report
++        if report.verified:
++            result = f"desired state verified by {report.selected_strategy}"
++            self.state.mission_state = "completed"
++            self.store.observe_result(
++                self.state, result=result, verified=True,
++                evidence=[f"strategy:{report.selected_strategy}"],
++            )
++            self._record_outcome_belief(
++                goal, verified=True,
++                evidence_ref=f"strategy:{report.selected_strategy}",
++            )
++            return "Готово. Проверил — работает.", report
++        self.state.mission_state = "researching"
++        pending = list(getattr(expectation, "expected_effect", {}).keys()) or ["desired state"]
++        self.store.observe_result(
++            self.state, result=report.state, verified=False, pending=pending,
++        )
++        self._record_outcome_belief(
++            goal, verified=False, evidence_ref="expectation_mismatch",
++        )
++        return "Результат не совпал с ожидаемым. Ищу другой способ.", report
++
+     def complete_execution(self, turn: CognitiveTurn, report: Any) -> str:
+         verification = getattr(report, "verification", None)
+         verified = bool(
+@@ -197,6 +270,8 @@
+             self.store.observe_result(
+                 self.state, result=result, verified=True, evidence=evidence,
+             )
++            self._record_outcome_belief(turn.goal or turn.text, verified=True,
++                                        evidence_ref=(evidence[0] if evidence else "desired_state"))
+             if self.state.active_mission_id:
+                 self.goal_stack.remove(self.state.active_mission_id)
+             return "Готово. Проверил — работает."
+@@ -205,6 +280,8 @@
+         self.state.mission_state = "verifying"
+         self.store.observe_result(self.state, result=str(getattr(report, "state", "")),
+                                   verified=False, pending=pending)
++        self._record_outcome_belief(turn.goal or turn.text, verified=False,
++                                    evidence_ref="desired_state_mismatch")
+         return "Действие выполнено, результат ещё проверяю."
+ 
+     def record_external_outcome(self, *, goal: str, result: str,
+@@ -216,6 +293,29 @@
+         self.store.observe_result(
+             self.state, result=result, verified=verified, pending=pending or [],
+         )
++        self._record_outcome_belief(goal, verified=verified,
++                                    evidence_ref=f"mission:{mission_id}" if mission_id else "mission")
++
++    def resolve_knowledge(self, *, key: str, claim: str,
++                          observer: Any = None, capability: Any = None,
++                          researcher: Any = None, observer_risk: str = "low",
++                          now: datetime | None = None):
++        decision = self.metacognition.resolve(
++            key=key, claim=claim, observer=observer, capability=capability,
++            researcher=researcher, observer_risk=observer_risk, now=now,
++        )
++        self.state.active_epistemic_key = key
++        self.sync_epistemic_state(now=now)
++        self.store.save(self.state)
++        return decision
++
++    def sync_epistemic_state(self, *, now: datetime | None = None) -> None:
++        summary = self.metacognition.summary(now=now)
++        self.state.known = summary["known"]
++        self.state.unknown = summary["unknown"]
++        self.state.uncertain = summary["uncertain"]
++        self.state.conflicted = summary["conflicted"]
++        self.state.needs_verification = summary["needs_verification"]
+ 
+     def suspend_current(self) -> GoalFrame | None:
+         if not self.state.current_goal:
+@@ -231,6 +331,38 @@
+ 
+     def speech_text(self, text: str) -> str:
+         return sanitize_for_tts(text, fallback="")
++
++    def _metacognition_answer(self, text: str) -> str | None:
++        value = " ".join((text or "").casefold().replace("ё", "е").split())
++        key = self.state.active_epistemic_key
++        if re.search(r"\b(ты уверен|это точно|уверен)\b", value):
++            return self.metacognition.certainty_response(key) if key else "Пока не знаю. Могу проверить."
++        if re.search(r"(откуда.*знаешь|какой источник|почему ты это знаешь)", value):
++            return self.metacognition.provenance_response(key) if key else "Источник пока не подтверждён."
++        return None
++
++    def _record_outcome_belief(self, goal: str, *, verified: bool,
++                               evidence_ref: str) -> None:
++        safe_goal = (goal or "task").strip()
++        digest = hashlib.sha256(safe_goal.casefold().encode("utf-8")).hexdigest()[:16]
++        key = f"goal.outcome.{digest}"
++        now = datetime.now(timezone.utc)
++        belief = self.metacognition.record(
++            key=key, claim=f"Desired state for task: {safe_goal}", value=verified,
++            status=EpistemicStatus.KNOWN if verified else EpistemicStatus.OBSERVED,
++            evidence=[EvidenceRef(
++                ref_id=evidence_ref, source_type=SourceType.DIRECT_OBSERVATION,
++                origin_id=f"verification:{key}:{'success' if verified else 'failure'}",
++                reliability=1.0, observed_at=now.isoformat(), verified=True, direct=True,
++            )],
++            freshness=Freshness.stable(now, ttl_seconds=2_592_000),
++            verification_status=(VerificationStatus.VERIFIED if verified
++                                 else VerificationStatus.FAILED),
++            now=now,
++        )
++        self.state.active_epistemic_key = belief.key
++        self.sync_epistemic_state(now=now)
++        self.store.save(self.state)
+ 
+     def _retrieve_memory_refs(self, query: str) -> tuple[str, ...]:
+         if self.memory_hierarchy is None:
+--- /dev/null
++++ b/core/metacognition/__init__.py
+@@ -0,0 +1,44 @@
++"""ATLAS metacognition public contracts."""
++
++from core.metacognition.calibration import ConfidenceCalibrator
++from core.metacognition.audit import AuditTrail
++from core.metacognition.correction import (
++    CorrectionAttempt,
++    CorrectionReport,
++    SelfCorrectionEngine,
++    Strategy,
++)
++from core.metacognition.engine import KnowledgeDecision, MetacognitionEngine
++from core.metacognition.freshness import FreshnessPolicy
++from core.metacognition.expectation import (
++    ComparisonResult,
++    Expectation,
++    ExpectationComparator,
++    Surprise,
++)
++from core.metacognition.failures import (
++    FailureEpisode,
++    FailureEpisodeStore,
++    fingerprint_environment,
++)
++from core.metacognition.models import (
++    Belief,
++    CalibrationResult,
++    EpistemicState,
++    EpistemicStatus,
++    EvidenceRef,
++    Freshness,
++    FreshnessState,
++    SourceType,
++    VerificationStatus,
++)
++from core.metacognition.store import BeliefStore
++
++__all__ = [
++    "AuditTrail", "Belief", "BeliefStore", "CalibrationResult", "ComparisonResult",
++    "ConfidenceCalibrator", "CorrectionAttempt", "CorrectionReport", "EpistemicState", "EpistemicStatus",
++    "EvidenceRef", "Expectation", "ExpectationComparator", "FailureEpisode",
++    "FailureEpisodeStore", "Freshness", "FreshnessPolicy", "FreshnessState",
++    "KnowledgeDecision", "MetacognitionEngine", "SelfCorrectionEngine", "SourceType",
++    "Strategy", "Surprise", "VerificationStatus", "fingerprint_environment",
++]
+--- /dev/null
++++ b/core/metacognition/audit.py
+@@ -0,0 +1,73 @@
++"""Machine-readable metacognition audit without private reasoning fields."""
++
++from __future__ import annotations
++
++import json
++import os
++from pathlib import Path
++from typing import Any
++
++from core.metacognition.models import utcnow
++from core.metacognition.store import safe_value
++
++
++_PRIVATE_KEYS = {"reasoning", "thoughts", "chain_of_thought", "scratchpad", "private_reasoning"}
++
++
++def _public(value: Any) -> Any:
++    if isinstance(value, dict):
++        return {
++            str(key): _public(item) for key, item in value.items()
++            if str(key).casefold() not in _PRIVATE_KEYS
++        }
++    if isinstance(value, list):
++        return [_public(item) for item in value]
++    return safe_value(value)
++
++
++class AuditTrail:
++    def __init__(self, directory: Path | str, *, max_events: int = 1000) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "metacognition_events.json"
++        self.max_events = max(10, int(max_events))
++
++    def record(self, event_type: str, payload: dict[str, Any]) -> None:
++        events = self.events()
++        events.append({
++            "type": str(event_type)[:80], "timestamp": utcnow(),
++            "payload": _public(payload),
++        })
++        self._write(self.path, {"version": 1, "events": events[-self.max_events:]})
++
++    def events(self) -> list[dict[str, Any]]:
++        try:
++            payload = json.loads(self.path.read_text(encoding="utf-8-sig"))
++            return [item for item in payload.get("events", ()) if isinstance(item, dict)]
++        except (OSError, TypeError, ValueError):
++            return []
++
++    def export_bundle(self, destination: Path | str, *, beliefs: list[Any],
++                      failures: list[Any]) -> Path:
++        target = Path(destination)
++        payload = {
++            "schema": "atlas.metacognition.audit.v1",
++            "created_at": utcnow(),
++            "beliefs": [_public(item.to_dict() if hasattr(item, "to_dict") else item)
++                        for item in beliefs],
++            "failure_episodes": [_public(item.to_dict() if hasattr(item, "to_dict") else item)
++                                 for item in failures],
++            "events": self.events(),
++        }
++        self._write(target, payload)
++        return target
++
++    @staticmethod
++    def _write(path: Path, payload: dict[str, Any]) -> None:
++        path.parent.mkdir(parents=True, exist_ok=True)
++        temporary = path.with_suffix(path.suffix + ".tmp")
++        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
++        os.replace(temporary, path)
++
++
++__all__ = ["AuditTrail"]
+--- /dev/null
++++ b/core/metacognition/calibration.py
+@@ -0,0 +1,77 @@
++"""Deterministic confidence calibration from inspectable evidence signals."""
++
++from __future__ import annotations
++
++from datetime import datetime
++
++from core.metacognition.models import (
++    Belief, CalibrationResult, EpistemicStatus, VerificationStatus,
++)
++
++
++class ConfidenceCalibrator:
++    def calibrate(self, belief: Belief, *, now: datetime | None = None,
++                  successful_prior_episodes: int = 0) -> CalibrationResult:
++        independent = {}
++        for item in belief.evidence_refs:
++            origin = item.origin_id or item.ref_id
++            previous = independent.get(origin)
++            if previous is None or self._quality(item) > self._quality(previous):
++                independent[origin] = item
++        evidence = list(independent.values())
++        reliability = sum(item.reliability for item in evidence) / len(evidence) if evidence else 0.0
++        direct = 1.0 if any(item.direct for item in evidence) else 0.0
++        verified = 1.0 if (
++            belief.verification_status is VerificationStatus.VERIFIED
++            or any(item.verified for item in evidence)
++        ) else 0.0
++        memory_scores = [item.memory_confidence for item in evidence
++                         if item.memory_confidence is not None]
++        memory = sum(memory_scores) / len(memory_scores) if memory_scores else 0.0
++        uncertainty = max((item.provider_uncertainty for item in evidence), default=0.0)
++        freshness = belief.freshness.score(now)
++        contradiction_count = len(set(belief.contradictions))
++        unresolved_conflict = 1 if belief.status is EpistemicStatus.CONFLICTED else 0
++        count = len(evidence)
++        independence = 0.0 if not count else 0.05 + 0.08 * min(2, count - 1)
++        prior = min(0.05, max(0, int(successful_prior_episodes)) * 0.01)
++        score = (
++            0.10 + 0.25 * reliability + 0.25 * direct + 0.25 * verified
++            + 0.10 * freshness + independence + 0.05 * memory + prior
++            - 0.20 * uncertainty - 0.35 * unresolved_conflict
++        )
++        if freshness == 0.0:
++            score -= 0.30
++        caps = {
++            EpistemicStatus.UNKNOWN: 0.15,
++            EpistemicStatus.ASSUMED: 0.49,
++            EpistemicStatus.INFERRED: 0.79,
++            EpistemicStatus.CONFLICTED: 0.45,
++        }
++        score = min(score, caps.get(belief.status, 0.99))
++        confidence = round(max(0.0, min(0.99, score)), 3)
++        inputs: dict[str, float | int] = {
++            "source_reliability": round(reliability, 3),
++            "direct_observation": direct,
++            "verified_evidence": verified,
++            "freshness": freshness,
++            "independent_sources": count,
++            "memory_confidence": round(memory, 3),
++            "contradictions": contradiction_count,
++            "successful_prior_episodes": max(0, int(successful_prior_episodes)),
++            "provider_uncertainty": round(uncertainty, 3),
++        }
++        return CalibrationResult(
++            confidence, inputs,
++            tuple(item.ref_id for item in evidence),
++        )
++
++    @staticmethod
++    def _quality(evidence) -> float:
++        return (
++            evidence.reliability + 0.2 * bool(evidence.verified)
++            + 0.2 * bool(evidence.direct) - 0.2 * evidence.provider_uncertainty
++        )
++
++
++__all__ = ["ConfidenceCalibrator"]
+--- /dev/null
++++ b/core/metacognition/correction.py
+@@ -0,0 +1,147 @@
++"""Bounded PLAN→EXPECT→ACT→OBSERVE→COMPARE correction loop."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Any, Callable
++
++from core.metacognition.expectation import Expectation, ExpectationComparator, Surprise
++from core.metacognition.failures import (
++    FailureEpisode, FailureEpisodeStore, fingerprint_environment,
++)
++
++
++@dataclass(frozen=True)
++class Strategy:
++    name: str
++    action: Callable[[], Any]
++
++
++@dataclass
++class CorrectionAttempt:
++    strategy: str
++    reported_success: bool
++    observed: dict[str, Any]
++    verified: bool
++    mismatch: dict[str, Any] = field(default_factory=dict)
++
++
++@dataclass
++class CorrectionReport:
++    verified: bool
++    state: str
++    attempts: list[CorrectionAttempt] = field(default_factory=list)
++    surprises: list[Surprise] = field(default_factory=list)
++    selected_strategy: str = ""
++    skipped_strategies: list[str] = field(default_factory=list)
++    failure_episodes: list[FailureEpisode] = field(default_factory=list)
++    strategy_confidence: dict[str, float] = field(default_factory=dict)
++    needs_confirmation: bool = False
++
++
++class SelfCorrectionEngine:
++    def __init__(self, failures: FailureEpisodeStore, *, max_attempts: int = 3,
++                 risk_policy: Any = None, audit: Any = None) -> None:
++        self.failures = failures
++        self.max_attempts = max(1, min(5, int(max_attempts)))
++        self.risk_policy = risk_policy
++        self.audit = audit
++        self.comparator = ExpectationComparator()
++
++    def run(self, *, goal: str, task_class: str, strategies: list[Strategy],
++            expectation: Expectation, observer: Callable[[], dict[str, Any]],
++            environment: dict[str, Any], evidence_provider: Callable[[], list[str]] | None = None,
++            risk: str = "low") -> CorrectionReport:
++        if self.risk_policy is not None:
++            decision = self.risk_policy.decide(confidence=0.95, risk=risk)
++            if getattr(decision, "action", "") == "confirm":
++                return CorrectionReport(False, "waiting_for_user", needs_confirmation=True)
++
++        fingerprint = fingerprint_environment(environment)
++        avoided = self.failures.avoid_strategies(task_class, fingerprint)
++        report = CorrectionReport(False, "executing")
++        report.strategy_confidence = {item.name: 1.0 for item in strategies}
++        attempted: set[str] = set()
++        new_failure_ids: list[str] = []
++        for strategy in strategies:
++            if len(report.attempts) >= self.max_attempts:
++                break
++            if strategy.name in avoided or strategy.name in attempted:
++                if strategy.name not in report.skipped_strategies:
++                    report.skipped_strategies.append(strategy.name)
++                continue
++            attempted.add(strategy.name)
++            current_expectation = Expectation(
++                expectation.action_id, expectation.goal, strategy.name,
++                dict(expectation.expected_effect), expectation.verification_method,
++                list(expectation.failure_indicators), expectation.created_at,
++            )
++            self._audit("expectation", current_expectation.to_dict())
++            try:
++                action_result = strategy.action()
++                reported_success = bool(getattr(action_result, "ok", action_result is not False))
++            except Exception:
++                action_result = None
++                reported_success = False
++            self._audit("action", {"strategy": strategy.name,
++                                   "reported_success": reported_success})
++            try:
++                observed = dict(observer() or {})
++            except Exception:
++                observed = {}
++            refs = list(evidence_provider() if evidence_provider else ())
++            comparison = self.comparator.compare(
++                current_expectation, observed, evidence_refs=refs,
++            )
++            attempt = CorrectionAttempt(
++                strategy.name, reported_success, observed, comparison.verified,
++                comparison.surprise.mismatch if comparison.surprise else {},
++            )
++            report.attempts.append(attempt)
++            self._audit("observation", {"strategy": strategy.name, "observed": observed,
++                                        "evidence_refs": refs})
++            if comparison.verified:
++                report.verified = True
++                report.state = "completed"
++                report.selected_strategy = strategy.name
++                if new_failure_ids:
++                    report.failure_episodes = self.failures.mark_repair(
++                        new_failure_ids, strategy.name,
++                    )
++                self._audit("verification", {"verified": True,
++                                             "strategy": strategy.name})
++                return report
++
++            surprise = comparison.surprise
++            if surprise is not None:
++                report.surprises.append(surprise)
++                self._audit("surprise", surprise.to_dict())
++                episode = self.failures.record(FailureEpisode(
++                    goal=goal, task_class=task_class, strategy=strategy.name,
++                    failure_category="expectation_mismatch",
++                    observed_mismatch=surprise.mismatch,
++                    environment_fingerprint=fingerprint, confidence=0.9,
++                    evidence_refs=refs,
++                ))
++                report.failure_episodes.append(episode)
++                new_failure_ids.append(episode.episode_id)
++            report.strategy_confidence[strategy.name] = round(
++                max(0.0, report.strategy_confidence.get(strategy.name, 1.0) - 0.3), 3,
++            )
++            self._audit("strategy_change", {
++                "failed_strategy": strategy.name,
++                "remaining_attempts": self.max_attempts - len(report.attempts),
++            })
++
++        report.state = "research_required"
++        self._audit("verification", {"verified": False, "state": report.state})
++        return report
++
++    def _audit(self, event_type: str, payload: dict[str, Any]) -> None:
++        if self.audit is not None:
++            self.audit.record(event_type, payload)
++
++
++__all__ = [
++    "CorrectionAttempt", "CorrectionReport", "SelfCorrectionEngine", "Strategy",
++]
+--- /dev/null
++++ b/core/metacognition/engine.py
+@@ -0,0 +1,320 @@
++"""Contradiction-aware belief updates and verify-before-ask decisions."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from typing import Any, Callable
++
++from core.metacognition.calibration import ConfidenceCalibrator
++from core.metacognition.freshness import FreshnessPolicy
++from core.metacognition.models import (
++    Belief, EpistemicState, EpistemicStatus, EvidenceRef, Freshness, FreshnessState,
++    SourceType, VerificationStatus, utcnow,
++)
++from core.metacognition.store import BeliefStore
++
++
++@dataclass(frozen=True)
++class KnowledgeDecision:
++    action: str
++    belief: Belief
++    response: str
++    evidence: tuple[str, ...] = ()
++
++
++_SOURCE_AUTHORITY = {
++    SourceType.DIRECT_OBSERVATION: 0.90,
++    SourceType.LOCAL_SYSTEM: 0.88,
++    SourceType.VERIFIED_EPISODE: 0.80,
++    SourceType.CAPABILITY: 0.68,
++    SourceType.RESEARCH: 0.58,
++    SourceType.PROVIDER: 0.55,
++    SourceType.USER: 0.52,
++    SourceType.MEMORY: 0.38,
++    SourceType.INFERENCE: 0.25,
++}
++
++
++class MetacognitionEngine:
++    def __init__(self, store: BeliefStore, *, calibrator: ConfidenceCalibrator | None = None,
++                 freshness_policy: FreshnessPolicy | None = None,
++                 risk_policy: Any = None, audit: Any = None) -> None:
++        self.store = store
++        self.calibrator = calibrator or ConfidenceCalibrator()
++        self.freshness_policy = freshness_policy or FreshnessPolicy()
++        self.risk_policy = risk_policy
++        self.audit = audit
++
++    def record(self, *, key: str, claim: str, value: Any,
++               status: EpistemicStatus, evidence: list[EvidenceRef],
++               freshness: Freshness, verification_status: VerificationStatus = VerificationStatus.UNVERIFIED,
++               now: datetime | None = None) -> Belief:
++        moment = self._now(now)
++        incoming = Belief(
++            key=key, claim=claim, value=value, status=status,
++            evidence_refs=self._deduplicate(evidence),
++            source_types=list(dict.fromkeys(item.source_type for item in evidence)),
++            freshness=freshness, verification_status=verification_status,
++            created_at=moment.isoformat(), updated_at=moment.isoformat(),
++        )
++        current = self.store.get(key)
++        transition = "created"
++        if current is not None and current.value == incoming.value:
++            incoming.created_at = current.created_at
++            incoming.evidence_refs = self._deduplicate(current.evidence_refs + incoming.evidence_refs)
++            incoming.source_types = list(dict.fromkeys(
++                current.source_types + incoming.source_types
++            ))
++            incoming.contradictions = list(current.contradictions)
++            incoming.supersedes = list(current.supersedes)
++            incoming.status = self._stronger_status(current.status, incoming.status)
++            incoming.verification_status = self._stronger_verification(
++                current.verification_status, incoming.verification_status,
++            )
++            if self._authority(current, moment) > self._authority(incoming, moment):
++                incoming.freshness = current.freshness
++            transition = "reinforced"
++        elif current is not None:
++            incoming, transition = self._resolve_conflict(current, incoming, moment)
++        calibration = self.calibrator.calibrate(incoming, now=moment)
++        incoming.confidence = calibration.confidence
++        saved = self.store.upsert(incoming)
++        self._audit("belief_transition", {
++            "key": saved.key, "transition": transition, "status": saved.status.value,
++            "confidence": saved.confidence, "evidence_refs": list(calibration.independent_evidence_refs),
++            "confidence_inputs": calibration.inputs,
++            "contradictions": list(saved.contradictions),
++        })
++        return saved
++
++    def resolve(self, *, key: str, claim: str,
++                observer: Callable[[], Any] | None = None,
++                capability: Callable[[], Any] | None = None,
++                researcher: Callable[[], Any] | None = None,
++                observer_risk: str = "low", now: datetime | None = None) -> KnowledgeDecision:
++        moment = self._now(now)
++        existing = self.store.get(key)
++        if existing is not None and self._answerable(existing, moment):
++            return KnowledgeDecision("answer", existing, self._answer_text(existing),
++                                     tuple(item.ref_id for item in existing.evidence_refs))
++
++        if observer is not None:
++            if self.risk_policy is not None:
++                decision = self.risk_policy.decide(confidence=0.95, risk=observer_risk)
++                if getattr(decision, "action", "") == "confirm":
++                    belief = existing or self._unknown(key, moment)
++                    return KnowledgeDecision(
++                        "wait", belief, "Для этой проверки потребуется ваше подтверждение.",
++                        (str(getattr(decision, "reason", "risk gate")),),
++                    )
++            observed = self._try_source(observer)
++            if observed is not None:
++                belief = self._record_observation(key, claim, observed, SourceType.LOCAL_SYSTEM, moment)
++                return KnowledgeDecision("observe", belief, self._observation_text(belief),
++                                         tuple(item.ref_id for item in belief.evidence_refs))
++
++        for action, source, callback in (
++            ("act", SourceType.CAPABILITY, capability),
++            ("research", SourceType.RESEARCH, researcher),
++        ):
++            if callback is None:
++                continue
++            result = self._try_source(callback)
++            if result is not None:
++                belief = self._record_observation(key, claim, result, source, moment)
++                return KnowledgeDecision(action, belief, self._observation_text(belief),
++                                         tuple(item.ref_id for item in belief.evidence_refs))
++
++        belief = existing or self._unknown(key, moment)
++        if existing is None:
++            belief = self.store.upsert(belief)
++        return KnowledgeDecision("ask", belief, "Пока не знаю. Могу проверить.")
++
++    def certainty_response(self, key: str, *, now: datetime | None = None) -> str:
++        belief = self.store.get(key)
++        if belief is None or belief.status is EpistemicStatus.UNKNOWN:
++            return "Пока не знаю. Могу проверить."
++        if belief.freshness.state(self._now(now)) is FreshnessState.STALE:
++            return "Пока нет. Данные устарели — сначала проверю."
++        if self._answerable(belief, self._now(now)):
++            return "Да. " + self.provenance_response(key)
++        return "Пока нет. У меня есть только косвенные данные."
++
++    def provenance_response(self, key: str) -> str:
++        belief = self.store.get(key)
++        if belief is None or not belief.evidence_refs:
++            return "Источник пока не подтверждён."
++        sources = {item.source_type for item in belief.evidence_refs}
++        self._audit("provenance", {
++            "key": key,
++            "source_types": sorted(item.value for item in sources),
++            "evidence_refs": [item.ref_id for item in belief.evidence_refs],
++        })
++        if SourceType.LOCAL_SYSTEM in sources or SourceType.DIRECT_OBSERVATION in sources:
++            return "Я проверил это в локальной системе."
++        if SourceType.VERIFIED_EPISODE in sources:
++            return "Это сохранено из нашей предыдущей подтверждённой задачи."
++        if SourceType.MEMORY in sources:
++            return "Это взято из сохранённой памяти и ещё требует проверки."
++        if SourceType.RESEARCH in sources:
++            return "Это получено из проверенного источника исследования."
++        if SourceType.USER in sources:
++            return "Вы сообщили это ранее."
++        return "Это следует из зарегистрированного результата, который ещё нужно проверить."
++
++    def summary(self, *, now: datetime | None = None) -> dict[str, list[str]]:
++        moment = self._now(now)
++        result = {"known": [], "unknown": [], "uncertain": [],
++                  "conflicted": [], "needs_verification": []}
++        for belief in self.store.all():
++            if belief.status in {EpistemicStatus.KNOWN, EpistemicStatus.OBSERVED} and self._answerable(belief, moment):
++                result["known"].append(belief.key)
++            elif belief.status is EpistemicStatus.UNKNOWN:
++                result["unknown"].append(belief.key)
++            elif belief.status is EpistemicStatus.CONFLICTED:
++                result["conflicted"].append(belief.key)
++            else:
++                result["uncertain"].append(belief.key)
++            if (belief.verification_status is not VerificationStatus.VERIFIED
++                    or belief.freshness.state(moment) is FreshnessState.STALE):
++                result["needs_verification"].append(belief.key)
++        return result
++
++    def epistemic_state(self, *, active_key: str = "") -> EpistemicState:
++        return EpistemicState(self.store.all(), active_key=active_key)
++
++    def _record_observation(self, key: str, claim: str, result: dict[str, Any],
++                            source: SourceType, moment: datetime) -> Belief:
++        verified = bool(result.get("verified", source is SourceType.LOCAL_SYSTEM))
++        direct = bool(result.get("direct", source is SourceType.LOCAL_SYSTEM))
++        evidence = EvidenceRef(
++            ref_id=str(result.get("source_id") or f"{source.value}:{key}"),
++            source_type=source,
++            origin_id=str(result.get("origin_id") or result.get("source_id") or f"{source.value}:{key}"),
++            reliability=float(result.get("reliability", 0.95 if direct else 0.7)),
++            observed_at=moment.isoformat(), verified=verified, direct=direct,
++            provider_uncertainty=float(result.get("provider_uncertainty", 0.0)),
++        )
++        status = EpistemicStatus.OBSERVED if direct else EpistemicStatus.INFERRED
++        verification = VerificationStatus.VERIFIED if verified else VerificationStatus.NEEDS_VERIFICATION
++        return self.record(
++            key=key, claim=claim, value=result.get("value"), status=status,
++            evidence=[evidence], freshness=self.freshness_policy.for_key(key, moment),
++            verification_status=verification, now=moment,
++        )
++
++    def _resolve_conflict(self, current: Belief, incoming: Belief,
++                          moment: datetime) -> tuple[Belief, str]:
++        old_score, new_score = self._authority(current, moment), self._authority(incoming, moment)
++        old_note = f"previous:{current.value!r} ({','.join(item.value for item in current.source_types)})"
++        new_note = f"incoming:{incoming.value!r} ({','.join(item.value for item in incoming.source_types)})"
++        if new_score - old_score >= 0.15:
++            incoming.created_at = current.created_at
++            incoming.contradictions = list(dict.fromkeys(current.contradictions + [old_note]))
++            incoming.supersedes = list(dict.fromkeys(
++                current.supersedes + [item.ref_id for item in current.evidence_refs]
++            ))
++            return incoming, "superseded_by_stronger_evidence"
++        if old_score - new_score >= 0.15:
++            retained = Belief.from_dict(current.to_dict())
++            retained.updated_at = moment.isoformat()
++            retained.contradictions = list(dict.fromkeys(retained.contradictions + [new_note]))
++            retained.supersedes.extend(item.ref_id for item in incoming.evidence_refs)
++            return retained, "conflict_retained_stronger_evidence"
++        conflicted = Belief.from_dict(incoming.to_dict())
++        conflicted.status = EpistemicStatus.CONFLICTED
++        conflicted.verification_status = VerificationStatus.NEEDS_VERIFICATION
++        conflicted.created_at = current.created_at
++        conflicted.evidence_refs = self._deduplicate(current.evidence_refs + incoming.evidence_refs)
++        conflicted.source_types = list(dict.fromkeys(current.source_types + incoming.source_types))
++        conflicted.contradictions = list(dict.fromkeys(
++            current.contradictions + [old_note, new_note]
++        ))
++        return conflicted, "conflicted"
++
++    def _authority(self, belief: Belief, moment: datetime) -> float:
++        sources = belief.source_types or [item.source_type for item in belief.evidence_refs]
++        source = max((_SOURCE_AUTHORITY.get(item, 0.2) for item in sources), default=0.2)
++        direct = 0.2 if any(item.direct for item in belief.evidence_refs) else 0.0
++        verified = 0.2 if belief.verification_status is VerificationStatus.VERIFIED else 0.0
++        return source + direct + verified + 0.1 * belief.freshness.score(moment)
++
++    @staticmethod
++    def _deduplicate(items: list[EvidenceRef]) -> list[EvidenceRef]:
++        selected: dict[str, EvidenceRef] = {}
++        for item in items:
++            origin = item.origin_id or item.ref_id
++            previous = selected.get(origin)
++            score = item.reliability + 0.2 * item.verified + 0.2 * item.direct
++            old_score = previous.reliability + 0.2 * previous.verified + 0.2 * previous.direct if previous else -1
++            if score > old_score:
++                selected[origin] = item
++        return list(selected.values())
++
++    @staticmethod
++    def _stronger_status(left: EpistemicStatus, right: EpistemicStatus) -> EpistemicStatus:
++        rank = {EpistemicStatus.UNKNOWN: 0, EpistemicStatus.ASSUMED: 1,
++                EpistemicStatus.INFERRED: 2, EpistemicStatus.CONFLICTED: 3,
++                EpistemicStatus.OBSERVED: 4, EpistemicStatus.KNOWN: 5}
++        return left if rank[left] >= rank[right] else right
++
++    @staticmethod
++    def _stronger_verification(left: VerificationStatus,
++                               right: VerificationStatus) -> VerificationStatus:
++        rank = {VerificationStatus.FAILED: 0, VerificationStatus.UNVERIFIED: 1,
++                VerificationStatus.NEEDS_VERIFICATION: 2, VerificationStatus.VERIFIED: 3}
++        return left if rank[left] >= rank[right] else right
++
++    @staticmethod
++    def _try_source(callback: Callable[[], Any]) -> dict[str, Any] | None:
++        try:
++            value = callback()
++        except Exception:
++            return None
++        if isinstance(value, dict) and "value" in value:
++            return dict(value)
++        if value is not None:
++            return {"value": value}
++        return None
++
++    @staticmethod
++    def _answerable(belief: Belief, moment: datetime) -> bool:
++        return (
++            belief.status in {EpistemicStatus.KNOWN, EpistemicStatus.OBSERVED}
++            and belief.verification_status is VerificationStatus.VERIFIED
++            and belief.freshness.state(moment) is not FreshnessState.STALE
++            and belief.confidence >= 0.75
++        )
++
++    def _answer_text(self, belief: Belief) -> str:
++        return f"Проверил: {belief.value}."
++
++    @staticmethod
++    def _observation_text(belief: Belief) -> str:
++        if belief.contradictions:
++            return f"Раньше было сохранено другое значение. Сейчас система показывает {belief.value}."
++        if belief.verification_status is not VerificationStatus.VERIFIED:
++            return "Есть только косвенные данные. Сначала проверю."
++        return f"Проверил: {belief.value}."
++
++    @staticmethod
++    def _unknown(key: str, moment: datetime) -> Belief:
++        return Belief(
++            key=key, claim=key, value=None, status=EpistemicStatus.UNKNOWN,
++            freshness=Freshness.volatile(moment, ttl_seconds=1),
++            verification_status=VerificationStatus.NEEDS_VERIFICATION,
++            created_at=moment.isoformat(), updated_at=moment.isoformat(), confidence=0.0,
++        )
++
++    @staticmethod
++    def _now(value: datetime | None) -> datetime:
++        moment = value or datetime.now(timezone.utc)
++        return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
++
++    def _audit(self, event_type: str, payload: dict[str, Any]) -> None:
++        if self.audit is not None:
++            self.audit.record(event_type, payload)
++
++
++__all__ = ["KnowledgeDecision", "MetacognitionEngine"]
+--- /dev/null
++++ b/core/metacognition/expectation.py
+@@ -0,0 +1,71 @@
++"""Expectation-to-observation comparison and structured surprise."""
++
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field
++from typing import Any
++
++from core.metacognition.models import utcnow
++
++
++@dataclass
++class Expectation:
++    action_id: str
++    goal: str
++    strategy: str
++    expected_effect: dict[str, Any]
++    verification_method: str
++    failure_indicators: list[str]
++    created_at: str = field(default_factory=utcnow)
++
++    def to_dict(self) -> dict[str, Any]:
++        return asdict(self)
++
++
++@dataclass
++class Surprise:
++    action_id: str
++    expected: dict[str, Any]
++    observed: dict[str, Any]
++    mismatch: dict[str, Any]
++    failure_indicators: list[str]
++    evidence_refs: list[str]
++    created_at: str = field(default_factory=utcnow)
++
++    def to_dict(self) -> dict[str, Any]:
++        return asdict(self)
++
++
++@dataclass(frozen=True)
++class ComparisonResult:
++    verified: bool
++    observed: dict[str, Any]
++    surprise: Surprise | None = None
++
++
++class ExpectationComparator:
++    def compare(self, expectation: Expectation, observed: dict[str, Any], *,
++                evidence_refs: list[str] | None = None) -> ComparisonResult:
++        mismatch = self._diff(expectation.expected_effect, observed)
++        if not mismatch:
++            return ComparisonResult(True, dict(observed))
++        surprise = Surprise(
++            expectation.action_id, dict(expectation.expected_effect), dict(observed),
++            mismatch, list(expectation.failure_indicators), list(evidence_refs or ()),
++        )
++        return ComparisonResult(False, dict(observed), surprise)
++
++    def _diff(self, expected: dict[str, Any], observed: dict[str, Any]) -> dict[str, Any]:
++        mismatch: dict[str, Any] = {}
++        for key, wanted in expected.items():
++            actual = observed.get(key)
++            if isinstance(wanted, dict) and isinstance(actual, dict):
++                nested = self._diff(wanted, actual)
++                if nested:
++                    mismatch[key] = nested
++            elif actual != wanted:
++                mismatch[key] = {"expected": wanted, "actual": actual}
++        return mismatch
++
++
++__all__ = ["ComparisonResult", "Expectation", "ExpectationComparator", "Surprise"]
+--- /dev/null
++++ b/core/metacognition/failures.py
+@@ -0,0 +1,121 @@
++"""Contextual failure episodes that avoid repeating a proven bad strategy."""
++
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import re
++import threading
++import uuid
++from dataclasses import asdict, dataclass, field, replace
++from pathlib import Path
++from typing import Any
++
++from core.memory.secret_filter import sanitize_for_memory
++from core.metacognition.models import utcnow
++from core.metacognition.store import safe_value
++
++
++def fingerprint_environment(environment: dict[str, Any]) -> str:
++    safe = safe_value(environment)
++    encoded = json.dumps(safe, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:24]
++
++
++@dataclass
++class FailureEpisode:
++    goal: str
++    task_class: str
++    strategy: str
++    failure_category: str
++    observed_mismatch: dict[str, Any]
++    environment_fingerprint: str
++    confidence: float
++    successful_repair: str = ""
++    evidence_refs: list[str] = field(default_factory=list)
++    episode_id: str = field(default_factory=lambda: uuid.uuid4().hex)
++    created_at: str = field(default_factory=utcnow)
++
++    def to_dict(self) -> dict[str, Any]:
++        return asdict(self)
++
++
++class FailureEpisodeStore:
++    def __init__(self, directory: Path | str, *, max_episodes: int = 300) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "failure_episodes.json"
++        self.max_episodes = max(1, int(max_episodes))
++        self._lock = threading.RLock()
++
++    def record(self, episode: FailureEpisode) -> FailureEpisode:
++        category = sanitize_for_memory(episode.failure_category)[:160]
++        if re.search(r"(?i)(traceback|exception|\berror\b)", category):
++            category = "execution_failure"
++        safe = FailureEpisode(
++            goal=sanitize_for_memory(episode.goal)[:300],
++            task_class=sanitize_for_memory(episode.task_class)[:120] or "unknown",
++            strategy=sanitize_for_memory(episode.strategy)[:160] or "unknown",
++            failure_category=category or "execution_failure",
++            observed_mismatch=safe_value(episode.observed_mismatch),
++            environment_fingerprint=sanitize_for_memory(episode.environment_fingerprint)[:100],
++            confidence=max(0.0, min(1.0, float(episode.confidence))),
++            successful_repair=sanitize_for_memory(episode.successful_repair)[:160],
++            evidence_refs=[sanitize_for_memory(item)[:160] for item in episode.evidence_refs
++                           if sanitize_for_memory(item)],
++            episode_id=episode.episode_id, created_at=episode.created_at,
++        )
++        with self._lock:
++            items = [item for item in self.all() if item.episode_id != safe.episode_id]
++            items.append(safe)
++            items.sort(key=lambda item: item.created_at)
++            self._write(items[-self.max_episodes:])
++        return safe
++
++    def all(self) -> list[FailureEpisode]:
++        try:
++            payload = json.loads(self.path.read_text(encoding="utf-8-sig"))
++            return [FailureEpisode(**item) for item in payload.get("episodes", ())
++                    if isinstance(item, dict)]
++        except (OSError, TypeError, ValueError):
++            return []
++
++    def retrieve(self, task_class: str, environment_fingerprint: str,
++                 *, limit: int = 10) -> list[FailureEpisode]:
++        matches = [
++            item for item in self.all()
++            if item.task_class == task_class
++            and item.environment_fingerprint == environment_fingerprint
++        ]
++        return matches[-max(0, int(limit)):]
++
++    def avoid_strategies(self, task_class: str, environment_fingerprint: str) -> set[str]:
++        return {
++            item.strategy for item in self.retrieve(task_class, environment_fingerprint)
++            if item.confidence >= 0.6
++        }
++
++    def mark_repair(self, episode_ids: list[str], repair: str) -> list[FailureEpisode]:
++        ids = set(episode_ids)
++        changed = []
++        items = []
++        for item in self.all():
++            if item.episode_id in ids:
++                item = replace(item, successful_repair=sanitize_for_memory(repair)[:160])
++                changed.append(item)
++            items.append(item)
++        with self._lock:
++            self._write(items)
++        return changed
++
++    def _write(self, episodes: list[FailureEpisode]) -> None:
++        temporary = self.path.with_suffix(".json.tmp")
++        temporary.write_text(json.dumps(
++            {"version": 1, "episodes": [item.to_dict() for item in episodes]},
++            ensure_ascii=False, indent=2,
++        ), encoding="utf-8")
++        os.replace(temporary, self.path)
++
++
++__all__ = ["FailureEpisode", "FailureEpisodeStore", "fingerprint_environment"]
+--- /dev/null
++++ b/core/metacognition/freshness.py
+@@ -0,0 +1,30 @@
++"""Domain-sensitive freshness semantics for volatile and stable knowledge."""
++
++from __future__ import annotations
++
++from datetime import datetime
++
++from core.metacognition.models import Freshness
++
++
++class FreshnessPolicy:
++    _TTLS = (
++        (("active.window", "current_app", "foreground"), 5),
++        (("file.exists", "file.state"), 30),
++        (("website", "site.state"), 300),
++        (("system.setting", "setting"), 300),
++        (("software.version", "app.version", "installed.version"), 86_400),
++        (("preference", "relationship"), 15_552_000),
++    )
++
++    def for_key(self, key: str, observed_at: datetime) -> Freshness:
++        value = (key or "").casefold()
++        if any(marker in value for marker in ("identity", "canonical_name")):
++            return Freshness.timeless(observed_at)
++        for markers, ttl in self._TTLS:
++            if any(marker in value for marker in markers):
++                return Freshness.volatile(observed_at, ttl_seconds=ttl)
++        return Freshness.stable(observed_at)
++
++
++__all__ = ["FreshnessPolicy"]
+--- /dev/null
++++ b/core/metacognition/models.py
+@@ -0,0 +1,218 @@
++"""Structured epistemic facts; deliberately excludes private reasoning."""
++
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field
++from datetime import datetime, timedelta, timezone
++from enum import Enum
++from typing import Any
++
++
++def utcnow() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++def _utc(value: datetime | str | None = None) -> datetime:
++    if isinstance(value, str):
++        try:
++            parsed = datetime.fromisoformat(value)
++        except ValueError:
++            parsed = datetime.now(timezone.utc)
++    else:
++        parsed = value or datetime.now(timezone.utc)
++    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
++
++
++class EpistemicStatus(str, Enum):
++    KNOWN = "known"
++    OBSERVED = "observed"
++    INFERRED = "inferred"
++    ASSUMED = "assumed"
++    UNKNOWN = "unknown"
++    CONFLICTED = "conflicted"
++
++
++class VerificationStatus(str, Enum):
++    VERIFIED = "verified"
++    UNVERIFIED = "unverified"
++    NEEDS_VERIFICATION = "needs_verification"
++    FAILED = "failed"
++
++
++class SourceType(str, Enum):
++    USER = "user"
++    DIRECT_OBSERVATION = "direct_observation"
++    MEMORY = "memory"
++    VERIFIED_EPISODE = "verified_episode"
++    CAPABILITY = "capability"
++    LOCAL_SYSTEM = "local_system"
++    RESEARCH = "research"
++    INFERENCE = "inference"
++    PROVIDER = "provider"
++
++
++class FreshnessState(str, Enum):
++    FRESH = "fresh"
++    AGING = "aging"
++    STALE = "stale"
++    TIMELESS = "timeless"
++
++
++@dataclass
++class Freshness:
++    observed_at: str = field(default_factory=utcnow)
++    ttl_seconds: int | None = 3600
++    is_volatile: bool = True
++
++    @classmethod
++    def volatile(cls, observed_at: datetime | str, *, ttl_seconds: int) -> "Freshness":
++        return cls(_utc(observed_at).isoformat(), max(1, int(ttl_seconds)), True)
++
++    @classmethod
++    def stable(cls, observed_at: datetime | str, *, ttl_seconds: int = 15_552_000) -> "Freshness":
++        return cls(_utc(observed_at).isoformat(), max(1, int(ttl_seconds)), False)
++
++    @classmethod
++    def timeless(cls, observed_at: datetime | str | None = None) -> "Freshness":
++        return cls(_utc(observed_at).isoformat(), None, False)
++
++    def state(self, now: datetime | None = None) -> FreshnessState:
++        if self.ttl_seconds is None:
++            return FreshnessState.TIMELESS
++        age = max(0.0, (_utc(now) - _utc(self.observed_at)).total_seconds())
++        if age >= self.ttl_seconds:
++            return FreshnessState.STALE
++        if age >= self.ttl_seconds * 0.5:
++            return FreshnessState.AGING
++        return FreshnessState.FRESH
++
++    def score(self, now: datetime | None = None) -> float:
++        return {
++            FreshnessState.TIMELESS: 1.0,
++            FreshnessState.FRESH: 1.0,
++            FreshnessState.AGING: 0.5,
++            FreshnessState.STALE: 0.0,
++        }[self.state(now)]
++
++    @classmethod
++    def from_dict(cls, payload: dict[str, Any]) -> "Freshness":
++        return cls(
++            observed_at=str(payload.get("observed_at") or utcnow()),
++            ttl_seconds=payload.get("ttl_seconds"),
++            is_volatile=bool(payload.get("is_volatile", payload.get("volatile", True))),
++        )
++
++
++@dataclass
++class EvidenceRef:
++    ref_id: str
++    source_type: SourceType
++    origin_id: str
++    reliability: float = 0.5
++    observed_at: str = field(default_factory=utcnow)
++    verified: bool = False
++    direct: bool = False
++    memory_confidence: float | None = None
++    provider_uncertainty: float = 0.0
++
++    def __post_init__(self) -> None:
++        self.reliability = max(0.0, min(1.0, float(self.reliability)))
++        self.provider_uncertainty = max(0.0, min(1.0, float(self.provider_uncertainty)))
++        if self.memory_confidence is not None:
++            self.memory_confidence = max(0.0, min(1.0, float(self.memory_confidence)))
++
++    def to_dict(self) -> dict[str, Any]:
++        payload = asdict(self)
++        payload["source_type"] = self.source_type.value
++        return payload
++
++    @classmethod
++    def from_dict(cls, payload: dict[str, Any]) -> "EvidenceRef":
++        value = dict(payload)
++        value["source_type"] = SourceType(value.get("source_type", SourceType.INFERENCE.value))
++        return cls(**value)
++
++
++@dataclass
++class Belief:
++    key: str
++    claim: str
++    status: EpistemicStatus
++    value: Any = None
++    confidence: float = 0.0
++    evidence_refs: list[EvidenceRef] = field(default_factory=list)
++    source_types: list[SourceType] = field(default_factory=list)
++    freshness: Freshness = field(default_factory=Freshness)
++    verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
++    contradictions: list[str] = field(default_factory=list)
++    created_at: str = field(default_factory=utcnow)
++    updated_at: str = field(default_factory=utcnow)
++    supersedes: list[str] = field(default_factory=list)
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "key": self.key, "claim": self.claim, "value": self.value,
++            "status": self.status.value, "confidence": self.confidence,
++            "evidence_refs": [item.to_dict() for item in self.evidence_refs],
++            "source_types": [item.value for item in self.source_types],
++            "freshness": asdict(self.freshness),
++            "verification_status": self.verification_status.value,
++            "contradictions": list(self.contradictions),
++            "created_at": self.created_at, "updated_at": self.updated_at,
++            "supersedes": list(self.supersedes),
++        }
++
++    @classmethod
++    def from_dict(cls, payload: dict[str, Any]) -> "Belief":
++        return cls(
++            key=str(payload.get("key") or ""), claim=str(payload.get("claim") or ""),
++            value=payload.get("value"),
++            status=EpistemicStatus(payload.get("status", EpistemicStatus.UNKNOWN.value)),
++            confidence=float(payload.get("confidence", 0.0)),
++            evidence_refs=[EvidenceRef.from_dict(item) for item in payload.get("evidence_refs", ())],
++            source_types=[SourceType(item) for item in payload.get("source_types", ())],
++            freshness=Freshness.from_dict(payload.get("freshness") or {}),
++            verification_status=VerificationStatus(
++                payload.get("verification_status", VerificationStatus.UNVERIFIED.value)
++            ),
++            contradictions=[str(item) for item in payload.get("contradictions", ())],
++            created_at=str(payload.get("created_at") or utcnow()),
++            updated_at=str(payload.get("updated_at") or utcnow()),
++            supersedes=[str(item) for item in payload.get("supersedes", ())],
++        )
++
++
++@dataclass
++class EpistemicState:
++    beliefs: list[Belief] = field(default_factory=list)
++    active_key: str = ""
++    updated_at: str = field(default_factory=utcnow)
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "beliefs": [item.to_dict() for item in self.beliefs],
++            "active_key": self.active_key,
++            "updated_at": self.updated_at,
++        }
++
++    @classmethod
++    def from_dict(cls, payload: dict[str, Any]) -> "EpistemicState":
++        return cls(
++            beliefs=[Belief.from_dict(item) for item in payload.get("beliefs", ())
++                     if isinstance(item, dict)],
++            active_key=str(payload.get("active_key") or ""),
++            updated_at=str(payload.get("updated_at") or utcnow()),
++        )
++
++
++@dataclass(frozen=True)
++class CalibrationResult:
++    confidence: float
++    inputs: dict[str, float | int]
++    independent_evidence_refs: tuple[str, ...]
++
++
++__all__ = [
++    "Belief", "CalibrationResult", "EpistemicState", "EpistemicStatus", "EvidenceRef", "Freshness",
++    "FreshnessState", "SourceType", "VerificationStatus", "utcnow",
++]
+--- /dev/null
++++ b/core/metacognition/store.py
+@@ -0,0 +1,87 @@
++"""Bounded local persistence for safe structured beliefs."""
++
++from __future__ import annotations
++
++import json
++import os
++import re
++import threading
++from pathlib import Path
++from typing import Any
++
++from core.memory.secret_filter import sanitize_for_memory
++from core.metacognition.models import Belief
++
++
++_SECRET_KEY = re.compile(r"(?i)(password|passwd|secret|token|api[_ -]?key|credential)")
++
++
++def safe_value(value: Any) -> Any:
++    if isinstance(value, str):
++        return sanitize_for_memory(value)
++    if isinstance(value, list):
++        return [safe_value(item) for item in value]
++    if isinstance(value, tuple):
++        return [safe_value(item) for item in value]
++    if isinstance(value, dict):
++        return {
++            str(key): safe_value(item) for key, item in value.items()
++            if not _SECRET_KEY.search(str(key))
++        }
++    if value is None or isinstance(value, (bool, int, float)):
++        return value
++    return sanitize_for_memory(str(value))
++
++
++class BeliefStore:
++    def __init__(self, directory: Path | str, *, max_beliefs: int = 500) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "beliefs.json"
++        self.max_beliefs = max(1, int(max_beliefs))
++        self._lock = threading.RLock()
++
++    def get(self, key: str) -> Belief | None:
++        normalized = self._key(key)
++        return next((item for item in self.all() if item.key == normalized), None)
++
++    def all(self) -> list[Belief]:
++        try:
++            payload = json.loads(self.path.read_text(encoding="utf-8-sig"))
++            return [Belief.from_dict(item) for item in payload.get("beliefs", ())
++                    if isinstance(item, dict)]
++        except (OSError, TypeError, ValueError):
++            return []
++
++    def upsert(self, belief: Belief) -> Belief:
++        belief.key = self._key(belief.key)
++        belief.claim = sanitize_for_memory(belief.claim)[:500]
++        belief.value = safe_value(belief.value)
++        belief.contradictions = [sanitize_for_memory(item)[:300]
++                                 for item in belief.contradictions if sanitize_for_memory(item)]
++        belief.supersedes = [sanitize_for_memory(item)[:160]
++                             for item in belief.supersedes if sanitize_for_memory(item)]
++        for item in belief.evidence_refs:
++            item.ref_id = sanitize_for_memory(item.ref_id)[:160]
++            item.origin_id = sanitize_for_memory(item.origin_id)[:160]
++        with self._lock:
++            beliefs = [item for item in self.all() if item.key != belief.key]
++            beliefs.append(belief)
++            beliefs.sort(key=lambda item: item.updated_at)
++            self._write(beliefs[-self.max_beliefs:])
++        return Belief.from_dict(belief.to_dict())
++
++    def _write(self, beliefs: list[Belief]) -> None:
++        temporary = self.path.with_suffix(".json.tmp")
++        temporary.write_text(json.dumps(
++            {"version": 1, "beliefs": [item.to_dict() for item in beliefs]},
++            ensure_ascii=False, indent=2,
++        ), encoding="utf-8")
++        os.replace(temporary, self.path)
++
++    @staticmethod
++    def _key(value: str) -> str:
++        return re.sub(r"[^a-zA-Z0-9_.:-]+", "_", (value or "unknown").strip())[:160] or "unknown"
++
++
++__all__ = ["BeliefStore", "safe_value"]
+--- /dev/null
++++ b/docs/sprints/SPRINT14_SPEC.md
+@@ -0,0 +1,68 @@
++# Sprint 14 — ATLAS Metacognition Engine
++
++## Boundary
++
++The engine stores structured conclusions, source references, freshness,
++confidence inputs, contradictions, expectations, observations and decisions.
++There is no storage or API field for chain-of-thought, scratchpads or private
++reasoning tokens.
++
++## Epistemic model
++
++`Belief` supports `known`, `observed`, `inferred`, `assumed`, `unknown` and
++`conflicted` states plus a separate verification status. Evidence has an
++explicit source type and `origin_id`; repeated copies of one upstream source
++are deduplicated before confidence calculation.
++
++Confidence is computed by `ConfidenceCalibrator` from direct observation,
++verification, source reliability, freshness, independent sources, memory
++confidence, contradictions, successful episodes and provider uncertainty.
++Status-specific confidence caps prevent assumptions or repeated inferences
++from silently becoming facts.
++
++## Knowledge acquisition order
++
++`MetacognitionEngine.resolve` uses:
++
++1. fresh verified observation;
++2. relevant stored belief;
++3. safe local observer;
++4. registered capability;
++5. research callback;
++6. a concise user-facing unknown response.
++
++The existing `RiskConfidencePolicy` remains authoritative before inspection or
++action.
++
++## Expectation and correction
++
++Meaningful changes use a typed `Expectation` with expected effect,
++verification method and failure indicators. Action return values are not
++success. Independent observation is compared with the expectation. A mismatch
++creates a `Surprise`, stores a contextual `FailureEpisode`, reduces strategy
++confidence and selects a different strategy within the bounded repair limit.
++
++Failure avoidance is scoped to task class plus a privacy-filtered environment
++fingerprint. One failure never creates a global blacklist.
++
++## CurrentMindState integration
++
++Sprint 13 state now exposes safe key lists only:
++
++- `known`
++- `unknown`
++- `uncertain`
++- `conflicted`
++- `needs_verification`
++- `active_epistemic_key`
++
++Natural queries such as “Ты уверен?” and “Откуда ты это знаешь?” are rendered
++from current evidence without exposing internal terminology unless technical
++details are explicitly requested.
++
++## Audit
++
++`AuditTrail` exports `atlas.metacognition.audit.v1` containing belief
++transitions, confidence inputs, provenance, contradictions, expectations,
++observations, surprises, strategy changes, verification results and failure
++episodes. Secret-shaped fields and private-reasoning keys are removed.
+--- /dev/null
++++ b/scripts/rollback_sprint14.ps1
+@@ -0,0 +1,91 @@
++param(
++    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
++    [string]$BackupRoot = ""
++)
++
++$ErrorActionPreference = "Stop"
++$project = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
++if (-not (Test-Path -LiteralPath $project -PathType Container)) {
++    throw "Project root does not exist: $project"
++}
++if (-not $BackupRoot) {
++    $BackupRoot = Join-Path $project "artifacts\sprint14\original"
++}
++$backup = [System.IO.Path]::GetFullPath($BackupRoot).TrimEnd('\')
++if (-not (Test-Path -LiteralPath $backup -PathType Container)) {
++    throw "Sprint 14 backup does not exist: $backup"
++}
++
++$restore = @(
++    "core\cognitive\models.py",
++    "core\cognitive\orchestrator.py",
++    "core\cognitive\state.py"
++)
++$added = @(
++    "core\metacognition\__init__.py",
++    "core\metacognition\audit.py",
++    "core\metacognition\calibration.py",
++    "core\metacognition\correction.py",
++    "core\metacognition\engine.py",
++    "core\metacognition\expectation.py",
++    "core\metacognition\failures.py",
++    "core\metacognition\freshness.py",
++    "core\metacognition\models.py",
++    "core\metacognition\store.py",
++    "docs\sprints\SPRINT14_SPEC.md",
++    "scripts\sprint14_live_demo.py",
++    "tests\test_sprint14_adversarial.py",
++    "tests\test_sprint14_correction.py",
++    "tests\test_sprint14_epistemic.py",
++    "tests\test_sprint14_integration.py",
++    "tests\test_sprint14_knowledge.py",
++    "tests\test_sprint14_live_demo.py",
++    "scripts\rollback_sprint14.ps1"
++)
++
++function Resolve-Within([string]$Root, [string]$RelativePath) {
++    $candidate = [System.IO.Path]::GetFullPath((Join-Path $Root $RelativePath))
++    if (-not $candidate.StartsWith($Root + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
++        throw "Path escapes expected root: $RelativePath"
++    }
++    return $candidate
++}
++
++$restored = @()
++foreach ($relative in $restore) {
++    $source = Resolve-Within $backup $relative
++    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
++        throw "Missing original: $source"
++    }
++    $target = Resolve-Within $project $relative
++    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
++    Copy-Item -LiteralPath $source -Destination $target -Force
++    $restored += $relative
++}
++
++$removed = @()
++foreach ($relative in $added) {
++    $target = Resolve-Within $project $relative
++    if (Test-Path -LiteralPath $target -PathType Leaf) {
++        Remove-Item -LiteralPath $target -Force
++        $removed += $relative
++    }
++}
++
++$cache = Resolve-Within $project "core\metacognition\__pycache__"
++if (Test-Path -LiteralPath $cache -PathType Container) {
++    Remove-Item -LiteralPath $cache -Recurse -Force
++}
++$package = Resolve-Within $project "core\metacognition"
++if ((Test-Path -LiteralPath $package -PathType Container) -and
++    -not (Get-ChildItem -LiteralPath $package -Force | Select-Object -First 1)) {
++    Remove-Item -LiteralPath $package -Force
++}
++
++[ordered]@{
++    success = $true
++    project_root = $project
++    backup_root = $backup
++    restored = $restored
++    removed = $removed
++} | ConvertTo-Json -Depth 5
+--- /dev/null
++++ b/scripts/sprint14_live_demo.py
+@@ -0,0 +1,207 @@
++"""Real local Sprint 14 metacognition, correction and restart demo."""
++
++from __future__ import annotations
++
++import json
++import os
++import shutil
++import sys
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from types import SimpleNamespace
++from typing import Any
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
++from core.actions import DEFAULT_REGISTRY  # noqa: E402
++from core.cognitive import CognitiveOrchestrator  # noqa: E402
++from core.metacognition import (  # noqa: E402
++    EpistemicStatus,
++    EvidenceRef,
++    Expectation,
++    Freshness,
++    SourceType,
++    Strategy,
++)
++
++
++def _assert(condition: bool, message: str) -> None:
++    if not condition:
++        raise RuntimeError(message)
++
++
++def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
++    temporary = path.with_suffix(".json.tmp")
++    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
++    os.replace(temporary, path)
++
++
++def run_demo(root: Path | str, *, reset: bool = True) -> dict[str, Any]:
++    destination = Path(root).resolve()
++    if reset and destination.exists():
++        shutil.rmtree(destination)
++    destination.mkdir(parents=True, exist_ok=True)
++    fixture = destination / "fixture_app.json"
++    _write_json_atomic(fixture, {"version": "2.0", "feature_enabled": False})
++
++    cognitive_dir = destination / "cognitive"
++    coordinator = CognitiveOrchestrator(cognitive_dir, registry=DEFAULT_REGISTRY)
++    now = datetime(2026, 8, 17, 17, 0, tzinfo=timezone.utc)
++
++    # Deliberately stale and incorrect prior memory.
++    coordinator.metacognition.record(
++        key="fixture.version", claim="Installed fixture version", value="1.0",
++        status=EpistemicStatus.INFERRED,
++        evidence=[EvidenceRef(
++            "memory:old-version", SourceType.MEMORY, "memory:fixture-version",
++            reliability=0.65, observed_at=(now - timedelta(days=5)).isoformat(),
++            verified=False, direct=False, memory_confidence=0.7,
++        )],
++        freshness=Freshness.volatile(now - timedelta(days=5), ttl_seconds=86_400),
++        now=now,
++    )
++
++    def inspect_version() -> dict[str, Any]:
++        current = json.loads(fixture.read_text(encoding="utf-8"))
++        return {
++            "value": current["version"], "source_id": "disk:fixture_app.json:version",
++            "origin_id": "local_file:fixture_app.json", "reliability": 1.0,
++        }
++
++    knowledge = coordinator.resolve_knowledge(
++        key="fixture.version", claim="Installed fixture version",
++        observer=inspect_version, now=now,
++    )
++    _assert(knowledge.belief.value == "2.0", "direct observation did not correct memory")
++    _assert(bool(knowledge.belief.contradictions), "contradiction evidence was lost")
++    _assert("Раньше" in knowledge.response, "natural contradiction notice missing")
++
++    action_calls: list[str] = []
++
++    def misleading_provider_success():
++        action_calls.append("cached_provider")
++        return SimpleNamespace(ok=True, message="reported success")
++
++    def atomic_config_write():
++        action_calls.append("atomic_config")
++        current = json.loads(fixture.read_text(encoding="utf-8"))
++        current["feature_enabled"] = True
++        _write_json_atomic(fixture, current)
++        return SimpleNamespace(ok=True)
++
++    def observe_feature() -> dict[str, Any]:
++        current = json.loads(fixture.read_text(encoding="utf-8"))
++        return {"feature_enabled": current["feature_enabled"]}
++
++    environment = {"app": "fixture", "version": "2.0", "platform": "windows-local"}
++    expectation = Expectation(
++        "enable-feature", "enable fixture feature", "",
++        {"feature_enabled": True}, "read fixture JSON independently",
++        ["feature_enabled remains false"],
++    )
++    first_response, first = coordinator.execute_with_correction(
++        goal="enable fixture feature", task_class="fixture_config",
++        strategies=[
++            Strategy("cached_provider", misleading_provider_success),
++            Strategy("atomic_config", atomic_config_write),
++        ], expectation=expectation, observer=observe_feature,
++        evidence_provider=lambda: ["disk:fixture_app.json:feature_enabled"],
++        environment=environment,
++    )
++    _assert(first.verified, "repair did not reach verified desired state")
++    _assert(action_calls == ["cached_provider", "atomic_config"], "strategy change missing")
++    _assert(first.attempts[0].reported_success and not first.attempts[0].verified,
++            "provider success was trusted without observation")
++    _assert(first.failure_episodes and first.failure_episodes[0].successful_repair == "atomic_config",
++            "failure and repair episode not learned")
++    observed_after = observe_feature()
++    _assert(observed_after == {"feature_enabled": True}, "independent final verification failed")
++
++    # Process restart plus similar task in the same environment.
++    _write_json_atomic(fixture, {"version": "2.0", "feature_enabled": False})
++    reopened = CognitiveOrchestrator(cognitive_dir, registry=DEFAULT_REGISTRY)
++    second_calls: list[str] = []
++
++    def should_be_avoided():
++        second_calls.append("cached_provider")
++        return SimpleNamespace(ok=True)
++
++    def reused_repair():
++        second_calls.append("atomic_config")
++        current = json.loads(fixture.read_text(encoding="utf-8"))
++        current["feature_enabled"] = True
++        _write_json_atomic(fixture, current)
++        return SimpleNamespace(ok=True)
++
++    second_response, second = reopened.execute_with_correction(
++        goal="enable fixture feature again", task_class="fixture_config",
++        strategies=[
++            Strategy("cached_provider", should_be_avoided),
++            Strategy("atomic_config", reused_repair),
++        ], expectation=expectation, observer=observe_feature,
++        evidence_provider=lambda: ["disk:fixture_app.json:feature_enabled"],
++        environment=environment,
++    )
++    _assert(second.verified, "second run did not verify")
++    _assert(second_calls == ["atomic_config"], "known contextual failure was repeated")
++    _assert(second.skipped_strategies == ["cached_provider"], "failed strategy not skipped")
++
++    reopened.state.active_epistemic_key = "fixture.version"
++    provenance = reopened.begin_interaction("Откуда ты это знаешь?", implicit_address=True)
++    _assert(provenance.response == "Я проверил это в локальной системе.",
++            "provenance answer did not use actual evidence")
++
++    audit_path = reopened.audit.export_bundle(
++        destination / "sprint14_audit_bundle.json",
++        beliefs=reopened.belief_store.all(), failures=reopened.failure_store.all(),
++    )
++    audit_payload = json.loads(audit_path.read_text(encoding="utf-8"))
++    event_types = sorted({item["type"] for item in audit_payload["events"]})
++    required_events = {
++        "belief_transition", "expectation", "action", "observation", "surprise",
++        "strategy_change", "verification", "provenance",
++    }
++    _assert(required_events <= set(event_types), "audit bundle lacks required transitions")
++
++    result = {
++        "scenario": "stale belief -> observe -> contradict -> expect -> misleading success -> surprise -> repair -> verify -> learn -> restart -> avoid failure -> provenance",
++        "stale_value": "1.0",
++        "observed_value": knowledge.belief.value,
++        "belief_status": knowledge.belief.status.value,
++        "belief_confidence": knowledge.belief.confidence,
++        "contradictions": knowledge.belief.contradictions,
++        "belief_correction_message": knowledge.response,
++        "first_action_calls": action_calls,
++        "misleading_action_reported_success": first.attempts[0].reported_success,
++        "misleading_action_verified": first.attempts[0].verified,
++        "surprise": first.surprises[0].to_dict(),
++        "selected_repair": first.selected_strategy,
++        "first_response": first_response,
++        "final_observed": observed_after,
++        "final_verified": first.verified,
++        "failure_episode": first.failure_episodes[0].to_dict(),
++        "second_run_calls": second_calls,
++        "second_run_skipped": second.skipped_strategies,
++        "second_run_verified": second.verified,
++        "second_response": second_response,
++        "provenance_response": provenance.response,
++        "audit_event_types": event_types,
++        "audit_bundle": str(audit_path),
++    }
++    report_path = destination / "live_demo_report.json"
++    report_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
++    result["report_path"] = str(report_path)
++    return result
++
++
++if __name__ == "__main__":
++    target = Path(sys.argv[1]) if len(sys.argv) > 1 else (
++        PROJECT_ROOT / "artifacts" / "sprint14" / "live_demo"
++    )
++    try:
++        print(json.dumps(run_demo(target), ensure_ascii=False, indent=2))
++    except Exception as exc:
++        print(json.dumps({"verified": False, "error": str(exc)}, ensure_ascii=False, indent=2))
++        raise SystemExit(1)
+--- /dev/null
++++ b/tests/test_sprint14_adversarial.py
+@@ -0,0 +1,171 @@
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++from types import SimpleNamespace
++
++from core.metacognition import (
++    Belief,
++    BeliefStore,
++    ConfidenceCalibrator,
++    EpistemicStatus,
++    EvidenceRef,
++    Expectation,
++    FailureEpisode,
++    FailureEpisodeStore,
++    Freshness,
++    MetacognitionEngine,
++    SelfCorrectionEngine,
++    SourceType,
++    Strategy,
++    VerificationStatus,
++    fingerprint_environment,
++)
++
++
++NOW = datetime(2026, 8, 17, 18, 0, tzinfo=timezone.utc)
++
++
++def test_adversarial_same_false_claim_repeated_cannot_become_fact(tmp_path):
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++    scores = []
++    for index in range(25):
++        belief = engine.record(
++            key="false.claim", claim="Repeated external claim", value="wrong",
++            status=EpistemicStatus.INFERRED,
++            evidence=[EvidenceRef(
++                f"copy-{index}", SourceType.RESEARCH, "single:underlying-source",
++                reliability=0.7, observed_at=NOW.isoformat(),
++            )], freshness=Freshness.stable(NOW), now=NOW,
++        )
++        scores.append(belief.confidence)
++
++    assert len(set(scores)) == 1
++    assert belief.status is EpistemicStatus.INFERRED
++    assert belief.verification_status is VerificationStatus.UNVERIFIED
++
++
++def test_adversarial_two_providers_copying_one_source_count_once():
++    calibrator = ConfidenceCalibrator()
++    belief = Belief(
++        key="claim", claim="Provider claim", value=True,
++        status=EpistemicStatus.INFERRED,
++        evidence_refs=[
++            EvidenceRef("provider-a", SourceType.PROVIDER, "upstream:same", 0.8),
++            EvidenceRef("provider-b", SourceType.PROVIDER, "upstream:same", 0.8),
++        ], freshness=Freshness.stable(NOW),
++    )
++
++    result = calibrator.calibrate(belief, now=NOW)
++
++    assert result.inputs["independent_sources"] == 1
++    assert result.confidence < 0.8
++
++
++def test_adversarial_stale_memory_loses_to_disk_observation(tmp_path):
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++    engine.record(
++        key="file.state", claim="File state", value="old",
++        status=EpistemicStatus.INFERRED,
++        evidence=[EvidenceRef("memory", SourceType.MEMORY, "memory:file", 0.8)],
++        freshness=Freshness.volatile(NOW - timedelta(hours=1), ttl_seconds=30), now=NOW,
++    )
++
++    decision = engine.resolve(
++        key="file.state", claim="File state",
++        observer=lambda: {"value": "current", "source_id": "disk:file"}, now=NOW,
++    )
++
++    assert decision.belief.value == "current"
++    assert decision.belief.status is EpistemicStatus.OBSERVED
++    assert decision.belief.contradictions
++
++
++def test_adversarial_provider_ok_with_unchanged_state_never_reports_success(tmp_path):
++    correction = SelfCorrectionEngine(FailureEpisodeStore(tmp_path), max_attempts=1)
++
++    report = correction.run(
++        goal="change setting", task_class="config",
++        strategies=[Strategy("provider", lambda: SimpleNamespace(ok=True))],
++        expectation=Expectation("x", "change", "", {"setting": "new"}, "read", []),
++        observer=lambda: {"setting": "old"}, environment={"app": "fixture"},
++    )
++
++    assert report.attempts[0].reported_success is True
++    assert report.verified is False
++    assert report.state == "research_required"
++
++
++def test_adversarial_contextual_failure_overrides_prior_success_label(tmp_path):
++    store = FailureEpisodeStore(tmp_path)
++    environment = {"app": "fixture", "version": "1"}
++    store.record(FailureEpisode(
++        goal="change", task_class="config", strategy="provider_marked_successful",
++        failure_category="expectation_mismatch", observed_mismatch={"state": "old"},
++        environment_fingerprint=fingerprint_environment(environment), confidence=0.95,
++        successful_repair="direct_write",
++    ))
++    calls = []
++    state = {"value": "old"}
++    report = SelfCorrectionEngine(FailureEpisodeStore(tmp_path)).run(
++        goal="change again", task_class="config",
++        strategies=[
++            Strategy("provider_marked_successful", lambda: calls.append("bad")),
++            Strategy("direct_write", lambda: calls.append("good") or state.update(value="new")),
++        ], expectation=Expectation("x", "change", "", {"value": "new"}, "read", []),
++        observer=lambda: dict(state), environment=environment,
++    )
++
++    assert calls == ["good"]
++    assert report.verified is True
++
++
++def test_adversarial_leading_question_does_not_seed_claim(tmp_path):
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++
++    result = engine.resolve(
++        key="software.version", claim="Версия ведь точно 99.9?", now=NOW,
++    )
++
++    assert result.belief.value is None
++    assert result.belief.claim == "software.version"
++    assert result.response == "Пока не знаю. Могу проверить."
++
++
++def test_confidence_decays_with_freshness_and_provider_uncertainty():
++    evidence = EvidenceRef(
++        "provider", SourceType.PROVIDER, "provider:unique", 0.9,
++        observed_at=NOW.isoformat(), provider_uncertainty=0.0,
++    )
++    fresh = Belief(
++        key="site", claim="Site state", value=True, status=EpistemicStatus.INFERRED,
++        evidence_refs=[evidence], freshness=Freshness.volatile(NOW, ttl_seconds=60),
++    )
++    uncertain = Belief.from_dict(fresh.to_dict())
++    uncertain.evidence_refs[0].provider_uncertainty = 0.8
++
++    calibrator = ConfidenceCalibrator()
++    fresh_score = calibrator.calibrate(fresh, now=NOW).confidence
++    stale_score = calibrator.calibrate(fresh, now=NOW + timedelta(minutes=2)).confidence
++    uncertain_score = calibrator.calibrate(uncertain, now=NOW).confidence
++
++    assert stale_score < fresh_score
++    assert uncertain_score < fresh_score
++
++
++def test_resolution_order_uses_capability_before_research_and_user(tmp_path):
++    order = []
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++
++    decision = engine.resolve(
++        key="state", claim="State",
++        observer=lambda: order.append("observer") or None,
++        capability=lambda: order.append("capability") or {
++            "value": "found", "source_id": "capability:inspect", "verified": True,
++        },
++        researcher=lambda: order.append("research") or {"value": "web"},
++        now=NOW,
++    )
++
++    assert order == ["observer", "capability"]
++    assert decision.action == "act"
++    assert decision.belief.value == "found"
+--- /dev/null
++++ b/tests/test_sprint14_correction.py
+@@ -0,0 +1,193 @@
++from __future__ import annotations
++
++import json
++from types import SimpleNamespace
++
++from core.capability_engine import RiskConfidencePolicy
++from core.metacognition import (
++    AuditTrail,
++    Expectation,
++    ExpectationComparator,
++    FailureEpisode,
++    FailureEpisodeStore,
++    SelfCorrectionEngine,
++    Strategy,
++    fingerprint_environment,
++)
++
++
++def test_expectation_mismatch_creates_structured_surprise():
++    expectation = Expectation(
++        action_id="change-1", goal="enable feature", strategy="provider_write",
++        expected_effect={"feature": {"enabled": True}},
++        verification_method="read config independently",
++        failure_indicators=["enabled remains false"],
++    )
++
++    comparison = ExpectationComparator().compare(
++        expectation, {"feature": {"enabled": False}},
++        evidence_refs=["disk:config"],
++    )
++
++    assert comparison.verified is False
++    assert comparison.surprise is not None
++    assert comparison.surprise.mismatch["feature"]["enabled"] == {
++        "expected": True, "actual": False,
++    }
++    assert comparison.surprise.evidence_refs == ["disk:config"]
++
++
++def test_reported_success_without_effect_triggers_different_strategy(tmp_path):
++    actual = {"enabled": False}
++    calls = []
++
++    def fake_success():
++        calls.append("cached_write")
++        return SimpleNamespace(ok=True)
++
++    def real_change():
++        calls.append("atomic_write")
++        actual["enabled"] = True
++        return SimpleNamespace(ok=True)
++
++    engine = SelfCorrectionEngine(
++        FailureEpisodeStore(tmp_path / "failures"), max_attempts=3,
++    )
++    report = engine.run(
++        goal="enable feature", task_class="config_change",
++        strategies=[Strategy("cached_write", fake_success), Strategy("atomic_write", real_change)],
++        expectation=Expectation(
++            "change", "enable feature", "", {"enabled": True},
++            "read config independently", ["enabled=false"],
++        ), observer=lambda: {"enabled": actual["enabled"]},
++        evidence_provider=lambda: ["disk:config"],
++        environment={"app": "fixture", "version": "2"},
++    )
++
++    assert calls == ["cached_write", "atomic_write"]
++    assert report.verified is True
++    assert report.selected_strategy == "atomic_write"
++    assert len(report.surprises) == 1
++    assert report.attempts[0].reported_success is True
++    assert report.attempts[0].verified is False
++    assert report.failure_episodes[0].successful_repair == "atomic_write"
++
++
++def test_repeated_identical_failed_strategy_is_not_retried(tmp_path):
++    calls = []
++    engine = SelfCorrectionEngine(FailureEpisodeStore(tmp_path), max_attempts=5)
++
++    report = engine.run(
++        goal="change", task_class="config",
++        strategies=[
++            Strategy("same", lambda: calls.append("same") or True),
++            Strategy("same", lambda: calls.append("same") or True),
++        ],
++        expectation=Expectation("x", "change", "", {"value": 2}, "inspect", []),
++        observer=lambda: {"value": 1}, environment={"app": "fixture"},
++    )
++
++    assert calls == ["same"]
++    assert report.verified is False
++    assert report.state == "research_required"
++    assert report.skipped_strategies == ["same"]
++    assert report.strategy_confidence["same"] < 1.0
++
++
++def test_failure_episode_is_contextual_not_global_blacklist(tmp_path):
++    store = FailureEpisodeStore(tmp_path)
++    env_a = fingerprint_environment({"app": "fixture", "version": "1"})
++    env_b = fingerprint_environment({"app": "fixture", "version": "2"})
++    store.record(FailureEpisode(
++        goal="enable", task_class="config", strategy="cached_write",
++        failure_category="expectation_mismatch",
++        observed_mismatch={"enabled": {"expected": True, "actual": False}},
++        environment_fingerprint=env_a, confidence=0.9,
++    ))
++
++    assert store.avoid_strategies("config", env_a) == {"cached_write"}
++    assert store.avoid_strategies("config", env_b) == set()
++
++
++def test_restart_avoids_previously_failed_strategy_in_matching_context(tmp_path):
++    store = FailureEpisodeStore(tmp_path)
++    env = {"app": "fixture", "version": "2"}
++    fingerprint = fingerprint_environment(env)
++    store.record(FailureEpisode(
++        goal="enable", task_class="config", strategy="cached_write",
++        failure_category="expectation_mismatch", observed_mismatch={"enabled": False},
++        environment_fingerprint=fingerprint, confidence=0.95,
++        successful_repair="atomic_write",
++    ))
++    calls = []
++    actual = {"enabled": False}
++
++    reopened = SelfCorrectionEngine(FailureEpisodeStore(tmp_path), max_attempts=3)
++    report = reopened.run(
++        goal="enable again", task_class="config",
++        strategies=[
++            Strategy("cached_write", lambda: calls.append("cached") or True),
++            Strategy("atomic_write", lambda: calls.append("atomic") or actual.update(enabled=True)),
++        ],
++        expectation=Expectation("x", "enable", "", {"enabled": True}, "inspect", []),
++        observer=lambda: dict(actual), environment=env,
++    )
++
++    assert calls == ["atomic"]
++    assert report.verified is True
++    assert report.skipped_strategies == ["cached_write"]
++
++
++def test_self_correction_respects_risk_gate(tmp_path):
++    calls = []
++    engine = SelfCorrectionEngine(
++        FailureEpisodeStore(tmp_path), risk_policy=RiskConfidencePolicy(),
++    )
++
++    report = engine.run(
++        goal="system change", task_class="system",
++        strategies=[Strategy("change", lambda: calls.append(True))],
++        expectation=Expectation("x", "system", "", {"changed": True}, "inspect", []),
++        observer=lambda: {"changed": False}, environment={}, risk="high",
++    )
++
++    assert report.state == "waiting_for_user"
++    assert report.needs_confirmation is True
++    assert calls == []
++
++
++def test_failure_store_filters_secrets_and_raw_traceback(tmp_path):
++    store = FailureEpisodeStore(tmp_path)
++    store.record(FailureEpisode(
++        goal="use password=super-secret", task_class="config",
++        strategy="provider", failure_category="Traceback Error 500",
++        observed_mismatch={"token": "raw-secret", "state": "unchanged"},
++        environment_fingerprint="env", confidence=0.8,
++    ))
++
++    raw = store.path.read_text(encoding="utf-8")
++
++    assert "super-secret" not in raw
++    assert "raw-secret" not in raw
++    assert "Traceback" not in raw
++
++
++def test_audit_bundle_is_machine_readable_and_contains_no_private_reasoning(tmp_path):
++    audit = AuditTrail(tmp_path / "audit")
++    audit.record("expectation", {
++        "expected_effect": {"enabled": True},
++        "reasoning": "private scratch text",
++        "evidence_refs": ["disk:config"],
++    })
++    audit.record("observation", {"observed": {"enabled": False}})
++
++    bundle = audit.export_bundle(
++        tmp_path / "sprint14_audit.json", beliefs=[], failures=[],
++    )
++    raw = bundle.read_text(encoding="utf-8")
++    payload = json.loads(raw)
++
++    assert payload["schema"] == "atlas.metacognition.audit.v1"
++    assert {event["type"] for event in payload["events"]} == {"expectation", "observation"}
++    assert "private scratch text" not in raw
++    assert "reasoning" not in raw
+--- /dev/null
++++ b/tests/test_sprint14_epistemic.py
+@@ -0,0 +1,163 @@
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++
++from core.metacognition import (
++    Belief,
++    ConfidenceCalibrator,
++    EpistemicState,
++    EpistemicStatus,
++    EvidenceRef,
++    Freshness,
++    FreshnessState,
++    SourceType,
++    VerificationStatus,
++)
++
++
++NOW = datetime(2026, 8, 17, 14, 0, tzinfo=timezone.utc)
++
++
++def evidence(ref_id="obs-1", *, source=SourceType.DIRECT_OBSERVATION,
++             origin="system:app", reliability=0.95, verified=True,
++             direct=True, age=0, provider_uncertainty=0.0):
++    return EvidenceRef(
++        ref_id=ref_id, source_type=source, origin_id=origin,
++        reliability=reliability, verified=verified, direct=direct,
++        observed_at=(NOW - timedelta(seconds=age)).isoformat(),
++        provider_uncertainty=provider_uncertainty,
++    )
++
++
++def test_epistemic_belief_has_only_safe_structured_fields():
++    belief = Belief(
++        key="app.version", claim="Installed version is 2.0", value="2.0",
++        status=EpistemicStatus.OBSERVED,
++        evidence_refs=[evidence()], source_types=[SourceType.DIRECT_OBSERVATION],
++        freshness=Freshness.volatile(NOW, ttl_seconds=3600),
++        verification_status=VerificationStatus.VERIFIED,
++    )
++
++    payload = belief.to_dict()
++
++    assert payload["status"] == "observed"
++    assert payload["verification_status"] == "verified"
++    assert payload["evidence_refs"][0]["ref_id"] == "obs-1"
++    assert not ({"reasoning", "thoughts", "chain_of_thought", "scratchpad"} & set(payload))
++
++    aggregate = EpistemicState([belief], active_key="app.version").to_dict()
++    assert aggregate["active_key"] == "app.version"
++    assert aggregate["beliefs"][0]["claim"] == "Installed version is 2.0"
++
++
++def test_direct_verified_observation_calibrates_as_high_confidence():
++    belief = Belief(
++        key="app.version", claim="Installed version is 2.0", value="2.0",
++        status=EpistemicStatus.OBSERVED, evidence_refs=[evidence()],
++        freshness=Freshness.volatile(NOW, ttl_seconds=3600),
++        verification_status=VerificationStatus.VERIFIED,
++    )
++
++    result = ConfidenceCalibrator().calibrate(belief, now=NOW)
++
++    assert result.confidence >= 0.9
++    assert result.inputs["direct_observation"] == 1.0
++    assert result.inputs["verified_evidence"] == 1.0
++
++
++def test_inferred_memory_is_not_promoted_to_fact():
++    belief = Belief(
++        key="app.version", claim="Version may be 1.0", value="1.0",
++        status=EpistemicStatus.INFERRED,
++        evidence_refs=[evidence(
++            source=SourceType.MEMORY, origin="memory:episode-1",
++            reliability=0.65, verified=False, direct=False,
++        )],
++        freshness=Freshness.volatile(NOW, ttl_seconds=3600),
++        verification_status=VerificationStatus.NEEDS_VERIFICATION,
++    )
++
++    result = ConfidenceCalibrator().calibrate(belief, now=NOW, successful_prior_episodes=20)
++
++    assert result.confidence < 0.8
++    assert belief.status is EpistemicStatus.INFERRED
++
++
++def test_duplicate_evidence_from_same_origin_does_not_raise_confidence():
++    single = Belief(
++        key="setting", claim="Setting enabled", value=True,
++        status=EpistemicStatus.INFERRED, evidence_refs=[evidence(
++            ref_id="provider-a", source=SourceType.RESEARCH,
++            origin="upstream:one", verified=False, direct=False,
++        )], freshness=Freshness.stable(NOW, ttl_seconds=3600),
++    )
++    duplicate = Belief.from_dict(single.to_dict())
++    duplicate.evidence_refs.append(evidence(
++        ref_id="provider-b", source=SourceType.RESEARCH,
++        origin="upstream:one", verified=False, direct=False,
++    ))
++
++    calibrator = ConfidenceCalibrator()
++    first = calibrator.calibrate(single, now=NOW)
++    repeated = calibrator.calibrate(duplicate, now=NOW)
++
++    assert repeated.confidence == first.confidence
++    assert repeated.inputs["independent_sources"] == 1
++
++
++def test_independent_evidence_can_raise_but_not_force_certainty():
++    belief = Belief(
++        key="site.state", claim="Site is available", value=True,
++        status=EpistemicStatus.INFERRED,
++        evidence_refs=[
++            evidence("a", source=SourceType.RESEARCH, origin="source:a",
++                     verified=False, direct=False, reliability=0.75),
++            evidence("b", source=SourceType.USER, origin="source:b",
++                     verified=False, direct=False, reliability=0.7),
++        ], freshness=Freshness.volatile(NOW, ttl_seconds=300),
++    )
++
++    result = ConfidenceCalibrator().calibrate(belief, now=NOW)
++
++    assert result.inputs["independent_sources"] == 2
++    assert 0.5 < result.confidence < 0.8
++
++
++def test_contradiction_caps_confidence():
++    belief = Belief(
++        key="app.version", claim="Version is conflicted", value="2.0",
++        status=EpistemicStatus.CONFLICTED, evidence_refs=[evidence()],
++        freshness=Freshness.volatile(NOW, ttl_seconds=3600),
++        contradictions=["memory:version=1.0"],
++        verification_status=VerificationStatus.NEEDS_VERIFICATION,
++    )
++
++    result = ConfidenceCalibrator().calibrate(belief, now=NOW)
++
++    assert result.inputs["contradictions"] == 1
++    assert result.confidence <= 0.45
++
++
++def test_stale_volatile_evidence_loses_confidence():
++    freshness = Freshness.volatile(NOW - timedelta(hours=2), ttl_seconds=60)
++    belief = Belief(
++        key="active.window", claim="Editor is active", value="Editor",
++        status=EpistemicStatus.OBSERVED, evidence_refs=[evidence(age=7200)],
++        freshness=freshness, verification_status=VerificationStatus.VERIFIED,
++    )
++
++    result = ConfidenceCalibrator().calibrate(belief, now=NOW)
++
++    assert freshness.state(NOW) is FreshnessState.STALE
++    assert result.inputs["freshness"] == 0.0
++    assert result.confidence < 0.75
++
++
++def test_unknown_is_always_low_confidence():
++    belief = Belief(
++        key="missing", claim="Value is unavailable", status=EpistemicStatus.UNKNOWN,
++        freshness=Freshness.volatile(NOW, ttl_seconds=1),
++        verification_status=VerificationStatus.NEEDS_VERIFICATION,
++    )
++
++    assert ConfidenceCalibrator().calibrate(belief, now=NOW).confidence <= 0.15
+--- /dev/null
++++ b/tests/test_sprint14_integration.py
+@@ -0,0 +1,174 @@
++from __future__ import annotations
++
++import json
++from datetime import datetime, timezone
++from types import SimpleNamespace
++
++from core.actions import DEFAULT_REGISTRY
++from core.capability_engine import DesiredStateResult
++from core.cognitive import CognitiveOrchestrator, CurrentMindState
++from core.metacognition import EpistemicStatus
++from core.metacognition import Expectation, Strategy
++
++
++NOW = datetime(2026, 8, 17, 16, 0, tzinfo=timezone.utc)
++
++
++def test_current_mind_state_exposes_only_safe_epistemic_summaries():
++    state = CurrentMindState(
++        known=["app.version"], unknown=["network.state"],
++        uncertain=["website.state"], conflicted=["setting.mode"],
++        needs_verification=["file.exists"], active_epistemic_key="app.version",
++    )
++
++    payload = state.to_safe_dict()
++
++    assert payload["known"] == ["app.version"]
++    assert payload["conflicted"] == ["setting.mode"]
++    assert payload["needs_verification"] == ["file.exists"]
++    assert not ({"reasoning", "thoughts", "scratchpad"} & set(payload))
++
++
++def test_cognitive_runtime_owns_metacognition_without_replacing_existing_registry(tmp_path):
++    coordinator = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++
++    assert coordinator.registry is DEFAULT_REGISTRY
++    assert coordinator.metacognition.store.path.is_file() is False
++    assert coordinator.correction.failures is coordinator.failure_store
++    assert coordinator.audit.directory.is_dir()
++
++
++def test_safe_observation_updates_current_mind_summary(tmp_path):
++    coordinator = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++
++    decision = coordinator.resolve_knowledge(
++        key="software.version", claim="Installed version",
++        observer=lambda: {"value": "3.1", "source_id": "registry:fixture"},
++        now=NOW,
++    )
++
++    assert decision.action == "observe"
++    assert coordinator.state.known == ["software.version"]
++    assert coordinator.state.unknown == []
++    assert coordinator.state.active_epistemic_key == "software.version"
++
++
++def test_natural_certainty_and_provenance_questions_use_active_belief(tmp_path):
++    coordinator = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++    coordinator.resolve_knowledge(
++        key="software.version", claim="Installed version",
++        observer=lambda: {"value": "3.1", "source_id": "registry:fixture"},
++        now=NOW,
++    )
++
++    certainty = coordinator.begin_interaction("Ты уверен?", implicit_address=True)
++    provenance = coordinator.begin_interaction("Откуда ты это знаешь?", implicit_address=True)
++
++    assert certainty.action == "metacognition"
++    assert certainty.response == "Да. Я проверил это в локальной системе."
++    assert provenance.action == "metacognition"
++    assert provenance.response == "Я проверил это в локальной системе."
++
++
++def test_unknown_certainty_is_truthful(tmp_path):
++    coordinator = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++
++    answer = coordinator.begin_interaction("Ты уверен?", implicit_address=True)
++
++    assert answer.response == "Пока не знаю. Могу проверить."
++    assert "0." not in answer.response
++
++
++def test_unverified_execution_updates_needs_verification_not_success(tmp_path):
++    coordinator = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++    turn = coordinator.begin_interaction("Организуй файлы", implicit_address=True)
++    report = SimpleNamespace(
++        completed=False, state="verification_failed", needs_confirmation=False,
++        verification=DesiredStateResult(False, {"organized": True}, {"organized": False}),
++        results=[SimpleNamespace(ok=True)], episode=None,
++    )
++
++    response = coordinator.complete_execution(turn, report)
++
++    assert "Готово" not in response
++    assert coordinator.state.last_verified_result == ""
++    assert coordinator.state.needs_verification
++    belief = coordinator.metacognition.store.get(coordinator.state.active_epistemic_key)
++    assert belief.verification_status.value == "failed"
++
++
++def test_verified_execution_supersedes_failed_expectation_and_becomes_known(tmp_path):
++    coordinator = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++    turn = coordinator.begin_interaction("Организуй файлы", implicit_address=True)
++    failed = SimpleNamespace(
++        completed=False, state="verification_failed", needs_confirmation=False,
++        verification=DesiredStateResult(False, {"organized": True}, {"organized": False}),
++        results=[SimpleNamespace(ok=True)], episode=None,
++    )
++    coordinator.complete_execution(turn, failed)
++    success = SimpleNamespace(
++        completed=True, state="completed", needs_confirmation=False,
++        verification=DesiredStateResult(True, {}, {"organized": True}),
++        results=[SimpleNamespace(ok=True)], episode=SimpleNamespace(episode_id="verified-1"),
++    )
++
++    response = coordinator.complete_execution(turn, success)
++    belief = coordinator.metacognition.store.get(coordinator.state.active_epistemic_key)
++
++    assert response == "Готово. Проверил — работает."
++    assert belief.value is True
++    assert belief.status in {EpistemicStatus.KNOWN, EpistemicStatus.OBSERVED}
++    assert belief.confidence >= 0.9
++    assert coordinator.state.active_epistemic_key in coordinator.state.known
++
++
++def test_epistemic_summary_persists_across_cognitive_restart(tmp_path):
++    first = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++    first.resolve_knowledge(
++        key="software.version", claim="Installed version",
++        observer=lambda: {"value": "3.1", "source_id": "registry:fixture"},
++        now=NOW,
++    )
++
++    reopened = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++
++    assert reopened.metacognition.store.get("software.version").value == "3.1"
++    assert reopened.state.active_epistemic_key == "software.version"
++    assert reopened.state.known == ["software.version"]
++    raw = json.loads(reopened.store.path.read_text(encoding="utf-8"))
++    assert "known" in raw and "needs_verification" in raw
++
++
++def test_cognitive_orchestrator_runs_bounded_correction_and_updates_mind(tmp_path):
++    coordinator = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++    actual = {"enabled": False}
++
++    response, report = coordinator.execute_with_correction(
++        goal="enable fixture", task_class="fixture_config",
++        strategies=[
++            Strategy("no_effect", lambda: SimpleNamespace(ok=True)),
++            Strategy("repair", lambda: actual.update(enabled=True)),
++        ],
++        expectation=Expectation("x", "enable fixture", "", {"enabled": True}, "inspect", []),
++        observer=lambda: dict(actual), environment={"app": "fixture"},
++    )
++
++    assert report.verified is True
++    assert response == "Готово. Проверил — работает."
++    assert coordinator.state.last_verified_result
++    assert coordinator.state.active_epistemic_key in coordinator.state.known
++
++
++def test_cognitive_orchestrator_never_naturalizes_failed_correction_as_success(tmp_path):
++    coordinator = CognitiveOrchestrator(tmp_path, registry=DEFAULT_REGISTRY)
++
++    response, report = coordinator.execute_with_correction(
++        goal="change fixture", task_class="fixture_config",
++        strategies=[Strategy("no_effect", lambda: SimpleNamespace(ok=True))],
++        expectation=Expectation("x", "change fixture", "", {"value": "new"}, "inspect", []),
++        observer=lambda: {"value": "old"}, environment={"app": "fixture"},
++    )
++
++    assert report.verified is False
++    assert "Готово" not in response
++    assert coordinator.state.needs_verification
+--- /dev/null
++++ b/tests/test_sprint14_knowledge.py
+@@ -0,0 +1,205 @@
++from __future__ import annotations
++
++import json
++from datetime import datetime, timedelta, timezone
++
++from core.capability_engine import RiskConfidencePolicy
++from core.metacognition import (
++    BeliefStore,
++    EpistemicStatus,
++    EvidenceRef,
++    Freshness,
++    FreshnessPolicy,
++    MetacognitionEngine,
++    SourceType,
++    VerificationStatus,
++)
++
++
++NOW = datetime(2026, 8, 17, 15, 0, tzinfo=timezone.utc)
++
++
++def ref(ref_id, source, origin, *, verified=False, direct=False, reliability=0.7):
++    return EvidenceRef(
++        ref_id, source, origin, reliability,
++        observed_at=NOW.isoformat(), verified=verified, direct=direct,
++    )
++
++
++def test_belief_store_is_bounded_private_and_restartable(tmp_path):
++    store = BeliefStore(tmp_path, max_beliefs=3)
++    engine = MetacognitionEngine(store)
++    for index in range(5):
++        engine.record(
++            key=f"key.{index}", claim=f"value {index} password=secret-{index}", value=index,
++            status=EpistemicStatus.INFERRED,
++            evidence=[ref(f"m-{index}", SourceType.MEMORY, f"memory:{index}")],
++            freshness=Freshness.stable(NOW), now=NOW + timedelta(seconds=index),
++        )
++
++    raw = store.path.read_text(encoding="utf-8")
++    reopened = BeliefStore(tmp_path, max_beliefs=3)
++
++    assert "secret-" not in raw
++    assert len(reopened.all()) == 3
++    assert {item.key for item in reopened.all()} == {"key.2", "key.3", "key.4"}
++
++
++def test_fresh_direct_observation_supersedes_stale_memory(tmp_path):
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++    old = engine.record(
++        key="app.version", claim="Installed version", value="1.0",
++        status=EpistemicStatus.INFERRED,
++        evidence=[ref("old", SourceType.MEMORY, "memory:old")],
++        freshness=Freshness.volatile(NOW - timedelta(days=3), ttl_seconds=3600),
++        now=NOW,
++    )
++    current = engine.record(
++        key="app.version", claim="Installed version", value="2.0",
++        status=EpistemicStatus.OBSERVED,
++        evidence=[ref("disk", SourceType.LOCAL_SYSTEM, "system:app", verified=True, direct=True)],
++        freshness=Freshness.volatile(NOW, ttl_seconds=3600),
++        verification_status=VerificationStatus.VERIFIED, now=NOW,
++    )
++
++    assert old.value == "1.0"
++    assert current.value == "2.0"
++    assert current.status is EpistemicStatus.OBSERVED
++    assert current.confidence >= 0.9
++    assert any("1.0" in item for item in current.contradictions)
++    assert "old" in current.supersedes
++
++
++def test_equally_weak_conflicting_sources_remain_conflicted(tmp_path):
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++    engine.record(
++        key="setting.mode", claim="Mode", value="A", status=EpistemicStatus.ASSUMED,
++        evidence=[ref("user", SourceType.USER, "user:statement")],
++        freshness=Freshness.stable(NOW), now=NOW,
++    )
++    belief = engine.record(
++        key="setting.mode", claim="Mode", value="B", status=EpistemicStatus.INFERRED,
++        evidence=[ref("provider", SourceType.PROVIDER, "provider:result")],
++        freshness=Freshness.stable(NOW), now=NOW,
++    )
++
++    assert belief.status is EpistemicStatus.CONFLICTED
++    assert belief.verification_status is VerificationStatus.NEEDS_VERIFICATION
++    assert belief.confidence <= 0.45
++    assert len(belief.contradictions) >= 2
++
++
++def test_repetition_of_same_inference_never_becomes_known(tmp_path):
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++    first = None
++    for index in range(10):
++        belief = engine.record(
++            key="claim.false", claim="Repeated claim", value="wrong",
++            status=EpistemicStatus.INFERRED,
++            evidence=[ref(f"copy-{index}", SourceType.RESEARCH, "same:upstream")],
++            freshness=Freshness.stable(NOW), now=NOW,
++        )
++        first = first or belief.confidence
++
++    assert belief.status is EpistemicStatus.INFERRED
++    assert belief.confidence == first
++    assert len(belief.evidence_refs) == 1
++
++
++def test_volatile_freshness_policy_marks_old_state_stale():
++    policy = FreshnessPolicy()
++
++    version = policy.for_key("software.version", NOW - timedelta(days=2))
++    identity = policy.for_key("identity.name", NOW - timedelta(days=5000))
++
++    assert version.state(NOW).value == "stale"
++    assert identity.state(NOW).value == "timeless"
++
++
++def test_verify_before_ask_uses_safe_local_observation(tmp_path):
++    called = []
++    engine = MetacognitionEngine(
++        BeliefStore(tmp_path), risk_policy=RiskConfidencePolicy(),
++    )
++
++    decision = engine.resolve(
++        key="app.version", claim="Installed version",
++        observer=lambda: called.append("inspect") or {
++            "value": "2.4", "source_id": "registry:app", "reliability": 0.98,
++        }, observer_risk="low", now=NOW,
++    )
++
++    assert decision.action == "observe"
++    assert called == ["inspect"]
++    assert decision.belief.value == "2.4"
++    assert decision.belief.verification_status is VerificationStatus.VERIFIED
++    assert "Проверил" in decision.response
++
++
++def test_stale_knowledge_is_reobserved_before_answer(tmp_path):
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++    engine.record(
++        key="file.exists", claim="File exists", value=False,
++        status=EpistemicStatus.INFERRED,
++        evidence=[ref("memory", SourceType.MEMORY, "memory:file")],
++        freshness=Freshness.volatile(NOW - timedelta(hours=2), ttl_seconds=60), now=NOW,
++    )
++
++    decision = engine.resolve(
++        key="file.exists", claim="File exists",
++        observer=lambda: {"value": True, "source_id": "disk:file"}, now=NOW,
++    )
++
++    assert decision.action == "observe"
++    assert decision.belief.value is True
++    assert any("False" in item for item in decision.belief.contradictions)
++
++
++def test_risk_gate_remains_authoritative_before_observation(tmp_path):
++    called = []
++    engine = MetacognitionEngine(
++        BeliefStore(tmp_path), risk_policy=RiskConfidencePolicy(),
++    )
++
++    decision = engine.resolve(
++        key="system.setting", claim="System setting",
++        observer=lambda: called.append(True) or {"value": "x"},
++        observer_risk="medium", now=NOW,
++    )
++
++    assert decision.action == "wait"
++    assert called == []
++    assert "подтверждение" in decision.response
++
++
++def test_certainty_and_provenance_are_natural_and_factual(tmp_path):
++    engine = MetacognitionEngine(BeliefStore(tmp_path))
++    engine.record(
++        key="app.version", claim="Installed version", value="2.0",
++        status=EpistemicStatus.OBSERVED,
++        evidence=[ref("disk", SourceType.LOCAL_SYSTEM, "system:app", verified=True, direct=True)],
++        freshness=Freshness.volatile(NOW, ttl_seconds=3600),
++        verification_status=VerificationStatus.VERIFIED, now=NOW,
++    )
++
++    certainty = engine.certainty_response("app.version", now=NOW)
++    provenance = engine.provenance_response("app.version")
++
++    assert certainty == "Да. Я проверил это в локальной системе."
++    assert provenance == "Я проверил это в локальной системе."
++    assert "confidence" not in certainty.casefold()
++
++
++def test_unknown_answer_is_truthful_and_does_not_record_leading_assumption(tmp_path):
++    store = BeliefStore(tmp_path)
++    engine = MetacognitionEngine(store)
++
++    decision = engine.resolve(
++        key="app.version", claim="Версия точно 9.9, верно?", now=NOW,
++    )
++
++    assert decision.action == "ask"
++    assert decision.response == "Пока не знаю. Могу проверить."
++    assert decision.belief.status is EpistemicStatus.UNKNOWN
++    assert decision.belief.value is None
++    assert "9.9" not in json.dumps(decision.belief.to_dict(), ensure_ascii=False)
+--- /dev/null
++++ b/tests/test_sprint14_live_demo.py
+@@ -0,0 +1,27 @@
++import json
++
++from scripts.sprint14_live_demo import run_demo
++
++
++def test_real_local_metacognition_live_demo(tmp_path):
++    result = run_demo(tmp_path / "live")
++
++    assert result["stale_value"] == "1.0"
++    assert result["observed_value"] == "2.0"
++    assert result["contradictions"]
++    assert result["misleading_action_reported_success"] is True
++    assert result["misleading_action_verified"] is False
++    assert result["final_verified"] is True
++    assert result["selected_repair"] == "atomic_config"
++    assert result["second_run_calls"] == ["atomic_config"]
++    assert result["second_run_skipped"] == ["cached_provider"]
++    assert result["provenance_response"] == "Я проверил это в локальной системе."
++
++    audit = json.loads(open(result["audit_bundle"], encoding="utf-8").read())
++    assert audit["failure_episodes"]
++    transitions = [item for item in audit["events"] if item["type"] == "belief_transition"]
++    assert transitions and "confidence_inputs" in transitions[0]["payload"]
++    assert any(item["payload"].get("contradictions") for item in transitions)
++    assert any(item["type"] == "strategy_change" for item in audit["events"])
++    assert any(item["type"] == "verification" for item in audit["events"])
++    assert "reasoning" not in json.dumps(audit, ensure_ascii=False)

@@ -1,0 +1,11 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Browser Bridge Fixture</title></head>
+<body>
+  <label for="profile">Profile name</label>
+  <input id="profile" aria-label="Profile name">
+  <button id="apply" type="button" onclick="document.getElementById('status').textContent='applied:'+document.getElementById('profile').value">Apply settings</button>
+  <button id="purchase" type="submit" onclick="document.getElementById('status').textContent='purchased'">Purchase</button>
+  <output id="status">idle</output>
+</body>
+</html>

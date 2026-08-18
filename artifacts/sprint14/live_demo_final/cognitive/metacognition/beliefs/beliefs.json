@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "beliefs": [
+    {
+      "key": "goal.outcome.753c943212aa70d3",
+      "claim": "Desired state for task: enable fixture feature",
+      "value": true,
+      "status": "known",
+      "confidence": 0.99,
+      "evidence_refs": [
+        {
+          "ref_id": "strategy:atomic_config",
+          "source_type": "direct_observation",
+          "origin_id": "verification:goal.outcome.753c943212aa70d3:success",
+          "reliability": 1.0,
+          "observed_at": "2026-08-17T14:58:13.184574+00:00",
+          "verified": true,
+          "direct": true,
+          "memory_confidence": null,
+          "provider_uncertainty": 0.0
+        }
+      ],
+      "source_types": [
+        "direct_observation"
+      ],
+      "freshness": {
+        "observed_at": "2026-08-17T14:58:13.184574+00:00",
+        "ttl_seconds": 2592000,
+        "is_volatile": false
+      },
+      "verification_status": "verified",
+      "contradictions": [],
+      "created_at": "2026-08-17T14:58:13.184574+00:00",
+      "updated_at": "2026-08-17T14:58:13.184574+00:00",
+      "supersedes": []
+    },
+    {
+      "key": "goal.outcome.1eb7c23d092b3e03",
+      "claim": "Desired state for task: enable fixture feature again",
+      "value": true,
+      "status": "known",
+      "confidence": 0.99,
+      "evidence_refs": [
+        {
+          "ref_id": "strategy:atomic_config",
+          "source_type": "direct_observation",
+          "origin_id": "verification:goal.outcome.1eb7c23d092b3e03:success",
+          "reliability": 1.0,
+          "observed_at": "2026-08-17T14:58:13.256682+00:00",
+          "verified": true,
+          "direct": true,
+          "memory_confidence": null,
+          "provider_uncertainty": 0.0
+        }
+      ],
+      "source_types": [
+        "direct_observation"
+      ],
+      "freshness": {
+        "observed_at": "2026-08-17T14:58:13.256682+00:00",
+        "ttl_seconds": 2592000,
+        "is_volatile": false
+      },
+      "verification_status": "verified",
+      "contradictions": [],
+      "created_at": "2026-08-17T14:58:13.256682+00:00",
+      "updated_at": "2026-08-17T14:58:13.256682+00:00",
+      "supersedes": []
+    },
+    {
+      "key": "fixture.version",
+      "claim": "Installed fixture version",
+      "value": "2.0",
+      "status": "observed",
+      "confidence": 0.99,
+      "evidence_refs": [
+        {
+          "ref_id": "disk:fixture_app.json:version",
+          "source_type": "local_system",
+          "origin_id": "local_file:fixture_app.json",
+          "reliability": 1.0,
+          "observed_at": "2026-08-17T17:00:00+00:00",
+          "verified": true,
+          "direct": true,
+          "memory_confidence": null,
+          "provider_uncertainty": 0.0
+        }
+      ],
+      "source_types": [
+        "local_system"
+      ],
+      "freshness": {
+        "observed_at": "2026-08-17T17:00:00+00:00",
+        "ttl_seconds": 15552000,
+        "is_volatile": false
+      },
+      "verification_status": "verified",
+      "contradictions": [
+        "previous:'1.0' (memory)"
+      ],
+      "created_at": "2026-08-17T17:00:00+00:00",
+      "updated_at": "2026-08-17T17:00:00+00:00",
+      "supersedes": [
+        "memory:old-version"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "records": [
+    {
+      "topic": "report_automation",
+      "suggestion": "Автоматизировать такой отчёт?",
+      "outcome": "accepted",
+      "useful": true,
+      "at": "2026-08-17T13:17:36.644871+00:00"
+    },
+    {
+      "topic": "report_automation",
+      "suggestion": "Автоматизировать такой отчёт?",
+      "outcome": "accepted",
+      "useful": true,
+      "at": "2026-08-17T13:17:36.645903+00:00"
+    },
+    {
+      "topic": "report_automation",
+      "suggestion": "Автоматизировать такой отчёт?",
+      "outcome": "accepted",
+      "useful": true,
+      "at": "2026-08-17T13:17:36.664605+00:00"
+    }
+  ]
+}

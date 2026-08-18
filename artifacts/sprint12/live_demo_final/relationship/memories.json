@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "memories": [
+    {
+      "id": "a6e74ef7fef141409f85c21da3d02b89",
+      "fact": "Пользователь обычно делегирует задачи типа report_automation",
+      "source": "interaction_outcome",
+      "confidence": 0.65,
+      "last_confirmed": "2026-08-17T13:24:13.426486+00:00",
+      "importance": 0.7,
+      "category": "delegation",
+      "key": "delegation:report_automation",
+      "created_at": "2026-08-17T13:24:13.409968+00:00",
+      "expires_at": "2027-08-17T13:24:13.426486+00:00"
+    },
+    {
+      "id": "11f60f4e6eed4c509a2c5058c79b9d72",
+      "fact": "Пользователь предпочитает стиль ответов: detailed",
+      "source": "user_explicit",
+      "confidence": 0.95,
+      "last_confirmed": "2026-08-17T13:24:13.435062+00:00",
+      "importance": 0.9,
+      "category": "preference",
+      "key": "communication_style",
+      "created_at": "2026-08-17T13:24:13.382352+00:00",
+      "expires_at": "2028-08-16T13:24:13.435062+00:00"
+    }
+  ]
+}

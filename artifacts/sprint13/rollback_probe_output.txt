@@ -1,0 +1,43 @@
+{
+  "success": true,
+  "project_root": "E:\\jarvis-project\\artifacts\\sprint13\\rollback_probe",
+  "backup_root": "E:\\jarvis-project\\artifacts\\sprint13\\original",
+  "restored": [
+    "config\\settings.example.json",
+    "config\\settings.json",
+    "config\\settings.py",
+    "core\\agent.py",
+    "core\\memory\\retrieval.py",
+    "core\\orchestrator.py",
+    "core\\personality\\models.py",
+    "core\\research.py",
+    "core\\router\\local_face.py",
+    "core\\shadow\\generator.py",
+    "core\\voice\\wake_word.py",
+    "core\\ws_server.py",
+    "persona\\identity.json",
+    "persona\\persona.md",
+    "persona\\personality.json",
+    "persona\\system_prompt.py",
+    "scripts\\voice_runtime_smoke.py",
+    "tests\\test_sprint12_integration.py",
+    "tests\\test_sprint12_personality.py"
+  ],
+  "removed": [
+    "core\\cognitive\\__init__.py",
+    "core\\cognitive\\addressing.py",
+    "core\\cognitive\\continuity.py",
+    "core\\cognitive\\identity.py",
+    "core\\cognitive\\models.py",
+    "core\\cognitive\\orchestrator.py",
+    "core\\cognitive\\self_model.py",
+    "core\\cognitive\\state.py",
+    "docs\\sprints\\SPRINT13_SPEC.md",
+    "scripts\\sprint13_live_demo.py",
+    "tests\\test_sprint13_cognitive_orchestrator.py",
+    "tests\\test_sprint13_identity_addressing.py",
+    "tests\\test_sprint13_live_demo.py",
+    "tests\\test_sprint13_mind_state.py",
+    "scripts\\rollback_sprint13.ps1"
+  ]
+}

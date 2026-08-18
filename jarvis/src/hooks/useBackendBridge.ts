@@ -16,13 +16,16 @@ import {
   TRANSPORT_STATE_MAP,
 } from '@/integrations/backend';
 import type {
-  ActivityEvent, AttachedFile, EntityState, BackendAdapter, VitalsData, PendingConfirmation,
+  ActivityEvent, AttachedFile, EntityState, VitalsData, PendingConfirmation,
 } from '@/types';
 
 // ===== CONNECT BACKEND HERE =====
 // Live transport (Tauri event bus) is now wired inside createRealBackend();
 // it falls back to the mock adapter automatically outside Tauri (vite dev).
-const backend: BackendAdapter = createRealBackend();
+const backend = createRealBackend();
+
+/** Настройки облака (провайдер/модель/ключ) — существующий WS-транспорт, протокол не меняется. */
+export const cloudSettingsApi = backend;
 
 // Single source of truth for transport -> entity state (kept in backend.ts).
 const STATE_MAP: Record<string, EntityState> = TRANSPORT_STATE_MAP;
@@ -70,14 +73,19 @@ export function useBackendBridge() {
       }
       if (e.type === 'event:jarvis:token') {
         const { id, token } = e.payload as { id: string; token: string };
-        updateRef.current(id, { content: token });
+        // Если id токена не совпал с открытым пузырём (race id на стороне
+        // backend), обновляем открытый пузырь — ответ не должен пропадать.
+        updateRef.current(streamingId.current ?? id, { content: token });
         return;
       }
       if (e.type === 'event:jarvis:end') {
         const ev = e.payload as ActivityEvent;
+        // Backend fast-path может сформировать start/end id в разные
+        // миллисекунды; закрываем реально открытый пузырь, а не мёртвый id.
+        const openId = streamingId.current;
         streamingId.current = null;
         dispatch({ type: 'SET_STREAMING_MESSAGE', payload: null });
-        updateRef.current(ev.id, ev);
+        updateRef.current(!openId || ev.id === openId ? ev.id : openId, ev);
         return;
       }
 

@@ -1,0 +1,10 @@
+{
+  "patch": "E:\\jarvis-project\\artifacts\\sprint10\\sprint10.patch",
+  "patch_sha256": "1d19c19faddfaafd786e547cd468c19234f9164046579d79e9810767063f7bb8",
+  "patch_bytes": 194270,
+  "changed_files": "E:\\jarvis-project\\artifacts\\sprint10\\changed_files.json",
+  "artifact": "E:\\jarvis-project\\artifacts\\sprint10\\sprint10_modified_artifact.zip",
+  "artifact_sha256": "096686135f9d407ebcfbf4add52b448b14d8b674d519e10093f439174ecba71b",
+  "artifact_entries": 36,
+  "zip_test": "OK"
+}

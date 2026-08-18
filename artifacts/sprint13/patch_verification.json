@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "verification": "git apply --check + apply + normalized UTF-8 content",
+  "verified_files": 34,
+  "line_endings": "git apply may normalize CRLF/LF; exact current bytes are in atlas_sprint13_modified.zip",
+  "mismatches": []
+}

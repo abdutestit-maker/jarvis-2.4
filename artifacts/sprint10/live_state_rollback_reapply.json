@@ -1,0 +1,20 @@
+{
+  "rollback": {
+    "restored": true,
+    "target": "C:\\Users\\WwW\\AppData\\Roaming\\Notepad++\\config.xml"
+  },
+  "rolled_back_state": {
+    "remember_last_session": true,
+    "word_wrap": false
+  },
+  "reapplied_state": {
+    "remember_last_session": false,
+    "word_wrap": true
+  },
+  "window": {
+    "handle": 7407864,
+    "title": "новый 1 - Notepad++",
+    "process_id": 21704
+  },
+  "verified": true
+}

@@ -1,0 +1,44 @@
+{
+  "provider": {
+    "provider": "piper",
+    "local": true,
+    "language": "ru",
+    "voice": "ru_RU-dmitri-medium",
+    "fallback": "none",
+    "available": true
+  },
+  "raw_error_spoken": null,
+  "recovered_failure_spoken": null,
+  "cold_latency_ms": 2343.872,
+  "warm_latency_ms": 2948.106,
+  "samples": [
+    {
+      "path": "E:\\jarvis-project\\artifacts\\voice_test\\normal.wav",
+      "bytes": 239148,
+      "sample_rate": 22050,
+      "channels": 1,
+      "duration_sec": 5.422,
+      "mode": "normal",
+      "text": "Готово, сэр."
+    },
+    {
+      "path": "E:\\jarvis-project\\artifacts\\voice_test\\focused.wav",
+      "bytes": 297004,
+      "sample_rate": 22050,
+      "channels": 1,
+      "duration_sec": 6.734,
+      "mode": "focused",
+      "text": "Сейчас разберусь, сэр."
+    },
+    {
+      "path": "E:\\jarvis-project\\artifacts\\voice_test\\terminal_failure.wav",
+      "bytes": 1001004,
+      "sample_rate": 22050,
+      "channels": 1,
+      "duration_sec": 22.698,
+      "mode": "normal",
+      "text": "Сэр, здесь что-то пошло не так. Я пока не смог это обойти."
+    }
+  ],
+  "barge_in": "TTSQueue interrupt/stop_speaking verified by automated test"
+}

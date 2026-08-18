@@ -1,0 +1,86 @@
+[
+  {
+    "path": "config/settings.example.json",
+    "sha256": "5d1f3f8be15a567324952c770b165a43e50f78225cd8b66ad5f19cbf24fdd82f"
+  },
+  {
+    "path": "config/settings.json",
+    "sha256": "f36bc68be1c9aaece2f3f6e07a7f9b1908ec69a98e38e9d956ca410b9e068ad7"
+  },
+  {
+    "path": "config/settings.py",
+    "sha256": "307a1d085cb335c3747470b9bb8838f2fb8a9530d1c4d636f12899f6996dd9d8"
+  },
+  {
+    "path": "core/agent.py",
+    "sha256": "c1268e179c118a94031636f8c594b3db0d13842e0c66f9c4b6a195ee319565a0"
+  },
+  {
+    "path": "core/memory/retrieval.py",
+    "sha256": "85814d5d15b03585b3dc1e605053d6e6c43a3f7f5365fd0c37fd7ddbf5c55efa"
+  },
+  {
+    "path": "core/orchestrator.py",
+    "sha256": "578a5e86c50c5766e47b9d74db8bd80be49885e5c84d7cc433ff277ff4bd4649"
+  },
+  {
+    "path": "core/personality/engine.py",
+    "sha256": "9dad3618977d5a1e7b644a801d82525523f4fe5cfb5b84d1175ad1f868d8e4a7"
+  },
+  {
+    "path": "core/personality/models.py",
+    "sha256": "c63b2a1f5014dba9ac9ac8b0b4ac7b00fab5bdcfb6f5c6191b15130efba6525f"
+  },
+  {
+    "path": "core/research.py",
+    "sha256": "31b56ed6ac39105faf553715e178be5188b108cb344e136972b46b6727fe91f5"
+  },
+  {
+    "path": "core/router/local_face.py",
+    "sha256": "d3436dc7209a2df1b8405e98847b3bd5d590d3c193868e7154b8b3e8bd0d0087"
+  },
+  {
+    "path": "core/shadow/generator.py",
+    "sha256": "d1a55589446f92d779c1f8cd967d18924ec0688de57fd63f4eb30d2ed0ae6e2b"
+  },
+  {
+    "path": "core/voice/greeting.py",
+    "sha256": "b70ff7a77afba0f8ac370c9a9d57966346c440030295414fccb8079867844ebc"
+  },
+  {
+    "path": "core/voice/wake_word.py",
+    "sha256": "07ac93c9952b15b2a770bcc8d1bee5374f41a55142b9dffae3f238a071458c03"
+  },
+  {
+    "path": "core/ws_server.py",
+    "sha256": "7c1fbbdfd39b67877fe95abb4a3f801a60a5dae994e1fdc741ff74d13fb0efe0"
+  },
+  {
+    "path": "persona/identity.json",
+    "sha256": "51779dae2bdb6ffa23597d9b09a835ac94742cb09616c10db6e567beab450f4f"
+  },
+  {
+    "path": "persona/persona.md",
+    "sha256": "e404d491cb2626e51d8e15937d8301bb77564aec19b1a6aae3c4095ddec19edf"
+  },
+  {
+    "path": "persona/personality.json",
+    "sha256": "81216a4a091c4a4f5675bbc2a8004d381fca5c0b452e34c33bf6cacf7faa6dfc"
+  },
+  {
+    "path": "persona/system_prompt.py",
+    "sha256": "9be7b9976a4b48e50a6db074eebd8bce4d43a4fec0a2e99983cd40df686a0252"
+  },
+  {
+    "path": "scripts/voice_runtime_smoke.py",
+    "sha256": "a173a5f32a28f4d0bc20894e98ad51b27995e3e7aead14093825176b450fde15"
+  },
+  {
+    "path": "tests/test_sprint12_integration.py",
+    "sha256": "dc030eadf26053c8c194abdc8eada3f2657305685b45e7d5ca301c25781b2676"
+  },
+  {
+    "path": "tests/test_sprint12_personality.py",
+    "sha256": "9720f5e944674506dd456b305227e36b46ed8dc8769ecad5ef6e9058f3d1c576"
+  }
+]

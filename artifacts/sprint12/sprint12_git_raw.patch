@@ -1,0 +1,1952 @@
+diff --git a/rollback_probe_1825/core/agent.py b/patch_current_tree/core/agent.py
+index 2d50c68..c2549cf 100644
+--- a/rollback_probe_1825/core/agent.py
++++ b/patch_current_tree/core/agent.py
+@@ -56,8 +56,10 @@ from core.llm import (
+ from core.memory.budget import fit_messages_to_budget
+ from core.memory.facts import detect_tone, learn_facts
+ from core.memory.profile import get_profile_context
++from core.memory.relationship import MemoryHierarchy, PreferenceLearner, RelationshipMemoryStore
+ from core.memory.short_term import SessionManager
+ from core.model_router import ModelRouter, RoutingDecision, classify_conversation
++from core.personality import PersonalityEngine
+ from core.repair import RepairLoop
+ from core.research import ResearchEngine, is_research_goal
+ from core.router.intent_router import resolve_keyword_tool
+@@ -299,6 +301,47 @@ class Agent:
+         session_size = int(getattr(getattr(settings, "limits", None),
+                                    "session_memory_messages", 20))
+         self._session = SessionManager(max_size=session_size)
++        # Sprint 12: identity and relationship preferences are typed local
++        # state. The resulting compact prompt fragment is only one consumer;
++        # personality itself is not represented by a free-form prompt.
++        self._relationship_memory = RelationshipMemoryStore(
++            (shadow_data_dir or self._settings.data_dir) / "relationship",
++        )
++        try:
++            self._relationship_memory.prune()
++        except Exception as exc:
++            log.debug("Очистка устаревшей relationship memory пропущена: %s", exc)
++        self._preference_learner = PreferenceLearner(self._relationship_memory)
++        self._personality = PersonalityEngine()
++        self._memory_hierarchy = MemoryHierarchy(
++            self._relationship_memory, session=self._session,
++        )
++        self._user_context: Dict[str, Any] = {}
++
++    @property
++    def personality(self) -> PersonalityEngine:
++        return self._personality
++
++    @property
++    def relationship_memory(self) -> RelationshipMemoryStore:
++        return self._relationship_memory
++
++    @property
++    def preference_learner(self) -> PreferenceLearner:
++        return self._preference_learner
++
++    def set_user_context(self, context: Any) -> None:
++        """Updates privacy-minimal attention state used for response style."""
++        if isinstance(context, dict):
++            source = context
++        else:
++            source = vars(context) if context is not None and hasattr(context, "__dict__") else {}
++        allowed = {
++            "busy", "user_busy", "typing_active", "meeting_active", "fullscreen",
++            "active_application", "probable_activity", "active_mission",
++        }
++        self._user_context = {key: source[key] for key in allowed if key in source}
++        self._memory_hierarchy.working.update(self._user_context)
+ 
+     # ------------------------------------------------------------------ #
+     #  Sprint 1 — stream sink (прогрессивный ответ в UI)
+@@ -423,12 +466,33 @@ class Agent:
+         """
+         goal = (goal or "").strip()
+         if goal:
++            try:
++                self._preference_learner.observe_user_message(goal)
++            except Exception as exc:  # Relationship learning never blocks execution.
++                log.debug("Обучение предпочтений пропущено: %s", exc)
+             try:
+                 learn_facts(self._settings, goal)
+             except Exception as exc:  # noqa: BLE001 — память не ломает миссию
+                 log.debug("Извлечение фактов не удалось: %s", exc)
+ 
+         outcome = self._execute_core(goal, mission, cancel)
++        try:
++            task_type = self._personality.infer_task_type(goal, mode=outcome.mode)
++            outcome.text = self._personality.naturalize(
++                outcome.text, verified=outcome.verified, task_type=task_type,
++            )
++            # Streaming has already exposed cumulative text. Apply the hard
++            # brevity bound only at a non-streaming conversational boundary.
++            if outcome.mode == "conversation" and getattr(self._stream_tls, "sink", None) is None:
++                outcome.text = self._personality.adapt_response(
++                    outcome.text,
++                    self._personality.style_for(
++                        user_context=self._user_context, task_type=task_type,
++                        user_preference=self._preference_learner.profile(),
++                    ),
++                )
++        except Exception as exc:  # Personality wording never changes mission state.
++            log.debug("Адаптация ответа пропущена: %s", exc)
+         try:
+             shadow_outcome = "success" if outcome.verified else (
+                 "unfulfilled" if outcome.mode == "unknown_task" else "failure"
+@@ -1352,6 +1416,7 @@ class Agent:
+             memory_ctx=(memory_ctx or "")[:400],
+             tone=detect_tone(goal),
+             offline=self._is_offline_backend(backend),
++            personality_context=self._personality_prompt_context(goal),
+         )
+         return (
+             f"{prompt}\n"
+@@ -1359,6 +1424,25 @@ class Agent:
+             "просто ответь текстом. Не упоминай инструменты."
+         )
+ 
++    def _personality_prompt_context(self, goal: str) -> str:
++        """Retrieves only the few relationship memories relevant now."""
++        try:
++            profile = self._preference_learner.profile()
++            style = self._personality.style_for(
++                user_context=self._user_context,
++                urgency="high" if bool(self._user_context.get("user_busy")
++                                       or self._user_context.get("busy")) else "normal",
++                task_type=self._personality.infer_task_type(goal, mode="conversation"),
++                user_preference=profile,
++            )
++            relevant = self._relationship_memory.retrieve(goal, limit=4)
++            return self._personality.prompt_fragment(
++                style, memories=(item.fact for item in relevant),
++            )
++        except Exception as exc:
++            log.debug("Relationship context недоступен: %s", exc)
++            return ""
++
+     # ------------------------------------------------------------------ #
+     #  §8, §9, §29 — UNKNOWN != IMPOSSIBLE
+     # ------------------------------------------------------------------ #
+diff --git a/rollback_probe_1825/core/living/service.py b/patch_current_tree/core/living/service.py
+index 73e0c04..80fb7b1 100644
+--- a/rollback_probe_1825/core/living/service.py
++++ b/patch_current_tree/core/living/service.py
+@@ -63,12 +63,13 @@ class AssistanceExecutionResult:
+ 
+ class LivingIntelligence:
+     def __init__(self, directory: Path | str, *, task_runtime: TaskRuntime | None = None,
+-                 shadow_engine: Any = None) -> None:
++                 shadow_engine: Any = None, relationship_learner: Any = None) -> None:
+         self.directory = Path(directory)
+         self.directory.mkdir(parents=True, exist_ok=True)
+         self.context = LivingContextEngine(self.directory / "context")
+         self.workflows = WorkflowLearner(self.directory / "workflows")
+         self.memory = ProactiveMemoryStore(self.directory / "memory")
++        self.relationship_learner = relationship_learner
+         self.profile_store = UserProfileStore(self.directory / "profile")
+         self.decisions = ProactiveDecisionEngine(self.memory)
+         self.resources = BackgroundBudgetManager()
+@@ -90,6 +91,20 @@ class LivingIntelligence:
+     def stop(self) -> None:
+         self.monitor.stop()
+ 
++    def record_suggestion_feedback(self, topic: str, *, outcome: str,
++                                   useful: bool | None,
++                                   suggestion: str = "") -> float:
++        """Feeds Sprint 11 cooldown and Sprint 12 relationship learning together."""
++        self.memory.record(
++            topic, outcome=outcome, useful=useful, suggestion=suggestion,
++        )
++        if self.relationship_learner is None:
++            return self.memory.affinity(topic)
++        try:
++            return float(self.relationship_learner.record_suggestion_outcome(topic, outcome))
++        except Exception:
++            return self.memory.affinity(topic)
++
+     def observe_user_input(self, text: str, *, active_mission: bool = False) -> None:
+         """Adds declared intent while retaining the last sampled application metadata."""
+         current = self.context.current
+diff --git a/rollback_probe_1825/core/memory/__init__.py b/patch_current_tree/core/memory/__init__.py
+index b399748..94e1001 100644
+--- a/rollback_probe_1825/core/memory/__init__.py
++++ b/patch_current_tree/core/memory/__init__.py
+@@ -24,6 +24,14 @@ from core.memory.profile import (
+     update_profile,
+ )
+ from core.memory.retrieval import MemoryRetriever
++from core.memory.relationship import (
++    MemoryContext,
++    MemoryHierarchy,
++    PreferenceLearner,
++    RelationshipMemory,
++    RelationshipMemoryStore,
++    WorkingMemory,
++)
+ from core.memory.short_term import SessionManager
+ 
+ __all__ = [
+@@ -45,4 +53,10 @@ __all__ = [
+     "extract_facts",
+     "learn_facts",
+     "detect_tone",
++    "MemoryContext",
++    "MemoryHierarchy",
++    "PreferenceLearner",
++    "RelationshipMemory",
++    "RelationshipMemoryStore",
++    "WorkingMemory",
+ ]
+diff --git a/patch_current_tree/core/memory/relationship/__init__.py b/patch_current_tree/core/memory/relationship/__init__.py
+new file mode 100644
+index 0000000..73097e4
+--- /dev/null
++++ b/patch_current_tree/core/memory/relationship/__init__.py
+@@ -0,0 +1,11 @@
++"""Relationship memory public interface."""
++
++from core.memory.relationship.hierarchy import MemoryHierarchy, WorkingMemory
++from core.memory.relationship.learning import PreferenceLearner
++from core.memory.relationship.models import MemoryContext, RelationshipMemory
++from core.memory.relationship.store import RelationshipMemoryStore
++
++__all__ = [
++    "MemoryContext", "MemoryHierarchy", "PreferenceLearner", "RelationshipMemory",
++    "RelationshipMemoryStore", "WorkingMemory",
++]
+diff --git a/patch_current_tree/core/memory/relationship/hierarchy.py b/patch_current_tree/core/memory/relationship/hierarchy.py
+new file mode 100644
+index 0000000..d63e71c
+--- /dev/null
++++ b/patch_current_tree/core/memory/relationship/hierarchy.py
+@@ -0,0 +1,57 @@
++"""Bounded retrieval across working, session, long-term and relationship layers."""
++
++from __future__ import annotations
++
++from typing import Any, Callable
++
++from core.memory.relationship.models import MemoryContext
++from core.memory.relationship.store import RelationshipMemoryStore
++from core.memory.short_term import SessionManager
++
++
++class WorkingMemory:
++    def __init__(self) -> None:
++        self._values: dict[str, Any] = {}
++
++    def set(self, key: str, value: Any) -> None:
++        if key:
++            self._values[str(key)] = value
++
++    def update(self, values: dict[str, Any]) -> None:
++        for key, value in values.items():
++            self.set(str(key), value)
++
++    def snapshot(self) -> dict[str, Any]:
++        return dict(self._values)
++
++    def clear(self) -> None:
++        self._values.clear()
++
++
++class MemoryHierarchy:
++    def __init__(self, relationship: RelationshipMemoryStore, *,
++                 session: SessionManager | None = None,
++                 long_term: Callable[[str, int], list[str]] | None = None) -> None:
++        self.relationship_store = relationship
++        self.session_store = session or SessionManager(max_size=20)
++        self.long_term_retriever = long_term
++        self.working = WorkingMemory()
++
++    def retrieve(self, query: str, *, max_chars: int = 1200,
++                 relationship_limit: int = 4, session_limit: int = 6) -> MemoryContext:
++        long_term: list[str] = []
++        if self.long_term_retriever is not None:
++            try:
++                long_term = [str(item)[:240] for item in self.long_term_retriever(query, 3)][:3]
++            except Exception:
++                long_term = []
++        context = MemoryContext(
++            working=self.working.snapshot(),
++            session=self.session_store.get_recent(session_limit),
++            long_term=long_term,
++            relationship=self.relationship_store.retrieve(query, limit=relationship_limit),
++        )
++        # Keep the public result typed; prompt material is independently bounded by to_prompt().
++        context.to_prompt(max_chars=max_chars)
++        return context
++
+diff --git a/patch_current_tree/core/memory/relationship/learning.py b/patch_current_tree/core/memory/relationship/learning.py
+new file mode 100644
+index 0000000..2df3cb2
+--- /dev/null
++++ b/patch_current_tree/core/memory/relationship/learning.py
+@@ -0,0 +1,178 @@
++"""Explicit preference and suggestion-outcome learning for relationship memory."""
++
++from __future__ import annotations
++
++import json
++import re
++import threading
++from pathlib import Path
++from typing import Any
++
++from core.memory.relationship.store import RelationshipMemoryStore
++from core.memory.secret_filter import contains_secret_or_raw
++from core.personality.models import UserProfile
++
++
++class PreferenceLearner:
++    def __init__(self, store: RelationshipMemoryStore) -> None:
++        self.store = store
++        self.path = Path(store.directory) / "user_profile.json"
++        self._lock = threading.RLock()
++
++    def observe_user_message(self, message: str) -> dict[str, Any]:
++        """Learns only explicit interaction preferences, never arbitrary facts."""
++        text = " ".join((message or "").casefold().replace("ё", "е").split())
++        changes: dict[str, Any] = {}
++        if re.search(r"\b(кратко|короче|без длинных|без подробност)\w*", text):
++            changes["communication_style"] = "short"
++        if re.search(r"\b(подробно|подробнее|по шагам|развернут)\w*", text):
++            changes["communication_style"] = "detailed"
++        if re.search(r"\b(просто сделай|действуй сразу|меньше объясн)\w*", text):
++            changes["prefers_action_over_explanation"] = True
++        if re.search(r"\b(сначала объясни|объясняй перед|не делай сразу)\w*", text):
++            changes["prefers_action_over_explanation"] = False
++        if re.search(r"\b(без шуток|никакого юмора|не шути)\b", text):
++            changes["humor_preference"] = 0.0
++        elif re.search(r"\b(можно шутить|с юмором|больше юмора)\b", text):
++            changes["humor_preference"] = 0.35
++        if re.search(r"\b(не спрашивай подтвержден|без подтвержден)\w*", text):
++            changes["likes_confirmation"] = False
++        elif re.search(r"\b(спрашивай подтвержден|подтверждай перед)\w*", text):
++            changes["likes_confirmation"] = True
++        if re.search(r"\b(разработчик|технически|продвинутый|advanced)\w*", text):
++            changes["technical_level"] = "advanced"
++        elif re.search(r"\b(новичок|новичку|простыми словами|без терминов)\w*", text):
++            changes["technical_level"] = "beginner"
++        if not changes:
++            return {}
++
++        with self._lock:
++            data = self._load_data()
++            for key, value in changes.items():
++                data[key] = value
++                self.store.remember(
++                    self._fact_for(key, value), source="user_explicit", confidence=0.95,
++                    importance=0.9, category="preference", key=key, ttl_days=730,
++                )
++            self._save_data(data)
++        return changes
++
++    def record_suggestion_outcome(self, task_type: str, outcome: str) -> float:
++        topic = self._topic(task_type)
++        result = str(outcome or "ignored").casefold()
++        if result not in {"accepted", "useful", "rejected", "ignored", "failed"}:
++            result = "ignored"
++        with self._lock:
++            data = self._load_data()
++            counts = dict(data.get("delegation_counts") or {})
++            topic_counts = dict(counts.get(topic) or {"accepted": 0, "rejected": 0, "ignored": 0})
++            bucket = "accepted" if result in {"accepted", "useful"} else (
++                "rejected" if result in {"rejected", "failed"} else "ignored"
++            )
++            topic_counts[bucket] = int(topic_counts.get(bucket, 0)) + 1
++            counts[topic] = topic_counts
++            accepted = int(topic_counts.get("accepted", 0))
++            rejected = int(topic_counts.get("rejected", 0))
++            ignored = int(topic_counts.get("ignored", 0))
++            confidence = (accepted + 1) / (accepted + rejected + 0.5 * ignored + 2)
++            confidence = round(max(0.0, min(1.0, confidence)), 3)
++            affinity = dict(data.get("delegation_affinity") or {})
++            affinity[topic] = confidence
++            data["delegation_counts"] = counts
++            data["delegation_affinity"] = affinity
++            self._save_data(data)
++            if accepted + rejected + ignored >= 2:
++                tendency = "обычно делегирует" if confidence >= 0.6 else "редко делегирует"
++                self.store.remember(
++                    f"Пользователь {tendency} задачи типа {topic}", source="interaction_outcome",
++                    confidence=max(0.5, abs(confidence - 0.5) * 2), importance=0.7,
++                    category="delegation", key=f"delegation:{topic}", ttl_days=365,
++                )
++            return confidence
++
++    def delegation_confidence(self, task_type: str) -> float:
++        topic = self._topic(task_type)
++        return float((self._load_data().get("delegation_affinity") or {}).get(topic, 0.5))
++
++    def should_offer(self, task_type: str) -> bool:
++        topic = self._topic(task_type)
++        data = self._load_data()
++        counts = (data.get("delegation_counts") or {}).get(topic) or {}
++        return not (int(counts.get("rejected", 0)) >= 2 or int(counts.get("ignored", 0)) >= 3)
++
++    def profile(self) -> UserProfile:
++        data = self._load_data()
++        style = str(data.get("communication_style") or "adaptive")
++        if style not in {"adaptive", "short", "detailed"}:
++            style = "adaptive"
++        technical = str(data.get("technical_level") or "adaptive")
++        if technical not in {"adaptive", "beginner", "advanced"}:
++            technical = "adaptive"
++        try:
++            humor_value = float(data["humor_preference"])
++            humor = humor_value if 0.0 <= humor_value <= 1.0 else None
++        except (KeyError, TypeError, ValueError):
++            humor = None
++        affinity: dict[str, float] = {}
++        for key, value in (data.get("delegation_affinity") or {}).items():
++            try:
++                score = float(value)
++            except (TypeError, ValueError):
++                continue
++            if 0.0 <= score <= 1.0:
++                affinity[str(key)[:100]] = score
++        return UserProfile(
++            communication_style=style,
++            technical_level=technical,
++            prefers_action_over_explanation=(
++                data.get("prefers_action_over_explanation")
++                if isinstance(data.get("prefers_action_over_explanation"), bool) else False
++            ),
++            likes_confirmation=(
++                data.get("likes_confirmation")
++                if isinstance(data.get("likes_confirmation"), bool) else True
++            ),
++            humor_preference=humor,
++            preferred_address=str(data.get("preferred_address") or "сэр"),
++            delegation_affinity=affinity,
++        )
++
++    @staticmethod
++    def _fact_for(key: str, value: Any) -> str:
++        labels = {
++            "communication_style": f"Пользователь предпочитает стиль ответов: {value}",
++            "prefers_action_over_explanation": (
++                "Пользователь предпочитает действие вместо объяснения" if value else
++                "Пользователь предпочитает объяснение перед действием"
++            ),
++            "humor_preference": "Пользователь задал уровень юмора в общении",
++            "likes_confirmation": (
++                "Пользователь предпочитает подтверждения" if value else
++                "Пользователь не любит лишние подтверждения"
++            ),
++            "technical_level": f"Пользователь предпочитает технический уровень: {value}",
++        }
++        return labels.get(key, f"Пользователь задал предпочтение {key}")
++
++    @staticmethod
++    def _topic(task_type: str) -> str:
++        raw = " ".join((task_type or "general").casefold().split())[:200]
++        if contains_secret_or_raw(raw) or re.search(
++            r"(?i)([\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:\+?\d[\d\s()\-]{7,}\d)|"
++            r"диагноз|паспорт|банковск|медицинск)", raw,
++        ):
++            return "private_task"
++        compact = re.sub(r"[^\wа-яё-]+", "_", raw, flags=re.IGNORECASE).strip("_")
++        return compact[:100] or "general"
++
++    def _load_data(self) -> dict[str, Any]:
++        try:
++            data = json.loads(self.path.read_text(encoding="utf-8-sig"))
++            return data if isinstance(data, dict) else {}
++        except (OSError, TypeError, ValueError):
++            return {}
++
++    def _save_data(self, data: dict[str, Any]) -> None:
++        temporary = self.path.with_suffix(".tmp")
++        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
++        temporary.replace(self.path)
+diff --git a/patch_current_tree/core/memory/relationship/models.py b/patch_current_tree/core/memory/relationship/models.py
+new file mode 100644
+index 0000000..bb0dce0
+--- /dev/null
++++ b/patch_current_tree/core/memory/relationship/models.py
+@@ -0,0 +1,59 @@
++"""Serializable relationship-memory records and hierarchy results."""
++
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field
++from typing import Any
++
++
++@dataclass(frozen=True)
++class RelationshipMemory:
++    id: str
++    fact: str
++    source: str
++    confidence: float
++    last_confirmed: str
++    importance: float
++    category: str = "preference"
++    key: str = ""
++    created_at: str = ""
++    expires_at: str = ""
++
++    def to_dict(self) -> dict[str, Any]:
++        return asdict(self)
++
++    @classmethod
++    def from_dict(cls, value: dict[str, Any]) -> "RelationshipMemory":
++        return cls(
++            id=str(value.get("id") or ""), fact=str(value.get("fact") or ""),
++            source=str(value.get("source") or "unknown"),
++            confidence=float(value.get("confidence", 0)),
++            last_confirmed=str(value.get("last_confirmed") or ""),
++            importance=float(value.get("importance", 0)),
++            category=str(value.get("category") or "preference"),
++            key=str(value.get("key") or ""), created_at=str(value.get("created_at") or ""),
++            expires_at=str(value.get("expires_at") or ""),
++        )
++
++
++@dataclass
++class MemoryContext:
++    working: dict[str, Any] = field(default_factory=dict)
++    session: list[dict[str, str]] = field(default_factory=list)
++    long_term: list[str] = field(default_factory=list)
++    relationship: list[RelationshipMemory] = field(default_factory=list)
++
++    def to_prompt(self, max_chars: int = 1200) -> str:
++        parts: list[str] = []
++        if self.working:
++            compact = ", ".join(f"{key}={value}" for key, value in self.working.items())
++            parts.append(f"Working: {compact}")
++        if self.session:
++            recent = " | ".join(f"{item.get('role')}: {item.get('content')}" for item in self.session[-4:])
++            parts.append(f"Session: {recent}")
++        if self.long_term:
++            parts.append("Long term: " + " | ".join(self.long_term[:3]))
++        if self.relationship:
++            parts.append("Relationship: " + " | ".join(item.fact for item in self.relationship[:4]))
++        return "\n".join(parts)[:max(0, int(max_chars))]
++
+diff --git a/patch_current_tree/core/memory/relationship/store.py b/patch_current_tree/core/memory/relationship/store.py
+new file mode 100644
+index 0000000..0de47ea
+--- /dev/null
++++ b/patch_current_tree/core/memory/relationship/store.py
+@@ -0,0 +1,154 @@
++"""Local, quality-controlled storage for non-sensitive interaction preferences."""
++
++from __future__ import annotations
++
++import json
++import re
++import threading
++import uuid
++from dataclasses import replace
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Iterable
++
++from core.memory.relationship.models import RelationshipMemory
++from core.memory.secret_filter import contains_secret_or_raw, sanitize_for_memory
++
++_SENSITIVE = re.compile(
++    r"(?i)\b(диагноз|медицинск|здоровь|религи|вероисповед|политическ|"
++    r"биометр|паспорт|номер\s+карты|банковск|точн(?:ый|ого)\s+адрес|"
++    r"sexual|medical|diagnosis|religion|political|biometric|passport)\b"
++)
++_DIRECT_IDENTIFIER = re.compile(
++    r"(?i)([\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:\+?\d[\d\s()\-]{7,}\d))"
++)
++_WORD = re.compile(r"[\wа-яё]+", re.IGNORECASE)
++_GLOBAL_PREFERENCES = {
++    "communication_style", "prefers_action_over_explanation", "humor_preference",
++    "likes_confirmation", "preferred_address", "technical_level",
++}
++
++
++def _utc(value: datetime | None = None) -> datetime:
++    current = value or datetime.now(timezone.utc)
++    return current if current.tzinfo else current.replace(tzinfo=timezone.utc)
++
++
++def _tokens(value: str) -> set[str]:
++    return {word.casefold()[:5] for word in _WORD.findall(value) if len(word) >= 3}
++
++
++class RelationshipMemoryStore:
++    """Atomic JSON store with confidence reinforcement, expiry and retrieval bounds."""
++
++    def __init__(self, directory: Path | str, *, max_records: int = 300) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "memories.json"
++        self.max_records = max(20, int(max_records))
++        self._lock = threading.RLock()
++
++    def remember(self, fact: str, *, source: str, confidence: float,
++                 importance: float, category: str = "preference", key: str = "",
++                 ttl_days: int = 365, now: datetime | None = None) -> RelationshipMemory | None:
++        raw = " ".join(str(fact or "").split())
++        if (not raw or contains_secret_or_raw(raw) or _SENSITIVE.search(raw)
++                or _DIRECT_IDENTIFIER.search(raw)):
++            return None
++        clean = sanitize_for_memory(raw)[:500]
++        if not clean or "***" in clean:
++            return None
++        moment = _utc(now)
++        stamp = moment.isoformat()
++        expires = (moment + timedelta(days=max(1, int(ttl_days)))).isoformat()
++        normalized_key = " ".join((key or clean).casefold().split())[:160]
++        incoming_confidence = max(0.0, min(1.0, float(confidence)))
++        incoming_importance = max(0.0, min(1.0, float(importance)))
++        with self._lock:
++            records = self._load()
++            previous = next((item for item in records if item.key == normalized_key), None)
++            if previous is None:
++                saved = RelationshipMemory(
++                    id=uuid.uuid4().hex, fact=clean, source=str(source)[:80],
++                    confidence=round(incoming_confidence, 3), last_confirmed=stamp,
++                    importance=round(incoming_importance, 3), category=str(category)[:40],
++                    key=normalized_key, created_at=stamp, expires_at=expires,
++                )
++                records.append(saved)
++            else:
++                same_fact = previous.fact.casefold() == clean.casefold()
++                reinforced = (1 - (1 - previous.confidence) * (1 - incoming_confidence * 0.5)
++                              if same_fact else incoming_confidence)
++                saved = replace(
++                    previous, fact=clean, source=str(source)[:80],
++                    confidence=round(max(0.0, min(1.0, reinforced)), 3),
++                    importance=round(max(previous.importance, incoming_importance), 3),
++                    last_confirmed=stamp, expires_at=expires, category=str(category)[:40],
++                )
++                records = [saved if item.id == previous.id else item for item in records]
++            records.sort(key=lambda item: item.last_confirmed)
++            self._save(records[-self.max_records:])
++            return saved
++
++    def all_memories(self, *, now: datetime | None = None,
++                     include_expired: bool = False) -> list[RelationshipMemory]:
++        moment = _utc(now)
++        with self._lock:
++            values = self._load()
++        if include_expired:
++            return values
++        return [item for item in values if not self._expired(item, moment)]
++
++    def retrieve(self, query: str, *, limit: int = 4, min_confidence: float = 0.35,
++                 now: datetime | None = None) -> list[RelationshipMemory]:
++        query_tokens = _tokens(query)
++        if not query_tokens:
++            return []
++        scored: list[tuple[float, RelationshipMemory]] = []
++        for item in self.all_memories(now=now):
++            if item.confidence < min_confidence:
++                continue
++            overlap = len(query_tokens & _tokens(f"{item.key} {item.fact}")) / len(query_tokens)
++            if overlap <= 0 and item.key in _GLOBAL_PREFERENCES:
++                overlap = 0.25
++            if overlap <= 0:
++                continue
++            score = 0.6 * overlap + 0.25 * item.confidence + 0.15 * item.importance
++            scored.append((score, item))
++        scored.sort(key=lambda pair: (pair[0], pair[1].last_confirmed), reverse=True)
++        return [item for _, item in scored[:max(0, min(10, int(limit)))]]
++
++    def prune(self, *, now: datetime | None = None) -> int:
++        moment = _utc(now)
++        with self._lock:
++            records = self._load()
++            kept = [item for item in records if not self._expired(item, moment)]
++            removed = len(records) - len(kept)
++            if removed:
++                self._save(kept)
++            return removed
++
++    @staticmethod
++    def _expired(item: RelationshipMemory, now: datetime) -> bool:
++        try:
++            expiry = datetime.fromisoformat(item.expires_at)
++            expiry = expiry if expiry.tzinfo else expiry.replace(tzinfo=timezone.utc)
++            return expiry <= now
++        except (TypeError, ValueError):
++            return True
++
++    def _load(self) -> list[RelationshipMemory]:
++        try:
++            payload = json.loads(self.path.read_text(encoding="utf-8-sig"))
++            records: Iterable[dict] = payload.get("memories") or []
++            return [RelationshipMemory.from_dict(item) for item in records if isinstance(item, dict)]
++        except (OSError, TypeError, ValueError):
++            return []
++
++    def _save(self, records: list[RelationshipMemory]) -> None:
++        temporary = self.path.with_suffix(".tmp")
++        temporary.write_text(json.dumps(
++            {"version": 1, "memories": [item.to_dict() for item in records]},
++            ensure_ascii=False, indent=2,
++        ), encoding="utf-8")
++        temporary.replace(self.path)
+diff --git a/rollback_probe_1825/core/orchestrator.py b/patch_current_tree/core/orchestrator.py
+index 387850e..0360d8d 100644
+--- a/rollback_probe_1825/core/orchestrator.py
++++ b/patch_current_tree/core/orchestrator.py
+@@ -95,6 +95,7 @@ class Orchestrator:
+             settings.data_dir / "living",
+             task_runtime=self._runtime,
+             shadow_engine=self._shadow,
++            relationship_learner=self._agent.preference_learner,
+         )
+         self._runtime.subscribe(self._living.observe_mission_event)
+ 
+@@ -212,6 +213,7 @@ class Orchestrator:
+ 
+         # Отмечаем активность для proactor
+         self._proactor.mark_user_activity()
++        self._agent.set_user_context(self._living.context.current)
+ 
+         # Sprint 11: natural queries are answered from evidence-backed local
+         # structured context.  This path does not capture pixels or keystrokes.
+@@ -235,6 +237,7 @@ class Orchestrator:
+         # лёгкая -> синхронно в том же агентном цикле (без фоновой миссии).
+         run_background = self._should_run_background(text)
+         self._living.observe_user_input(text, active_mission=run_background)
++        self._agent.set_user_context(self._living.context.current)
+         if run_background:
+             mission = self.submit_goal(text)
+             ack = mission.acknowledgement or "Принято, сэр. Работаю."
+diff --git a/patch_current_tree/core/personality/__init__.py b/patch_current_tree/core/personality/__init__.py
+new file mode 100644
+index 0000000..d516df9
+--- /dev/null
++++ b/patch_current_tree/core/personality/__init__.py
+@@ -0,0 +1,11 @@
++"""Public Sprint 12 personality contract."""
++
++from core.personality.communication import CommunicationAdapter
++from core.personality.engine import PersonalityEngine
++from core.personality.humor import HumorPolicy
++from core.personality.models import IdentityProfile, PersonalityProfile, StyleProfile, UserProfile
++
++__all__ = [
++    "CommunicationAdapter", "HumorPolicy", "IdentityProfile", "PersonalityEngine",
++    "PersonalityProfile", "StyleProfile", "UserProfile",
++]
+diff --git a/patch_current_tree/core/personality/communication.py b/patch_current_tree/core/personality/communication.py
+new file mode 100644
+index 0000000..75913cc
+--- /dev/null
++++ b/patch_current_tree/core/personality/communication.py
+@@ -0,0 +1,79 @@
++"""Context-aware conversion of task state into a bounded style profile."""
++
++from __future__ import annotations
++
++from typing import Any, Mapping
++
++from core.personality.humor import HumorPolicy
++from core.personality.models import PersonalityProfile, StyleProfile, UserProfile
++
++
++def _value(source: Any, name: str, default: Any = None) -> Any:
++    if isinstance(source, Mapping):
++        return source.get(name, default)
++    return getattr(source, name, default)
++
++
++class CommunicationAdapter:
++    def __init__(self, personality: PersonalityProfile | None = None,
++                 humor_policy: HumorPolicy | None = None) -> None:
++        self.personality = personality or PersonalityProfile()
++        self.humor_policy = humor_policy or HumorPolicy(self.personality.humor)
++
++    def adapt(self, user_context: Any = None, urgency: str = "normal",
++              task_type: str = "conversation",
++              user_preference: UserProfile | Mapping[str, Any] | None = None,
++              *, risk: str = "low", is_error: bool = False) -> StyleProfile:
++        context = user_context or {}
++        preference = user_preference or UserProfile()
++        kind = str(task_type or "conversation").casefold()
++        urgent = str(urgency or "normal").casefold() in {"high", "urgent", "critical"}
++        busy = bool(_value(context, "busy", False) or _value(context, "user_busy", False)
++                    or _value(context, "typing_active", False)
++                    or _value(context, "meeting_active", False) or _value(context, "fullscreen", False))
++        requested = str(_value(preference, "communication_style", "adaptive") or "adaptive").casefold()
++
++        verbosity = "balanced"
++        max_sentences = 5
++        depth = "concise"
++        structured = kind == "report"
++        if kind in {"learning", "tutorial", "explanation"}:
++            verbosity, max_sentences, depth = "detailed", 12, "step_by_step"
++        elif kind == "report":
++            verbosity, max_sentences, depth = "balanced", 10, "evidence_first"
++        elif kind == "conversation":
++            verbosity, max_sentences, depth = "natural", 5, "natural"
++
++        if requested in {"short", "brief", "concise"}:
++            verbosity, max_sentences, depth = "short", 3, "concise"
++        elif requested in {"detailed", "verbose"}:
++            verbosity, max_sentences = "detailed", 12
++            depth = "step_by_step" if kind != "report" else "evidence_first"
++        technical_level = str(_value(preference, "technical_level", "adaptive") or "adaptive")
++        if kind in {"learning", "tutorial", "explanation"}:
++            if technical_level == "advanced":
++                depth = "technical"
++            elif technical_level == "beginner":
++                depth = "simple_step_by_step"
++        elif bool(_value(preference, "prefers_action_over_explanation", False)):
++            depth = "action_first"
++        if busy or urgent:
++            verbosity, max_sentences, depth = "short", 2, "action_first"
++            structured = False if kind != "report" else structured
++
++        preference_humor = _value(preference, "humor_preference", None)
++        humor = self.humor_policy.calibrate(
++            task_type=kind, risk=risk, is_error=is_error, preference=preference_humor,
++        )
++        return StyleProfile(
++            tone="calm" if is_error or risk not in {"", "none", "low"} else self.personality.tone,
++            verbosity=verbosity,
++            max_sentences=max_sentences,
++            explanation_depth=depth,
++            structured=structured,
++            formality="respectful" if self.personality.respect_level == "high" else "neutral",
++            humor_level=humor,
++            initiative=self.personality.initiative,
++            address=str(_value(preference, "preferred_address", self.personality.address)
++                        or self.personality.address),
++        )
+diff --git a/patch_current_tree/core/personality/engine.py b/patch_current_tree/core/personality/engine.py
+new file mode 100644
+index 0000000..1da93e9
+--- /dev/null
++++ b/patch_current_tree/core/personality/engine.py
+@@ -0,0 +1,114 @@
++"""Structured identity, response style selection, and restrained wording."""
++
++from __future__ import annotations
++
++import json
++import re
++from pathlib import Path
++from typing import Any, Iterable, Mapping
++
++from core.personality.communication import CommunicationAdapter
++from core.personality.humor import HumorPolicy
++from core.personality.models import IdentityProfile, PersonalityProfile, StyleProfile, UserProfile
++from core.utils.paths import PROJECT_ROOT
++
++
++def _load(path: Path | str | None) -> dict[str, Any]:
++    if path is None:
++        return {}
++    try:
++        value = json.loads(Path(path).read_text(encoding="utf-8-sig"))
++        return value if isinstance(value, dict) else {}
++    except (OSError, TypeError, ValueError):
++        return {}
++
++
++class PersonalityEngine:
++    def __init__(self, *, identity_path: Path | str | None = None,
++                 personality_path: Path | str | None = None) -> None:
++        identity_path = identity_path or (PROJECT_ROOT / "persona" / "identity.json")
++        personality_path = personality_path or (PROJECT_ROOT / "persona" / "personality.json")
++        self.identity = IdentityProfile.from_mapping(_load(identity_path))
++        self.profile = PersonalityProfile.from_mapping(_load(personality_path))
++        self.humor = HumorPolicy(self.profile.humor)
++        self.communication = CommunicationAdapter(self.profile, self.humor)
++
++    def style_for(self, *, user_context: Any = None, urgency: str = "normal",
++                  task_type: str = "conversation",
++                  user_preference: UserProfile | Mapping[str, Any] | None = None,
++                  risk: str = "low", is_error: bool = False) -> StyleProfile:
++        return self.communication.adapt(
++            user_context, urgency, task_type, user_preference, risk=risk, is_error=is_error,
++        )
++
++    @staticmethod
++    def infer_task_type(text: str, *, mode: str = "") -> str:
++        value = " ".join((text or "").casefold().replace("ё", "е").split())
++        if mode == "conversation":
++            if re.search(r"\b(объясни|научи|как работает|почему)\b", value):
++                return "learning"
++            return "conversation"
++        if re.search(r"\b(отчет|сводк|результат|итог)\w*", value):
++            return "report"
++        if re.search(r"\b(объясни|научи|инструкц|по шагам)\w*", value):
++            return "learning"
++        return "work"
++
++    @staticmethod
++    def contextual_greeting(return_context: Any) -> str | None:
++        confidence = float(getattr(return_context, "confidence", 0.0) or 0.0)
++        evidence = tuple(getattr(return_context, "evidence", ()) or ())
++        message = " ".join(str(getattr(return_context, "message", "") or "").split())
++        if confidence < 0.7 or not evidence or not message:
++            return None
++        sprint11 = re.match(r"(?i)^продолжим\s+(.+?)\?\s*остановились\s+на\s+.+", message)
++        if sprint11:
++            subject = sprint11.group(1).strip(" .?!")
++            return f"Сэр, продолжим {subject}?"
++        task = re.sub(r"(?i)^вы\s+остановились\s+на\s+", "", message).strip(" .?!")
++        words = task.split()
++        if words and re.search(r"(?i)(ке|те)$", words[0]):
++            words[0] = words[0][:-1] + "у"
++        task = " ".join(words)
++        return f"Сэр, продолжим: {task}?" if task else "Сэр, продолжим прошлую задачу?"
++
++    def prompt_fragment(self, style: StyleProfile,
++                        memories: Iterable[str] = ()) -> str:
++        relevant = [" ".join(str(item).split())[:180] for item in memories if str(item).strip()][:4]
++        parts = [
++            f"Identity: {self.identity.name}; role: {self.identity.role}; mission: {self.identity.mission}.",
++            ("Стиль ответа: "
++             f"tone={style.tone}; verbosity={style.verbosity}; "
++             f"max_sentences={style.max_sentences}; structure={'yes' if style.structured else 'no'}; "
++             f"humor={style.humor_level:.2f}; address={style.address}."),
++            "Сначала точность и результат; сохраняй единый характер без постоянного театра.",
++        ]
++        if relevant:
++            parts.append("Релевантные предпочтения: " + " | ".join(relevant))
++        return "\n".join(parts)[:1199]
++
++    def naturalize(self, text: str, *, verified: bool, task_type: str = "work") -> str:
++        value = (text or "").strip()
++        generic = value.casefold().rstrip(".! ") in {
++            "task completed successfully", "completed successfully", "выполнено", "задача выполнена",
++        }
++        if not generic:
++            return value
++        if verified:
++            return f"Готово, {self.profile.address}. Проверил результат — всё применилось."
++        return "Результат пока не подтверждён проверкой."
++
++    @staticmethod
++    def adapt_response(text: str, style: StyleProfile) -> str:
++        """Applies a hard brevity bound only to plain natural conversation."""
++        value = (text or "").strip()
++        list_lines = [line for line in value.splitlines()
++                      if line.lstrip().startswith(("-", "*", "1."))]
++        if style.verbosity != "short" or style.structured or "```" in value or len(list_lines) > 1:
++            return value
++        sentences = [part.strip() for part in re.findall(
++            r"[^.!?]+(?:[.!?]+(?=\s|$)|$)", value,
++        ) if part.strip()]
++        if len(sentences) <= style.max_sentences:
++            return value
++        return " ".join(sentences[:style.max_sentences])
+diff --git a/patch_current_tree/core/personality/humor.py b/patch_current_tree/core/personality/humor.py
+new file mode 100644
+index 0000000..1d32add
+--- /dev/null
++++ b/patch_current_tree/core/personality/humor.py
+@@ -0,0 +1,19 @@
++"""Deterministic humor calibration; no random joke injection."""
++
++from __future__ import annotations
++
++
++class HumorPolicy:
++    def __init__(self, base_level: float = 0.35) -> None:
++        self.base_level = max(0.0, min(1.0, float(base_level)))
++
++    def calibrate(self, *, task_type: str = "conversation", risk: str = "low",
++                  is_error: bool = False, preference: float | None = None) -> float:
++        if is_error or str(risk).casefold() not in {"", "none", "low"}:
++            return 0.0
++        base = self.base_level if preference is None else max(0.0, min(1.0, float(preference)))
++        kind = str(task_type or "conversation").casefold()
++        if kind in {"work", "report", "installation", "automation", "coding", "learning"}:
++            return round(min(0.1, base * 0.2), 3)
++        return round(min(0.45, base), 3)
++
+diff --git a/patch_current_tree/core/personality/models.py b/patch_current_tree/core/personality/models.py
+new file mode 100644
+index 0000000..4b9a55e
+--- /dev/null
++++ b/patch_current_tree/core/personality/models.py
+@@ -0,0 +1,81 @@
++"""Typed contracts for the JARVIS personality and communication layer."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Any, Mapping
++
++
++def _clamp(value: Any, default: float) -> float:
++    try:
++        return max(0.0, min(1.0, float(value)))
++    except (TypeError, ValueError):
++        return default
++
++
++@dataclass(frozen=True)
++class IdentityProfile:
++    name: str = "JARVIS"
++    role: str = "personal AI operator"
++    mission: str = "assist user goals safely"
++    values: tuple[str, ...] = ("accuracy", "privacy", "initiative", "reliability")
++
++    @classmethod
++    def from_mapping(cls, data: Mapping[str, Any]) -> "IdentityProfile":
++        values = tuple(str(item) for item in data.get("values", cls().values) if str(item).strip())
++        return cls(
++            name=str(data.get("name") or cls.name),
++            role=str(data.get("role") or cls.role),
++            mission=str(data.get("mission") or cls.mission),
++            values=values or cls().values,
++        )
++
++
++@dataclass(frozen=True)
++class PersonalityProfile:
++    name: str = "JARVIS"
++    tone: str = "professional_friendly"
++    humor: float = 0.35
++    verbosity: str = "adaptive"
++    initiative: str = "assistant"
++    respect_level: str = "high"
++    address: str = "сэр"
++
++    @classmethod
++    def from_mapping(cls, data: Mapping[str, Any]) -> "PersonalityProfile":
++        return cls(
++            name=str(data.get("name") or cls.name),
++            tone=str(data.get("tone") or cls.tone),
++            humor=_clamp(data.get("humor"), cls.humor),
++            verbosity=str(data.get("verbosity") or cls.verbosity),
++            initiative=str(data.get("initiative") or cls.initiative),
++            respect_level=str(data.get("respect_level") or cls.respect_level),
++            address=str(data.get("address") or cls.address),
++        )
++
++
++@dataclass
++class UserProfile:
++    """Non-sensitive learned preferences only."""
++
++    communication_style: str = "adaptive"
++    technical_level: str = "adaptive"
++    prefers_action_over_explanation: bool = False
++    likes_confirmation: bool = True
++    humor_preference: float | None = None
++    preferred_address: str = "сэр"
++    delegation_affinity: dict[str, float] = field(default_factory=dict)
++
++
++@dataclass(frozen=True)
++class StyleProfile:
++    tone: str
++    verbosity: str
++    max_sentences: int
++    explanation_depth: str
++    structured: bool
++    formality: str
++    humor_level: float
++    initiative: str
++    address: str
++
+diff --git a/rollback_probe_1825/core/voice/greeting.py b/patch_current_tree/core/voice/greeting.py
+index 6e50d3d..1518fbf 100644
+--- a/rollback_probe_1825/core/voice/greeting.py
++++ b/patch_current_tree/core/voice/greeting.py
+@@ -8,7 +8,7 @@
+ from __future__ import annotations
+ 
+ import datetime
+-from typing import Optional
++from typing import Any, Optional
+ 
+ from config.settings import Settings
+ from core.memory.profile import load_profile
+@@ -20,7 +20,8 @@ log = get_logger(__name__)
+ 
+ 
+ def build_startup_greeting(settings: Settings,
+-                           now: Optional[datetime.datetime] = None) -> str:
++                           now: Optional[datetime.datetime] = None,
++                           return_context: Any = None) -> str:
+     """Time-aware приветствие в стиле персоны.
+ 
+     Утро (6-12): «Доброе утро, [имя]. Я на месте, всё чисто.»
+@@ -29,6 +30,15 @@ def build_startup_greeting(settings: Settings,
+     Ночь (23-6): «[имя], ты снова ночью? Ладно, я с тобой.»
+     Без имени — first-contact: «О, ты вернулся. Как тебя зовут, кстати?»
+     """
++    if return_context is not None:
++        try:
++            from core.personality import PersonalityEngine
++            contextual = PersonalityEngine().contextual_greeting(return_context)
++            if contextual:
++                return contextual
++        except Exception as exc:  # noqa: BLE001 — greeting fallback stays available
++            log.debug("Контекстное приветствие пропущено: %s", exc)
++
+     name = ""
+     try:
+         name = (load_profile(settings).get("name") or "").strip()
+diff --git a/rollback_probe_1825/core/ws_server.py b/patch_current_tree/core/ws_server.py
+index 3bd263b..7bea873 100644
+--- a/rollback_probe_1825/core/ws_server.py
++++ b/patch_current_tree/core/ws_server.py
+@@ -254,7 +254,14 @@ class JarvisWSServer:
+             return
+         try:
+             from core.voice.greeting import build_startup_greeting
+-            text = build_startup_greeting(self._settings)
++            return_context = None
++            try:
++                living = getattr(self._orch, "_living", None)
++                if living is not None:
++                    return_context = living.context.return_context(min_confidence=0.75)
++            except Exception as exc:  # context is optional; ordinary greeting remains
++                log.debug("Контекст прошлого сеанса недоступен: %s", exc)
++            text = build_startup_greeting(self._settings, return_context=return_context)
+         except Exception as exc:  # noqa: BLE001
+             log.warning("Приветствие не сформировано: %s", exc)
+             return
+diff --git a/patch_current_tree/docs/sprints/SPRINT12_SPEC.md b/patch_current_tree/docs/sprints/SPRINT12_SPEC.md
+new file mode 100644
+index 0000000..d8ed422
+--- /dev/null
++++ b/patch_current_tree/docs/sprints/SPRINT12_SPEC.md
+@@ -0,0 +1,48 @@
++# Sprint 12 — Personality + Relationship Layer
++
++## Objective
++
++Add a persistent, privacy-minimal relationship layer without replacing Sprint 9–11,
++the Capability Engine, Shadow Engine, Risk Gate, or voice runtime.
++
++## Contracts
++
++- `core.personality.PersonalityEngine` loads typed `IdentityProfile` and
++  `PersonalityProfile` data and delegates context-sensitive style decisions to
++  `CommunicationAdapter` and `HumorPolicy`.
++- `core.memory.relationship.RelationshipMemoryStore` persists only interaction
++  preferences and task-class outcomes. Every record includes `fact`, `source`,
++  `confidence`, `last_confirmed`, and `importance`.
++- `PreferenceLearner` learns explicit communication preferences and aggregate
++  accepted/rejected/ignored suggestion outcomes; raw prompts and credentials are
++  not written to the relationship profile.
++- `MemoryHierarchy` separates working, session, long-term, and relationship
++  layers and renders only a bounded relevant context.
++- Existing public signatures remain backward compatible; new arguments are
++  optional and new behavior is additive.
++
++## Runtime flow
++
++`user input → explicit preference observation → current Living Context → relevant
++relationship retrieval → style profile → compact system fragment → response →
++bounded session memory`
++
++Sprint 11 suggestion outcomes are recorded through one method into both the
++existing proactive cooldown memory and the relationship learner.
++
++## Privacy and retention
++
++- Local JSON only; no network or model additions.
++- Secret/raw-event filtering reuses the canonical memory filter.
++- Sensitive profile categories and credential-like data are discarded.
++- Expired records are excluded immediately and removed by `prune()`.
++- Retrieval is relevance-ranked and capped at four relationship records.
++
++## Acceptance
++
++- Repeated short-answer preference results in a short style profile.
++- Accepted task-class help increases delegation confidence.
++- A newer explicit preference supersedes the previous style and survives restart.
++- High-confidence unfinished context can produce one contextual startup greeting.
++- The entire Python suite and Russian Piper smoke remain green.
++
+diff --git a/patch_current_tree/persona/identity.json b/patch_current_tree/persona/identity.json
+new file mode 100644
+index 0000000..cd18fc4
+--- /dev/null
++++ b/patch_current_tree/persona/identity.json
+@@ -0,0 +1,6 @@
++{
++  "name": "JARVIS",
++  "role": "personal AI operator",
++  "mission": "assist user goals safely",
++  "values": ["accuracy", "privacy", "initiative", "reliability"]
++}
+diff --git a/patch_current_tree/persona/personality.json b/patch_current_tree/persona/personality.json
+new file mode 100644
+index 0000000..2e4e8a9
+--- /dev/null
++++ b/patch_current_tree/persona/personality.json
+@@ -0,0 +1,9 @@
++{
++  "name": "JARVIS",
++  "tone": "professional_friendly",
++  "humor": 0.35,
++  "verbosity": "adaptive",
++  "initiative": "assistant",
++  "respect_level": "high",
++  "address": "сэр"
++}
+diff --git a/rollback_probe_1825/persona/system_prompt.py b/patch_current_tree/persona/system_prompt.py
+index 8731548..dda7b00 100644
+--- a/rollback_probe_1825/persona/system_prompt.py
++++ b/patch_current_tree/persona/system_prompt.py
+@@ -42,12 +42,13 @@ _PERSONA_CACHE: Optional[str] = None
+ #: Компактное ядро персоны для FAST-тира (TIER 1 бюджет — 2000 токенов,
+ #: полный persona.md туда не влезает вместе с историей).
+ _PERSONA_CORE = (
+-    "Ты — Джарвис, ИИ-сосед в компьютере пользователя. Не робот-дворецкий, "
+-    "а лучший друг из Discord: бодрый, уверенный, с лёгким сарказмом и "
+-    "дружескими подколами. Общаешься на «ты», по имени, если знаешь его. "
+-    "Правила: 1-3 предложения, без эссе; максимум 1-2 неформальных оборота "
+-    "на ответ («ну ты даёшь», «серьёзно?», «держи»); сначала решение, потом "
+-    "шутка; не выдумывай факты; опасное действие — предупреди без юмора."
++    "Ты — Джарвис, постоянный персональный ИИ-помощник пользователя: точный, "
++    "надёжный и профессионально-дружелюбный. В обычном разговоре звучишь "
++    "естественно и знакомо, как давний собеседник из Discord, но без навязчивого "
++    "театра. Длина, подробность, структура, обращение и уровень юмора задаются "
++    "структурированным профилем стиля ниже; следуй ему. Сначала результат и "
++    "точность; не выдумывай факты; при ошибке сохраняй спокойствие; при риске "
++    "исключай юмор."
+ )
+ 
+ #: Persona-строка для планировщика (TIER 2) — тон без размытия фокуса на JSON.
+@@ -112,6 +113,7 @@ def build_agent_system_prompt(
+     memory_ctx: str = "",
+     tone: str = "default",
+     offline: bool = False,
++    personality_context: str = "",
+ ) -> str:
+     """Собирает system prompt для агентного пути (Sprint 4, STEP 3).
+ 
+@@ -163,6 +165,9 @@ def build_agent_system_prompt(
+     if not offline:
+         parts.append(time_of_day_hint())
+ 
++    if personality_context:
++        parts.append(personality_context[:1200])
++
+     return "\n".join(parts)
+ 
+ 
+@@ -236,4 +241,4 @@ def build_system_prompt(
+         "7. Юмор сухой, по месту. Не спамь."
+     )
+ 
+-    return "\n".join(parts)
+\ No newline at end of file
++    return "\n".join(parts)
+diff --git a/patch_current_tree/scripts/rollback_sprint12.ps1 b/patch_current_tree/scripts/rollback_sprint12.ps1
+new file mode 100644
+index 0000000..0057086
+--- /dev/null
++++ b/patch_current_tree/scripts/rollback_sprint12.ps1
+@@ -0,0 +1,99 @@
++param(
++    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
++    [string]$BackupRoot = ""
++)
++
++$ErrorActionPreference = "Stop"
++$project = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
++if (-not (Test-Path -LiteralPath $project -PathType Container)) {
++    throw "Project root does not exist: $project"
++}
++if (-not $BackupRoot) {
++    $BackupRoot = Join-Path $project "artifacts\sprint12\original"
++}
++$backup = [System.IO.Path]::GetFullPath($BackupRoot).TrimEnd('\')
++if (-not (Test-Path -LiteralPath $backup -PathType Container)) {
++    throw "Sprint 12 backup does not exist: $backup"
++}
++
++$restore = @(
++    "core\agent.py",
++    "core\orchestrator.py",
++    "core\living\service.py",
++    "core\voice\greeting.py",
++    "core\ws_server.py",
++    "core\memory\__init__.py",
++    "persona\system_prompt.py"
++)
++$added = @(
++    "core\personality\__init__.py",
++    "core\personality\communication.py",
++    "core\personality\engine.py",
++    "core\personality\humor.py",
++    "core\personality\models.py",
++    "core\memory\relationship\__init__.py",
++    "core\memory\relationship\hierarchy.py",
++    "core\memory\relationship\learning.py",
++    "core\memory\relationship\models.py",
++    "core\memory\relationship\store.py",
++    "persona\identity.json",
++    "persona\personality.json",
++    "tests\test_sprint12_personality.py",
++    "tests\test_sprint12_relationship.py",
++    "tests\test_sprint12_integration.py",
++    "scripts\sprint12_live_demo.py",
++    "docs\sprints\SPRINT12_SPEC.md",
++    "tasks\sprint12_plan.md",
++    "tasks\sprint12_todo.md"
++)
++
++function Resolve-ProjectFile([string]$RelativePath) {
++    $candidate = [System.IO.Path]::GetFullPath((Join-Path $project $RelativePath))
++    if (-not $candidate.StartsWith($project + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
++        throw "Path escapes project root: $RelativePath"
++    }
++    return $candidate
++}
++
++$restored = @()
++foreach ($relative in $restore) {
++    $source = [System.IO.Path]::GetFullPath((Join-Path $backup $relative))
++    if (-not $source.StartsWith($backup + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
++        throw "Backup path escapes backup root: $relative"
++    }
++    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
++        throw "Missing original: $source"
++    }
++    $target = Resolve-ProjectFile $relative
++    $parent = Split-Path -Parent $target
++    New-Item -ItemType Directory -Force -Path $parent | Out-Null
++    Copy-Item -LiteralPath $source -Destination $target -Force
++    $restored += $relative
++}
++
++$removed = @()
++foreach ($relative in $added) {
++    $target = Resolve-ProjectFile $relative
++    if (Test-Path -LiteralPath $target -PathType Leaf) {
++        Remove-Item -LiteralPath $target -Force
++        $removed += $relative
++    }
++}
++
++# Only empty Sprint 12 package directories are removed; no recursive deletion.
++foreach ($relative in @("core\memory\relationship", "core\personality")) {
++    $directory = [System.IO.Path]::GetFullPath((Join-Path $project $relative))
++    if ($directory.StartsWith($project + '\', [System.StringComparison]::OrdinalIgnoreCase) -and
++        (Test-Path -LiteralPath $directory -PathType Container) -and
++        -not (Get-ChildItem -LiteralPath $directory -Force | Select-Object -First 1)) {
++        Remove-Item -LiteralPath $directory -Force
++    }
++}
++
++[ordered]@{
++    success = $true
++    project_root = $project
++    backup_root = $backup
++    restored = $restored
++    removed = $removed
++} | ConvertTo-Json -Depth 4
+diff --git a/patch_current_tree/scripts/sprint12_live_demo.py b/patch_current_tree/scripts/sprint12_live_demo.py
+new file mode 100644
+index 0000000..8703078
+--- /dev/null
++++ b/patch_current_tree/scripts/sprint12_live_demo.py
+@@ -0,0 +1,108 @@
++"""Local Sprint 12 demo using production personality/relationship components."""
++
++from __future__ import annotations
++
++import argparse
++import json
++import sys
++from pathlib import Path
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
++from core.living.service import LivingIntelligence
++from core.memory.relationship import PreferenceLearner, RelationshipMemoryStore
++from core.personality import PersonalityEngine
++
++
++def run_demo(output_dir: Path) -> dict:
++    output_dir.mkdir(parents=True, exist_ok=True)
++    relationship_dir = output_dir / "relationship"
++    store = RelationshipMemoryStore(relationship_dir)
++    learner = PreferenceLearner(store)
++    personality = PersonalityEngine()
++    living = LivingIntelligence(output_dir / "living", relationship_learner=learner)
++
++    short_observations = []
++    for request in (
++        "Отвечай кратко.",
++        "Пожалуйста, отвечай кратко, без длинных объяснений.",
++        "Дальше тоже отвечай короче.",
++    ):
++        short_observations.append(learner.observe_user_message(request))
++    short_profile = learner.profile()
++    short_style = personality.style_for(
++        task_type="conversation", user_preference=short_profile,
++    )
++    sample = "Проверил первый пункт. Второй тоже в порядке. Ошибок нет. Детали сохранены."
++    short_response = personality.adapt_response(sample, short_style)
++
++    acceptance_scores = [living.record_suggestion_feedback(
++        "report_automation", outcome="accepted", useful=True,
++        suggestion="Автоматизировать такой отчёт?",
++    ) for _ in range(3)]
++
++    changed = learner.observe_user_message("Теперь объясняй подробно и по шагам.")
++    detailed_profile = learner.profile()
++    detailed_style = personality.style_for(
++        task_type="learning", user_preference=detailed_profile,
++    )
++
++    private_record = store.remember(
++        "password=demo-secret", source="demo", confidence=1.0,
++        importance=1.0, category="preference", key="credential",
++    )
++    reloaded = PreferenceLearner(RelationshipMemoryStore(relationship_dir))
++    persisted_profile = reloaded.profile()
++
++    checks = {
++        "repeated_short_requests_learned": short_profile.communication_style == "short",
++        "short_response_bounded": short_response.count(".") <= short_style.max_sentences,
++        "accepted_help_confidence_increased": all(
++            right > left for left, right in zip(acceptance_scores, acceptance_scores[1:])
++        ),
++        "sprint11_feedback_recorded": living.memory.affinity("report_automation") > 0,
++        "changed_preference_applied": (
++            changed.get("communication_style") == "detailed"
++            and detailed_style.verbosity == "detailed"
++        ),
++        "changed_preference_persisted": persisted_profile.communication_style == "detailed",
++        "secret_not_stored": private_record is None,
++    }
++    report = {
++        "sprint": 12,
++        "mode": "local_production_components",
++        "inputs": {
++            "short_requests": 3,
++            "accepted_help_events": 3,
++            "preference_change": "detailed",
++        },
++        "observed": {
++            "short_style": short_style.__dict__,
++            "short_response": short_response,
++            "acceptance_confidence": acceptance_scores,
++            "changed_style": detailed_style.__dict__,
++            "persisted_communication_style": persisted_profile.communication_style,
++            "relationship_records": len(store.all_memories()),
++        },
++        "checks": checks,
++        "verified": all(checks.values()),
++    }
++    report_path = output_dir / "live_demo_report.json"
++    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
++    return report
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--output-dir", type=Path, required=True)
++    args = parser.parse_args()
++    report = run_demo(args.output_dir.resolve())
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 0 if report["verified"] else 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
++
+diff --git a/patch_current_tree/tasks/sprint12_plan.md b/patch_current_tree/tasks/sprint12_plan.md
+new file mode 100644
+index 0000000..3fb8f05
+--- /dev/null
++++ b/patch_current_tree/tasks/sprint12_plan.md
+@@ -0,0 +1,8 @@
++# Sprint 12 execution plan
++
++1. Preserve Voice Hotfix baseline and original integration files.
++2. Add typed personality, identity, communication, and humor policies.
++3. Add persistent relationship memory, preference learning, expiry, and hierarchy.
++4. Integrate relevant retrieval with Agent, Living Context, startup greeting, and voice boundary.
++5. Run local live demo, full regressions, package, rollback probe, and final verification.
++
+diff --git a/patch_current_tree/tasks/sprint12_todo.md b/patch_current_tree/tasks/sprint12_todo.md
+new file mode 100644
+index 0000000..5a9b5a2
+--- /dev/null
++++ b/patch_current_tree/tasks/sprint12_todo.md
+@@ -0,0 +1,12 @@
++# Sprint 12 checklist
++
++- [x] Baseline: 295 passed, 2 skipped; Russian Piper smoke successful.
++- [x] Structured IdentityProfile and PersonalityProfile.
++- [x] CommunicationAdapter and HumorPolicy.
++- [x] Relationship memory and quality controls.
++- [x] Preference, acceptance, rejection, and change learning.
++- [x] Working/session/long-term/relationship hierarchy.
++- [x] Agent + Sprint 11 + contextual greeting integration.
++- [x] Unit and integration tests.
++- [x] Local live demo and full regression: 326 passed, 2 skipped.
++- [x] Patch, package, verification record, and rollback probe.
+diff --git a/patch_current_tree/tests/test_sprint12_integration.py b/patch_current_tree/tests/test_sprint12_integration.py
+new file mode 100644
+index 0000000..6332123
+--- /dev/null
++++ b/patch_current_tree/tests/test_sprint12_integration.py
+@@ -0,0 +1,113 @@
++from __future__ import annotations
++
++from datetime import datetime
++
++from core.agent import Agent, AgentConfig
++from core.living.models import ReturnContext
++from core.living.service import LivingIntelligence
++from core.memory.relationship import PreferenceLearner, RelationshipMemoryStore
++from core.personality import PersonalityEngine
++from core.voice.greeting import build_startup_greeting
++from core.voice.tts_sanitizer import sanitize_for_tts
++
++
++def _isolate(settings, tmp_path):
++    settings.paths.data_dir = str(tmp_path / "data")
++    settings.paths.graph_dir = str(tmp_path / "graph")
++    settings.paths.profile_dir = str(tmp_path / "profile")
++
++
++def test_agent_retrieves_relationship_style_before_conversation(settings, fake_backend, tmp_path):
++    _isolate(settings, tmp_path)
++    agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
++    agent.preference_learner.observe_user_message("Отвечай кратко")
++
++    prompt = agent._build_conversation_prompt("", "Расскажи, как идут дела", fake_backend)
++
++    assert "Identity: JARVIS" in prompt
++    assert "verbosity=short" in prompt
++    assert "Пользователь предпочитает стиль ответов: short" in prompt
++
++
++def test_agent_updates_and_persists_explicit_preference(settings, fake_backend, tmp_path):
++    _isolate(settings, tmp_path)
++    first = Agent(settings, config=AgentConfig(enable_skill_forge=False))
++    first.execute("Пожалуйста, отвечай кратко")
++    second = Agent(settings, config=AgentConfig(enable_skill_forge=False))
++
++    assert second.preference_learner.profile().communication_style == "short"
++
++
++def test_busy_living_context_reaches_communication_adapter(settings, fake_backend, tmp_path):
++    _isolate(settings, tmp_path)
++    agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
++    agent.set_user_context({"busy": True, "typing_active": True})
++
++    prompt = agent._build_conversation_prompt("", "Как дела?", fake_backend)
++
++    assert "verbosity=short" in prompt
++    assert "max_sentences=2" in prompt
++
++
++def test_adaptive_detailed_style_is_not_overridden_by_legacy_fixed_brevity(settings, fake_backend, tmp_path):
++    _isolate(settings, tmp_path)
++    agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
++    agent.preference_learner.observe_user_message("Теперь объясняй подробно и по шагам")
++
++    prompt = agent._build_conversation_prompt("", "Объясни как работает роутинг", fake_backend)
++
++    assert "verbosity=detailed" in prompt
++    assert "Правила: 1-3 предложения" not in prompt
++
++
++def test_sprint11_feedback_updates_both_proactive_and_relationship_memory(tmp_path):
++    learner = PreferenceLearner(RelationshipMemoryStore(tmp_path / "relationship"))
++    living = LivingIntelligence(tmp_path / "living", relationship_learner=learner)
++
++    confidence = living.record_suggestion_feedback(
++        "weekly_report", outcome="accepted", useful=True,
++        suggestion="Автоматизировать еженедельный отчёт?",
++    )
++
++    assert confidence > 0.5
++    assert living.memory.affinity("weekly_report") > 0
++    assert learner.delegation_confidence("weekly_report") == confidence
++
++
++def test_contextual_greeting_uses_unfinished_task_only_when_confident(settings):
++    returned = ReturnContext(
++        message="Вы остановились на проверке сборки.", confidence=0.91,
++        evidence=("episode:build",), episode_id="build-1",
++    )
++
++    contextual = build_startup_greeting(
++        settings, now=datetime(2026, 8, 17, 10, 0), return_context=returned,
++    )
++    ordinary = build_startup_greeting(
++        settings, now=datetime(2026, 8, 17, 10, 0), return_context=None,
++    )
++
++    assert contextual == "Сэр, продолжим: проверку сборки?"
++    assert contextual != ordinary
++
++
++def test_contextual_greeting_understands_sprint11_return_context_shape(settings):
++    returned = ReturnContext(
++        message="Продолжим catalog assets? Остановились на export_image.",
++        confidence=0.88, evidence=("unfinished episode e-1",), episode_id="e-1",
++    )
++
++    contextual = build_startup_greeting(settings, return_context=returned)
++
++    assert contextual == "Сэр, продолжим catalog assets?"
++
++
++def test_personality_output_remains_voice_safe_and_not_theatrical():
++    engine = PersonalityEngine()
++    original = "Отчёт сохранён в E:\\reports\\result.json. Проверка: 18 записей."
++
++    adapted = engine.naturalize(original, verified=True, task_type="report")
++
++    assert adapted == original
++    assert sanitize_for_tts(adapted)
++    assert adapted.casefold().count("сэр") == 0
+diff --git a/patch_current_tree/tests/test_sprint12_personality.py b/patch_current_tree/tests/test_sprint12_personality.py
+new file mode 100644
+index 0000000..911329c
+--- /dev/null
++++ b/patch_current_tree/tests/test_sprint12_personality.py
+@@ -0,0 +1,133 @@
++from __future__ import annotations
++
++import json
++
++from core.personality import (
++    CommunicationAdapter,
++    HumorPolicy,
++    IdentityProfile,
++    PersonalityEngine,
++    PersonalityProfile,
++    UserProfile,
++)
++
++
++def test_identity_and_personality_are_structured_and_loadable(tmp_path):
++    identity_path = tmp_path / "identity.json"
++    personality_path = tmp_path / "personality.json"
++    identity_path.write_text(json.dumps({
++        "name": "JARVIS",
++        "role": "personal AI operator",
++        "mission": "assist user goals safely",
++        "values": ["accuracy", "privacy", "initiative", "reliability"],
++    }), encoding="utf-8")
++    personality_path.write_text(json.dumps({
++        "name": "JARVIS",
++        "tone": "professional_friendly",
++        "humor": 0.35,
++        "verbosity": "adaptive",
++        "initiative": "assistant",
++        "respect_level": "high",
++    }), encoding="utf-8")
++
++    engine = PersonalityEngine(identity_path=identity_path, personality_path=personality_path)
++
++    assert engine.identity == IdentityProfile()
++    assert engine.profile == PersonalityProfile()
++    assert engine.identity.values == ("accuracy", "privacy", "initiative", "reliability")
++
++
++def test_communication_adapter_shortens_for_busy_user():
++    style = CommunicationAdapter().adapt(
++        user_context={"busy": True, "typing_active": True},
++        urgency="high",
++        task_type="work",
++        user_preference=UserProfile(communication_style="adaptive"),
++    )
++
++    assert style.verbosity == "short"
++    assert style.max_sentences == 2
++    assert style.structured is False
++
++
++def test_communication_adapter_is_detailed_for_learning_and_structured_for_report():
++    adapter = CommunicationAdapter()
++
++    learning = adapter.adapt({}, "normal", "learning", UserProfile())
++    report = adapter.adapt({}, "normal", "report", UserProfile())
++
++    assert learning.verbosity == "detailed"
++    assert learning.explanation_depth == "step_by_step"
++    assert report.structured is True
++    assert report.verbosity in {"balanced", "detailed"}
++
++
++def test_explicit_user_style_overrides_adaptive_context():
++    style = CommunicationAdapter().adapt(
++        user_context={}, urgency="normal", task_type="conversation",
++        user_preference=UserProfile(communication_style="short"),
++    )
++
++    assert style.verbosity == "short"
++    assert style.max_sentences == 3
++
++
++def test_action_and_technical_preferences_change_explanation_strategy():
++    adapter = CommunicationAdapter()
++
++    action = adapter.adapt(
++        {}, "normal", "work",
++        UserProfile(prefers_action_over_explanation=True, technical_level="advanced"),
++    )
++    learning = adapter.adapt(
++        {}, "normal", "learning", UserProfile(technical_level="advanced"),
++    )
++
++    assert action.explanation_depth == "action_first"
++    assert learning.explanation_depth == "technical"
++
++
++def test_humor_policy_is_zero_for_danger_and_errors():
++    policy = HumorPolicy(base_level=0.35)
++
++    assert policy.calibrate(task_type="conversation") > 0
++    assert policy.calibrate(task_type="work") <= 0.1
++    assert policy.calibrate(task_type="work", is_error=True) == 0
++    assert policy.calibrate(task_type="conversation", risk="high") == 0
++
++
++def test_natural_completion_requires_verified_success():
++    engine = PersonalityEngine()
++
++    verified = engine.naturalize("Task completed successfully.", verified=True, task_type="work")
++    unverified = engine.naturalize("Task completed successfully.", verified=False, task_type="work")
++
++    assert verified == "Готово, сэр. Проверил результат — всё применилось."
++    assert "Готово" not in unverified
++
++
++def test_prompt_fragment_is_compact_and_contains_structured_policy():
++    engine = PersonalityEngine()
++    style = engine.style_for(task_type="report", urgency="normal")
++
++    fragment = engine.prompt_fragment(style, memories=["Пользователь предпочитает короткие ответы"])
++
++    assert "Identity: JARVIS" in fragment
++    assert "Стиль ответа:" in fragment
++    assert "Релевантные предпочтения:" in fragment
++    assert len(fragment) < 1200
++
++
++def test_short_style_bounds_natural_conversation_without_cutting_reports():
++    engine = PersonalityEngine()
++    short = engine.style_for(
++        task_type="conversation",
++        user_preference=UserProfile(communication_style="short"),
++    )
++    report = engine.style_for(task_type="report")
++    text = "Первый вывод. Второй вывод. Третий вывод. Четвёртый вывод."
++
++    compact = engine.adapt_response(text, short)
++
++    assert compact == "Первый вывод. Второй вывод. Третий вывод."
++    assert engine.adapt_response(text, report) == text
+diff --git a/patch_current_tree/tests/test_sprint12_relationship.py b/patch_current_tree/tests/test_sprint12_relationship.py
+new file mode 100644
+index 0000000..dcb27a8
+--- /dev/null
++++ b/patch_current_tree/tests/test_sprint12_relationship.py
+@@ -0,0 +1,196 @@
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++
++from core.memory.relationship import (
++    MemoryHierarchy,
++    PreferenceLearner,
++    RelationshipMemoryStore,
++)
++from core.memory.short_term import SessionManager
++
++
++def test_relationship_memory_creation_persists_quality_fields(tmp_path):
++    store = RelationshipMemoryStore(tmp_path)
++
++    saved = store.remember(
++        "Пользователь предпочитает короткие ответы",
++        source="user_explicit", confidence=0.9, importance=0.8,
++        category="preference", key="communication_style",
++    )
++    reloaded = RelationshipMemoryStore(tmp_path).all_memories()
++
++    assert saved is not None
++    assert reloaded[0].fact == saved.fact
++    assert reloaded[0].source == "user_explicit"
++    assert reloaded[0].confidence == 0.9
++    assert reloaded[0].last_confirmed
++    assert reloaded[0].importance == 0.8
++
++
++def test_reconfirming_memory_increases_confidence_without_duplicates(tmp_path):
++    store = RelationshipMemoryStore(tmp_path)
++    first = store.remember(
++        "Пользователь предпочитает короткие ответы", source="observed",
++        confidence=0.55, importance=0.7, key="communication_style",
++    )
++    second = store.remember(
++        "Пользователь предпочитает короткие ответы", source="user_explicit",
++        confidence=0.9, importance=0.8, key="communication_style",
++    )
++
++    assert first is not None and second is not None
++    assert second.confidence > first.confidence
++    assert len(store.all_memories()) == 1
++
++
++def test_expired_memories_are_pruned_and_not_retrieved(tmp_path):
++    now = datetime(2026, 8, 17, tzinfo=timezone.utc)
++    store = RelationshipMemoryStore(tmp_path)
++    store.remember(
++        "Временная настройка отчётов", source="observed", confidence=0.7,
++        importance=0.2, ttl_days=1, now=now - timedelta(days=3), key="temporary_report_style",
++    )
++
++    assert store.retrieve("отчёты", now=now) == []
++    assert store.prune(now=now) == 1
++    assert store.all_memories(now=now) == []
++
++
++def test_privacy_filter_does_not_store_secrets_or_sensitive_profile_data(tmp_path):
++    store = RelationshipMemoryStore(tmp_path)
++
++    secret = store.remember(
++        "password=super-secret", source="user_explicit", confidence=1,
++        importance=1, category="preference",
++    )
++    sensitive = store.remember(
++        "Мой медицинский диагноз важен", source="user_explicit", confidence=1,
++        importance=1, category="preference",
++    )
++
++    assert secret is None
++    assert sensitive is None
++    assert store.all_memories() == []
++
++
++def test_privacy_filter_discards_direct_identifiers(tmp_path):
++    store = RelationshipMemoryStore(tmp_path)
++
++    email = store.remember(
++        "Почта user@example.test", source="user_explicit", confidence=1,
++        importance=1, category="preference",
++    )
++    phone = store.remember(
++        "Телефон +7 777 123 45 67", source="user_explicit", confidence=1,
++        importance=1, category="preference",
++    )
++
++    assert email is None
++    assert phone is None
++
++
++def test_retrieval_returns_only_relevant_bounded_memories(tmp_path):
++    store = RelationshipMemoryStore(tmp_path)
++    store.remember("Предпочитает короткие технические отчёты", source="observed",
++                   confidence=0.8, importance=0.8, key="report_style")
++    store.remember("Любит подробные учебные объяснения", source="observed",
++                   confidence=0.8, importance=0.8, key="learning_style")
++    store.remember("Обычно делегирует установку приложений", source="observed",
++                   confidence=0.8, importance=0.7, key="delegation:installation")
++
++    found = store.retrieve("сделай технический отчёт", limit=1)
++
++    assert len(found) == 1
++    assert "отчёт" in found[0].fact
++
++
++def test_explicit_preference_learning_updates_user_profile(tmp_path):
++    learner = PreferenceLearner(RelationshipMemoryStore(tmp_path))
++
++    changes = learner.observe_user_message("Отвечай кратко, без длинных объяснений")
++    profile = learner.profile()
++
++    assert changes["communication_style"] == "short"
++    assert profile.communication_style == "short"
++
++
++def test_explicit_technical_level_is_a_style_preference_not_freeform_profile(tmp_path):
++    learner = PreferenceLearner(RelationshipMemoryStore(tmp_path))
++
++    changes = learner.observe_user_message("Объясняй как для разработчика, технически")
++
++    assert changes["technical_level"] == "advanced"
++    assert learner.profile().technical_level == "advanced"
++
++
++def test_new_explicit_preference_supersedes_old_preference(tmp_path):
++    learner = PreferenceLearner(RelationshipMemoryStore(tmp_path))
++    learner.observe_user_message("Отвечай кратко")
++    learner.observe_user_message("Теперь объясняй подробно и по шагам")
++
++    assert learner.profile().communication_style == "detailed"
++    assert len(learner.store.all_memories()) == 1
++
++
++def test_acceptance_and_rejection_learning_adjust_delegation_confidence(tmp_path):
++    learner = PreferenceLearner(RelationshipMemoryStore(tmp_path))
++
++    initial = learner.delegation_confidence("file_cleanup")
++    accepted = learner.record_suggestion_outcome("file_cleanup", "accepted")
++    accepted_again = learner.record_suggestion_outcome("file_cleanup", "accepted")
++    rejected = learner.record_suggestion_outcome("file_cleanup", "rejected")
++
++    assert accepted > initial
++    assert accepted_again > accepted
++    assert rejected < accepted_again
++
++
++def test_repeated_rejections_prevent_proactive_offer(tmp_path):
++    learner = PreferenceLearner(RelationshipMemoryStore(tmp_path))
++    learner.record_suggestion_outcome("email_summary", "rejected")
++    learner.record_suggestion_outcome("email_summary", "rejected")
++
++    assert learner.should_offer("email_summary") is False
++
++
++def test_suggestion_topic_never_persists_embedded_secret(tmp_path):
++    learner = PreferenceLearner(RelationshipMemoryStore(tmp_path))
++
++    learner.record_suggestion_outcome("report password=top-secret", "accepted")
++    raw = learner.path.read_text(encoding="utf-8")
++
++    assert "top-secret" not in raw
++
++
++def test_memory_hierarchy_keeps_layers_separate_and_context_bounded(tmp_path):
++    relationship = RelationshipMemoryStore(tmp_path / "relationship")
++    relationship.remember("Предпочитает краткий отчёт", source="observed",
++                          confidence=0.9, importance=0.8, key="report_style")
++    session = SessionManager(max_size=4)
++    session.push("user", "Продолжи отчёт")
++    session.push("assistant", "Проверяю данные")
++    hierarchy = MemoryHierarchy(relationship, session=session)
++    hierarchy.working.set("active_application", "Editor")
++
++    context = hierarchy.retrieve("отчёт", max_chars=360)
++
++    assert context.working["active_application"] == "Editor"
++    assert len(context.session) == 2
++    assert context.relationship[0].fact == "Предпочитает краткий отчёт"
++    assert len(context.to_prompt(max_chars=360)) <= 360
++
++
++def test_malformed_persisted_profile_falls_back_to_bounded_defaults(tmp_path):
++    learner = PreferenceLearner(RelationshipMemoryStore(tmp_path))
++    learner.path.write_text(
++        '{"communication_style":"extreme","humor_preference":"loud",'
++        '"delegation_affinity":{"report":"invalid"}}',
++        encoding="utf-8",
++    )
++
++    profile = learner.profile()
++
++    assert profile.communication_style == "adaptive"
++    assert profile.humor_preference is None
++    assert profile.delegation_affinity == {}

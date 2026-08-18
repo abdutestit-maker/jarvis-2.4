@@ -17,19 +17,21 @@
 
   "model_tiers": {
     "fast": "qwen-4b-local",
-    "analyst": "deepseek-v4-flash",
-    "coder": "kimi-k3",
-    "architect": "claude-opus-5"
+    "analyst": "qwen-1.7b-local",
+    "coder": "qwen-1.7b-local",
+    "architect": "qwen-1.7b-local"
   },
 
   "tier_providers": {
     "fast": "local",
-    "analyst": "deepseek",
-    "coder": "kimi",
-    "architect": "claude"
+    "analyst": "local",
+    "coder": "local",
+    "architect": "local"
   },
 
-  "primary_brain": "analyst",
+  "primary_brain": "fast",
+  "offline_mode": true,
+  "warmup_local_on_start": true,
 
   "local_model": {
     "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
@@ -59,8 +61,13 @@
 
   "voice": {
     "tts_enabled": true,
+    "tts_always_on": true,
+    "provider": "piper",
+    "language": "ru",
+    "voice": "ru_RU-dmitri-medium",
+    "fallback": "none",
     "stt_enabled": false,
-    "piper_model_path": "data/models/piper/jarvis-medium.onnx",
+    "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
     "piper_binary_path": "piper",
     "speed": 1.0,
     "volume": 1.0,
@@ -68,24 +75,15 @@
     "piper_length_scale": 1.0,
     "piper_noise_scale": 0.667,
     "piper_noise_w": 0.8,
-    "piper_voices": [
-      {
-        "model_path": "data/models/piper/jarvis-medium.onnx",
-        "language": "en",
-        "speaker_id": 0,
-        "length_scale": 1.0,
-        "noise_scale": 0.667,
-        "noise_w": 0.8
-      },
-      {
-        "model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
-        "language": "ru",
-        "speaker_id": 0,
-        "length_scale": 1.0,
-        "noise_scale": 0.667,
-        "noise_w": 0.8
-      }
-    ]
+    "piper_voices": [],
+    "modes": {
+      "normal": {"rate": 1.0, "volume": 1.0},
+      "focused": {"rate": 1.03, "volume": 1.0},
+      "quiet": {"rate": 0.96, "volume": 0.72},
+      "urgent": {"rate": 1.04, "volume": 1.0},
+      "amused": {"rate": 1.02, "volume": 0.95},
+      "background": {"rate": 0.98, "volume": 0.85}
+    }
   },
 
   "paths": {
@@ -99,7 +97,7 @@
   },
 
   "persona": {
-    "name": "Джарвис",
+    "name": "АТЛАС",
     "address": "сэр",
     "persona_file": "persona/persona.md",
     "language": "ru"
@@ -115,6 +113,48 @@
     "memory_top_k": 5,
     "max_action_iterations": 6
   },
+  "latency_budgets": {
+    "fast_p50_ms": 600,
+    "fast_p95_ms": 1000,
+    "fast_hard_max_ms": 1500,
+    "deliberate_first_progress_p95_ms": 2500,
+    "deliberate_p50_ms": 8000,
+    "deliberate_p95_ms": 15000,
+    "research_first_progress_p95_ms": 3000,
+    "research_source_timeout_ms": 8000,
+    "background_enqueue_p95_ms": 100
+  },
+
+  "stt": {
+    "enabled": false,
+    "model": "faster-whisper-small",
+    "vad": "webrtc",
+    "language": "auto",
+    "hotkey_mode": "hold_ctrl_space"
+  },
+  "wake_word": {
+    "enabled": false,
+    "phrase": "ATLAS",
+    "sensitivity": 0.5
+  },
+  "shadow": {
+    "enabled": true,
+    "auto_generate": true,
+    "interval_sec": 300,
+    "code_model_path": "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
+  },
+  "brain_policy": {
+    "mode": "BALANCED",
+    "prefer_local": true,
+    "allow_cloud": false,
+    "allow_sensitive_cloud": false,
+    "background_allow_cloud": false,
+    "max_fallbacks": 2,
+    "failure_timeout_seconds": 3.0,
+    "max_cost_tier": 3,
+    "providers_path": "data/brain/providers.json"
+  },
+  "system_triggers": [],
 
   "logging": {
     "level": "INFO",

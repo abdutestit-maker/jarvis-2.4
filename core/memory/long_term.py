@@ -202,9 +202,22 @@ class LongTermMemory:
             log.error("Ошибка поиска в долгой памяти: %s", exc)
             return []
 
-        # chromadb возвращает вложенные списки: documents[0] — список текстов.
+        # ChromaDB returns cosine distances when available.  A relevance gate
+        # prevents unrelated interests from polluting ordinary answers.
         documents = (results or {}).get("documents") or [[]]
-        return [str(doc) for doc in documents[0] if doc]
+        distances = (results or {}).get("distances") or [[]]
+        values = documents[0] if documents else []
+        scores = distances[0] if distances else []
+        filtered: list[str] = []
+        for index, doc in enumerate(values):
+            if not doc:
+                continue
+            if index < len(scores) and scores[index] is not None:
+                similarity = 1.0 - float(scores[index])
+                if similarity < self.RELEVANCE_THRESHOLD:
+                    continue
+            filtered.append(str(doc))
+        return filtered
 
     def count(self) -> int:
         """Число записей в коллекции (0 при ошибке)."""
@@ -222,6 +235,7 @@ class LongTermMemory:
 
     # Срок жизни записи в памяти (3 дня). Старше — выметаются при sweep.
     FORGET_TTL_DAYS: float = 3.0
+    RELEVANCE_THRESHOLD: float = 0.25
 
     def sweep_expired(self, ttl_days: Optional[float] = None) -> int:
         """Удаляет записи старше TTL (П1 §1.8). Возвращает число удалённых.

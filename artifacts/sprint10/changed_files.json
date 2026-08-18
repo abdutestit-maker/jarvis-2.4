@@ -1,0 +1,246 @@
+{
+  "source_files": [
+    "core/capability_engine.py",
+    "core/platform/__init__.py",
+    "core/platform/browser.py",
+    "core/platform/windows.py",
+    "pyproject.toml",
+    "requirements.txt",
+    "core/operator/__init__.py",
+    "core/operator/adapters.py",
+    "core/operator/knowledge.py",
+    "core/operator/mission.py",
+    "core/operator/reference.py",
+    "core/operator/semantic.py",
+    "core/operator/session.py",
+    "core/operator/software.py",
+    "core/operator/windows.py",
+    "tests/test_sprint10_adapters.py",
+    "tests/test_sprint10_browser.py",
+    "tests/test_sprint10_mission.py",
+    "tests/test_sprint10_reference.py",
+    "tests/test_sprint10_software.py",
+    "tests/test_sprint10_windows.py",
+    "scripts/sprint10_live_demo.py",
+    "scripts/rollback_sprint10.ps1",
+    "docs/sprints/SPRINT10_SPEC.md",
+    "tasks/plan.md",
+    "tasks/todo.md"
+  ],
+  "runtime_evidence": [
+    "data/app_knowledge/Notepad.json",
+    "data/capabilities/operator_Notepad.json",
+    "data/capabilities/episodes/c610b6f38ab0488886b33a53d39e2c0a.json",
+    "data/capabilities/episodes/24e13fdcb04740ccb4da39075afc1942.json",
+    "artifacts/sprint10/live_demo_report.json",
+    "artifacts/sprint10/live_installer_reverification.json",
+    "artifacts/sprint10/video_reference_report.json",
+    "artifacts/sprint10/live_state_rollback_reapply.json"
+  ],
+  "entries": [
+    {
+      "path": "core/capability_engine.py",
+      "role": "modified",
+      "sha256": "5cd5220e42d2a09feff201be60b813125bec8735b92434212121e578c08a4152",
+      "bytes": 34421
+    },
+    {
+      "path": "core/platform/__init__.py",
+      "role": "modified",
+      "sha256": "7f646904bf47759a944b3e89ed7ba47cafa676e798e037fcd43c4adbf190b794",
+      "bytes": 586
+    },
+    {
+      "path": "core/platform/browser.py",
+      "role": "modified",
+      "sha256": "03eeba53744826f33f09d614d269c5779f8af83cfd34257a2695d6baec4b324c",
+      "bytes": 9607
+    },
+    {
+      "path": "core/platform/windows.py",
+      "role": "modified",
+      "sha256": "58eaf92f8b5718f21ee467f0f1f42df1748940ea600e7392db93c144b82ee273",
+      "bytes": 22083
+    },
+    {
+      "path": "pyproject.toml",
+      "role": "modified",
+      "sha256": "84548bff6cfd8854d76501bc4661d8702a06ce5755568732180d70622f6f1a96",
+      "bytes": 2381
+    },
+    {
+      "path": "requirements.txt",
+      "role": "modified",
+      "sha256": "d3bda198b6fd42da50ab631563db1a1e3e7332414d2e9639a521047d086d7f6b",
+      "bytes": 5775
+    },
+    {
+      "path": "core/operator/__init__.py",
+      "role": "new",
+      "sha256": "f115c64b231c12a238131f40462f4457b24997add7280b4f970e4d71f39f9f4e",
+      "bytes": 999
+    },
+    {
+      "path": "core/operator/adapters.py",
+      "role": "new",
+      "sha256": "eedb050553dd094dd0d23d4a07f95ba3ef140eb95bbe3484fb624a986577f66e",
+      "bytes": 5622
+    },
+    {
+      "path": "core/operator/knowledge.py",
+      "role": "new",
+      "sha256": "f258a9dd090483d2dedbd77a04384e1d76d66b003d8214fcb0b2eb73eaf9cdb3",
+      "bytes": 3839
+    },
+    {
+      "path": "core/operator/mission.py",
+      "role": "new",
+      "sha256": "bbce0b7fb8c6b0fad102c25a60cd2200ee84fc2ed4fbfec23678e9b35b4f7114",
+      "bytes": 15105
+    },
+    {
+      "path": "core/operator/reference.py",
+      "role": "new",
+      "sha256": "695d646f4122ddda5c573236f27c9c947106f58211140c0f3e8bbc2a6d0d13a4",
+      "bytes": 14877
+    },
+    {
+      "path": "core/operator/semantic.py",
+      "role": "new",
+      "sha256": "0d7401d848eee8c061f2ba55e914ae1a388974d697c6bd6aa5374cfa1400cd33",
+      "bytes": 4642
+    },
+    {
+      "path": "core/operator/session.py",
+      "role": "new",
+      "sha256": "0d40c851c97dd4f395338421a1ffd04f5fe11756eda8a2046f7e5bcc5a80e339",
+      "bytes": 2121
+    },
+    {
+      "path": "core/operator/software.py",
+      "role": "new",
+      "sha256": "134b9d569926e223b3b3ac26704df2780d8fcb55fb58e87f87e1ed52a1622091",
+      "bytes": 25689
+    },
+    {
+      "path": "core/operator/windows.py",
+      "role": "new",
+      "sha256": "120be7cb12a594c67dc23fe00529a8a5893d0db49ae9461495c9f9f241437757",
+      "bytes": 1733
+    },
+    {
+      "path": "tests/test_sprint10_adapters.py",
+      "role": "new",
+      "sha256": "de48a1c5ab822e8f7627dedfa5bbd315e2d24750de3c4836806fb88f2e906950",
+      "bytes": 3096
+    },
+    {
+      "path": "tests/test_sprint10_browser.py",
+      "role": "new",
+      "sha256": "6a3d401fe605e6f2f95592b47f3143d1ff4db280434c5021e90279db9a7d5654",
+      "bytes": 3067
+    },
+    {
+      "path": "tests/test_sprint10_mission.py",
+      "role": "new",
+      "sha256": "6813a9f95adc42f3d915f92c92515f220fe9e16f4dffe75be4df2b9812c18dfd",
+      "bytes": 7415
+    },
+    {
+      "path": "tests/test_sprint10_reference.py",
+      "role": "new",
+      "sha256": "e825ce589c5fb4b3b67b2aafa48fef1657d05e9da27c60c57802869a03e1be7b",
+      "bytes": 4784
+    },
+    {
+      "path": "tests/test_sprint10_software.py",
+      "role": "new",
+      "sha256": "cf882e0426842e384d34f54fb0a0839242102bdd0255caf1fdd97d3f246923aa",
+      "bytes": 6378
+    },
+    {
+      "path": "tests/test_sprint10_windows.py",
+      "role": "new",
+      "sha256": "6ad234731d9e91934fe728b0d251aa28b02b1fba4ad9329e33095bee9a918359",
+      "bytes": 6486
+    },
+    {
+      "path": "scripts/sprint10_live_demo.py",
+      "role": "new",
+      "sha256": "cf957829dd764691ef35162c95f0471c0b56136103ed4571f79517050a7e0de2",
+      "bytes": 10841
+    },
+    {
+      "path": "scripts/rollback_sprint10.ps1",
+      "role": "new",
+      "sha256": "cbfb1bd865f80fa67b5154f4c58857285bc342352c018896b304ddc5fce3f056",
+      "bytes": 3780
+    },
+    {
+      "path": "docs/sprints/SPRINT10_SPEC.md",
+      "role": "new",
+      "sha256": "f0aacc998cc1c01249d05b2ced859639b7afd42cd60bb91f61ab724898d2932b",
+      "bytes": 16115
+    },
+    {
+      "path": "tasks/plan.md",
+      "role": "new",
+      "sha256": "b7e2405e18655829bc9e8b25bd2c3921dec001d6f553eaffcd5dcf7041e50c03",
+      "bytes": 4102
+    },
+    {
+      "path": "tasks/todo.md",
+      "role": "new",
+      "sha256": "de86964bf1b49b5f669e3bd9e1287bbcca876ce5d00b497cca173c96f7592999",
+      "bytes": 2028
+    },
+    {
+      "path": "data/app_knowledge/Notepad.json",
+      "role": "runtime_evidence",
+      "sha256": "00b9df38ecb7336f56856a8148ba35dc2268fad6fa768a483b6e18e0f9b9e40b",
+      "bytes": 159795
+    },
+    {
+      "path": "data/capabilities/operator_Notepad.json",
+      "role": "runtime_evidence",
+      "sha256": "7c57f9d97aaad61ff43539acb927dea8a3e6aebaf20e2385898da322dc28edd9",
+      "bytes": 1103
+    },
+    {
+      "path": "data/capabilities/episodes/c610b6f38ab0488886b33a53d39e2c0a.json",
+      "role": "runtime_evidence",
+      "sha256": "c672e70c52d9f756a81f1d34e574b2a4c945250475b04ac74f233c7cdefd3183",
+      "bytes": 1390
+    },
+    {
+      "path": "data/capabilities/episodes/24e13fdcb04740ccb4da39075afc1942.json",
+      "role": "runtime_evidence",
+      "sha256": "dbac6f90727292fa8f643c4f8e0e79163189e2626b84888221deffcd601f96c0",
+      "bytes": 1392
+    },
+    {
+      "path": "artifacts/sprint10/live_demo_report.json",
+      "role": "runtime_evidence",
+      "sha256": "8a0a10058ba477d229156b1447048ed9a5266dd21917e6cf52d4c48795342834",
+      "bytes": 6178
+    },
+    {
+      "path": "artifacts/sprint10/live_installer_reverification.json",
+      "role": "runtime_evidence",
+      "sha256": "2ee3678e421e94b67b79fbfddb5db0b2c0c639b33fca1b0800f9023ade901c47",
+      "bytes": 1364
+    },
+    {
+      "path": "artifacts/sprint10/video_reference_report.json",
+      "role": "runtime_evidence",
+      "sha256": "a6cc9111d200a09480952c7289e182fbc1b11eea99eeac973f74f15f214f2f35",
+      "bytes": 900
+    },
+    {
+      "path": "artifacts/sprint10/live_state_rollback_reapply.json",
+      "role": "runtime_evidence",
+      "sha256": "0659c12f6aa8c0831b664f0dce9d54458d5742e34865a5e154fb4f4b18e76253",
+      "bytes": 437
+    }
+  ]
+}

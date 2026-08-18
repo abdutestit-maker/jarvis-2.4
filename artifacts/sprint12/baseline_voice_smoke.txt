@@ -1,0 +1,16 @@
+2026-08-17 18:02:47 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\jarvis-project\config\settings.json
+2026-08-17 18:02:47 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+2026-08-17 18:02:48 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0
+{
+  "success": true,
+  "input": "Сэр, я вас понял. Это тестовый ответ Джарвиса.",
+  "runtime": "E:\\jarvis-project\\data\\runtime\\piper\\piper.exe",
+  "expected_runtime": "E:\\jarvis-project\\data\\runtime\\piper\\piper.exe",
+  "output": "E:\\jarvis-project\\artifacts\\sprint12\\baseline_voice.wav",
+  "channels": 1,
+  "sample_rate": 22050,
+  "sample_width": 2,
+  "frames": 71028,
+  "duration_seconds": 3.221,
+  "error": null
+}

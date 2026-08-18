@@ -1,0 +1,10 @@
+[
+  {
+    "goal": "организуй локальные файлы по расширению",
+    "result": "desired state verified: ['organized_by_extension']",
+    "verified_at": "2026-08-17T14:12:34.586227+00:00",
+    "evidence": [
+      "capability_episode:69f447d7232343aeb812a18ef8c3f5d3"
+    ]
+  }
+]

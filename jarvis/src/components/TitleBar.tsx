@@ -28,7 +28,10 @@ export function TitleBar() {
       <div className={styles.left} data-tauri-drag-region>
         <CoreSymbol state={entityState} size={18} />
         <span className={styles.word}>J.A.R.V.I.S.</span>
-        <span className={styles.state}>{STATE_LABEL[entityState] ?? 'ONLINE'}</span>
+        <span className={styles.state} data-state={entityState}>
+          <span className={styles.stateDot} aria-hidden="true" />
+          {STATE_LABEL[entityState] ?? 'ONLINE'}
+        </span>
       </div>
 
       <div className={styles.center} data-tauri-drag-region />

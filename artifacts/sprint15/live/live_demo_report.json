@@ -1,0 +1,68 @@
+{
+  "benchmark": {
+    "error": "",
+    "model": "fast-b",
+    "output_chars": 40,
+    "provider": "fallback",
+    "role": "FAST",
+    "schema_compliance": true,
+    "success": true,
+    "tokens_per_second": 12109.47,
+    "total_latency_ms": 0.826,
+    "ttft_ms": 0.825
+  },
+  "custom_provider": {
+    "added": [
+      "custom_loopback"
+    ],
+    "after_remove": [],
+    "continuation_latency_ms": 1.009,
+    "latency_ms": 1.2,
+    "new_route_absent": true,
+    "result_provider": "custom_loopback",
+    "runtime_continued_with": "fallback"
+  },
+  "failover": {
+    "latency_ms": 360.384,
+    "primary_health": "unhealthy",
+    "result_provider": "fallback",
+    "result_text": "ATLAS/fallback/reason-b: verified response",
+    "selected_primary": "primary"
+  },
+  "identity": {
+    "consistent": true,
+    "contract": "Identity: ATLAS; role: personal AI operator; values: accuracy, privacy, initiative, reliability.",
+    "requests_checked": 7
+  },
+  "latency_ms": {
+    "coding": 0.776,
+    "reasoning": 1.085,
+    "simple_chat": 17.495
+  },
+  "local_only": {
+    "external_http_delta": 0,
+    "latency_ms": 359.956,
+    "provider": "fallback"
+  },
+  "routes": {
+    "coding": {
+      "model": "coder-a",
+      "provider": "primary",
+      "role": "CODER",
+      "text": "ATLAS/primary/coder-a: verified response"
+    },
+    "reasoning": {
+      "model": "reason-a",
+      "provider": "primary",
+      "role": "REASONING",
+      "text": "ATLAS/primary/reason-a: verified response"
+    },
+    "simple_chat": {
+      "model": "fast-a",
+      "provider": "primary",
+      "role": "FAST",
+      "text": "ATLAS/primary/fast-a: verified response"
+    }
+  },
+  "success": true
+}

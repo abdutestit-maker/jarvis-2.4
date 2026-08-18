@@ -56,7 +56,8 @@ class CouncilRouter:
     генерацию ответа выбранным бэкендом (P5 §5.7).
     """
 
-    def __init__(self, settings: Settings, model_router: Optional[ModelRouter] = None) -> None:
+    def __init__(self, settings: Settings, model_router: Optional[ModelRouter] = None,
+                 brain_fabric: Any = None) -> None:
         """
         Args:
             settings: конфигурация проекта.
@@ -66,6 +67,7 @@ class CouncilRouter:
         """
         self._settings = settings
         self._model_router = model_router if model_router is not None else ModelRouter(settings)
+        self._brain_fabric = brain_fabric
         self._local_face: Optional[LocalFace] = None
         self._local_backend: Optional[LLMBackend] = None
 
@@ -125,7 +127,7 @@ class CouncilRouter:
                 decision.tier.value, decision.reason,
             )
 
-            response = self._generate(state, decision.tier)
+            response = self._generate(state, decision)
             state["response"] = response
             state["error"] = None
 
@@ -162,11 +164,29 @@ class CouncilRouter:
     #  Генерация ответа выбранным тиром
     # ------------------------------------------------------------------ #
 
-    def _generate(self, state: JarvisState, tier: Tier) -> str:
+    def _generate(self, state: JarvisState, decision: Any) -> str:
         """Генерирует ответ через выбранный тир (с graceful fallback)."""
+        tier = decision.tier if hasattr(decision, "tier") else decision
         state["tier"] = tier.value
         try:
-            backend = get_llm_backend(self._settings, tier)
+            if (self._brain_fabric is not None
+                    and getattr(decision, "brain_route", None) is not None):
+                from core.brain import BrainFabricBackend, BrainRequest, BrainRole, PrivacyClass
+                template = BrainRequest(
+                    user_request=str(state.get("user_input", "")),
+                    role=BrainRole(decision.role),
+                    privacy=(PrivacyClass.LOCAL_ONLY if decision.forced_local
+                             else PrivacyClass.PERSONAL),
+                    context_tokens=decision.complexity.context_tokens,
+                )
+                backend = BrainFabricBackend(
+                    self._brain_fabric, decision.brain_route, template=template,
+                )
+                state["brain_provider"] = decision.provider
+                state["brain_model"] = decision.model
+                state["brain_reason_code"] = decision.reason_code
+            else:
+                backend = get_llm_backend(self._settings, tier)
             log.info("Отвечает тир '%s' (%s)", tier.value, backend.name)
             system = _build_system_prompt(state, self._settings)
             messages = _state_to_messages(state)

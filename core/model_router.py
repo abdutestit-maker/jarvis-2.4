@@ -35,6 +35,7 @@ __all__ = [
     "RoutingDecision",
     "ModelRouter",
     "estimate_complexity",
+    "classify_conversation",
 ]
 
 log = get_logger(__name__)
@@ -190,6 +191,96 @@ def estimate_complexity(goal: str, context_tokens: int = 0,
 
 
 # --------------------------------------------------------------------------- #
+#  Sprint 2 — CONVERSATION vs ACTION (офлайн, консервативно)
+# --------------------------------------------------------------------------- #
+
+#: Явные глаголы действия. Их наличие = запрос уходит в обычный planner-путь
+#: (там свой risk gate и валидация) — гейт разговора НЕ срабатывает.
+_ACTION_VERB_RE = re.compile(
+    r"\b(открой|открыть|открой|закрой|закрыть|запусти|запустить|включи|выключи|"
+    r"найди|найти|поищи|поиск|искать|прочитай|прочитать|запиши|сохрани|удали|"
+    r"создай|перенеси|переименуй|напомни|поставь|включи|скачай|загрузи|"
+    r"покажи|выведи|посмотри|проверь|запусти|останови|отмени|"
+    r"open|close|launch|find|search|read|write|save|delete|create|show)\b",
+    re.IGNORECASE,
+)
+
+#: Доменные существительные без глагола, которые всё равно означают действие
+#: («погода сегодня» = вызвать инструмент погоды). Консервативно -> planner.
+_DOMAIN_NOUN_RE = re.compile(
+    r"(?:\bпогод|\bпрогноз\w*|\bтемператур[аы]\b(?:\s+(?:на улице|сейчас|за окном))?|"
+    r"\bнапоминани\w*|\bзаметк\w*|\bстатус\w*\s+систем|\bсистемн\w*\s+статус|"
+    r"\bгромкост\w*|\bяркост\w*|\bбатаре\w*|\bаккумулятор\w*|\bпроцессор\w*|\bcpu\b)",
+    re.IGNORECASE,
+)
+
+#: Разговорные маркеры: творчество, объяснения, smalltalk, мнение.
+_CONVERSATION_HINT_RE = re.compile(
+    r"\b(расскажи|расскажи-ка|объясни|объяснение|почему|зачем|отчего|что такое|"
+    r"кто так(ой|ая|ое)|кто был|придумай|сочини|напиши (сказку|историю|стих|"
+    r"стихотворение|эссе|письмо|поздравление)|анекдот|шутку|сказку|историю|"
+    r"как дела|как ты|как жизнь|поговорим|поболтаем|твоё мнение|что думаешь|"
+    r"тебе нравится|тебе нравится|расскажи мне|мне скучно|мне грустно|"
+    r"спасибо|благодарю|привет|здравствуй|доброе утро|добрый день|добрый вечер)\b",
+    re.IGNORECASE,
+)
+
+
+def classify_conversation(goal: str, intent: str) -> tuple:
+    """Консервативный офлайн-гейт «разговор vs действие» (Sprint 2).
+
+    Возвращает ``(is_conversation, reason)``. True — ТОЛЬКО когда офлайн-сигналы
+    уверенно говорят «это разговор, действий нет»: тогда агент отвечает напрямую,
+    БЕЗ списка инструментов и без JSON-плана (слабая fast-модель больше не может
+    галлюцинировать вызов инструмента).
+
+    Приоритет безопасности (Sprint 2 STEP 4):
+      1. не запускать ненужный tool;
+      2. не потерять настоящий action;
+      3. не ломать существующие команды.
+    Поэтому любое сомнение (явный глагол действия, intent файла/приложения/
+      системы/медиа) отправляет запрос в существующий planner-путь.
+
+    Args:
+        goal: текст запроса.
+        intent: интент из ``resolve_keyword_tool`` (offline).
+    """
+    text = (goal or "").strip()
+    if not text:
+        return False, ""
+
+    # Явный глагол действия — точно не разговор (даже если есть «расскажи»:
+    # «расскажи и найди» — действие).
+    if _ACTION_VERB_RE.search(text):
+        return False, ""
+
+    # Доменное существительное без глагола («погода сегодня») — действие
+    # над конкретной операционной зоной: консервативно в planner.
+    if _DOMAIN_NOUN_RE.search(text):
+        return False, ""
+
+    # Smalltalk-обращение («привет», «как дела») — точно разговор.
+    if _TRIVIAL_RE.match(text):
+        return True, "smalltalk-обращение"
+
+    # Интент, означающий конкретную операционную зону (файл/приложение/
+    # система/медиа/браузер) — консервативно в planner.
+    if intent not in ("none", "web"):
+        return False, ""
+
+    # Разговорный маркер без глаголов действия — разговор.
+    if _CONVERSATION_HINT_RE.search(text):
+        return True, "вопрос/творчество без действия"
+
+    # Короткая реплика без всяких маркеров («мне скучно») — разговор;
+    # длинное неявное — в planner (пусть решает модель с инструментами).
+    if intent == "none" and len(text.split()) <= 8:
+        return True, "короткая реплика без признаков действия"
+
+    return False, ""
+
+
+# --------------------------------------------------------------------------- #
 #  Решение о маршрутизации
 # --------------------------------------------------------------------------- #
 
@@ -202,6 +293,12 @@ class RoutingDecision:
     reason: str = ""
     fallback_chain: List[Tier] = field(default_factory=list)
     forced_local: bool = False
+    provider: str = ""
+    model: str = ""
+    role: str = ""
+    reason_code: str = ""
+    brain_route: Any = field(default=None, repr=False)
+    request_text: str = field(default="", repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -209,6 +306,10 @@ class RoutingDecision:
             "reason": self.reason,
             "fallback_chain": [t.value for t in self.fallback_chain],
             "forced_local": self.forced_local,
+            "provider": self.provider,
+            "model": self.model,
+            "role": self.role,
+            "reason_code": self.reason_code,
             "complexity": self.complexity.to_dict(),
         }
 
@@ -221,8 +322,9 @@ class ModelRouter:
     #: Порог, выше которого нужен самый сильный тир.
     ARCHITECT_THRESHOLD = 0.75
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, brain_fabric: Any = None) -> None:
         self._settings = settings
+        self._brain_fabric = brain_fabric
 
     # ------------------------------------------------------------------ #
     def route(self, goal: str, context_tokens: int = 0,
@@ -258,6 +360,10 @@ class ModelRouter:
             score = min(1.0, score + 0.25)
             cx.signals.append(f"низкая уверенность локальной модели ({local_confidence:.2f})")
 
+        if self._brain_fabric is not None:
+            semantic = self._semantic_role(cx, score, goal)
+            return self._semantic_decision(goal, cx, semantic, context_tokens)
+
         # 3) Выбор целевого тира по сложности (НЕ по времени §4).
         if score < self.LOCAL_THRESHOLD:
             target = Tier.FAST
@@ -271,6 +377,19 @@ class ModelRouter:
         else:
             target = Tier.ANALYST
             reason = f"нужен анализ/рассуждение (score={score:.2f})"
+
+        # Sprint 9 P1: offline — это доступность модели, не роль задачи.
+        # CODER/ANALYST/ARCHITECT сохраняются, а factory уже выбирает для
+        # этой роли лучшую доступную локальную GGUF. Так кодовая задача не
+        # попадает в conversational FAST pipeline.
+        if bool(getattr(self._settings, "offline_mode", False)):
+            return RoutingDecision(
+                tier=target,
+                complexity=cx,
+                reason=f"{reason}; offline model availability",
+                fallback_chain=[],
+                forced_local=True,
+            )
 
         chain = self._build_chain(target)
         if not chain:
@@ -289,6 +408,92 @@ class ModelRouter:
             reason=reason if chain[0] is target else f"{reason}; тир '{target.value}' недоступен",
             fallback_chain=chain[1:],
         )
+
+    @staticmethod
+    def _semantic_role(cx: TaskComplexity, score: float, goal: str):
+        from core.brain import BrainRole
+        if cx.code_related:
+            return BrainRole.CODER
+        if cx.architectural:
+            return BrainRole.PLANNER
+        if re.search(r"(?i)\b(исследуй|research|найди источ|изучи)\w*", goal or ""):
+            return BrainRole.RESEARCH
+        if cx.reasoning_required or score >= ModelRouter.LOCAL_THRESHOLD:
+            return BrainRole.REASONING
+        return BrainRole.FAST
+
+    def _semantic_decision(self, goal: str, cx: TaskComplexity, role: Any,
+                           context_tokens: int) -> RoutingDecision:
+        from core.brain import BrainRequest, NoRouteAvailable, PrivacyClass
+        privacy = PrivacyClass.LOCAL_ONLY if cx.private else PrivacyClass.PERSONAL
+        try:
+            route = self._brain_fabric.select_route(BrainRequest(
+                user_request=goal, role=role, privacy=privacy,
+                context_tokens=context_tokens,
+            ))
+        except NoRouteAvailable as exc:
+            log.debug("BrainFabric semantic route unavailable, legacy fallback: %s", exc)
+            saved = self._brain_fabric
+            self._brain_fabric = None
+            try:
+                return self.route(goal, context_tokens=context_tokens,
+                                  multi_step_hint=cx.multi_step)
+            finally:
+                self._brain_fabric = saved
+        tier = self._role_to_tier(role)
+        return RoutingDecision(
+            tier=tier, complexity=cx,
+            reason=f"semantic role {role.value}: {route.reason_code}",
+            fallback_chain=[], forced_local=privacy is PrivacyClass.LOCAL_ONLY,
+            provider=route.primary.provider, model=route.primary.model,
+            role=role.value, reason_code=route.reason_code,
+            brain_route=route, request_text=goal,
+        )
+
+    @staticmethod
+    def _role_to_tier(role: Any) -> Tier:
+        from core.brain import BrainRole
+        if role is BrainRole.CODER:
+            return Tier.CODER
+        if role in {BrainRole.PLANNER, BrainRole.CRITIC}:
+            return Tier.ARCHITECT
+        if role in {BrainRole.REASONING, BrainRole.RESEARCH, BrainRole.VISION}:
+            return Tier.ANALYST
+        return Tier.FAST
+
+    # ------------------------------------------------------------------ #
+    def route_for_planning(self, routing: RoutingDecision) -> RoutingDecision:
+        """TIER 2 (Sprint 3): маршрут для генерации JSON-плана.
+
+        Планировщику нужна НАДЁЖНОСТЬ tool calling'а, а не скорость: слабая
+        FAST-модель (am/free) регулярно ломает JSON и галлюцинирует имена
+        инструментов, сжигая попытки §13. Поэтому если роутер отправил
+        задачу на FAST, планирование поднимается до первого доступного
+        внешнего тира (обычно ANALYST). Разговор (TIER 1) остаётся на FAST —
+        там JSON не нужен. Офлайн-режим (forced_local) не трогаем.
+        """
+        if self._brain_fabric is not None and routing.brain_route is not None:
+            from core.brain import BrainRole
+            return self._semantic_decision(
+                routing.request_text, routing.complexity, BrainRole.PLANNER,
+                routing.complexity.context_tokens,
+            )
+        if routing.forced_local or routing.tier is not Tier.FAST:
+            return routing
+        for tier in ESCALATION_ORDER[1:]:
+            if not self._is_available(tier):
+                continue
+            rest = [t for t in ESCALATION_ORDER
+                    if t is not tier and t is not Tier.FAST and self._is_available(t)]
+            return RoutingDecision(
+                tier=tier,
+                complexity=routing.complexity,
+                reason=(f"{routing.reason}; TIER 2: JSON-план — минимум "
+                        f"'{tier.value}' (надёжный tool calling)"),
+                fallback_chain=rest + [Tier.FAST],
+            )
+        # Внешних тиров нет вообще — остаёмся на FAST (честная деградация §17).
+        return routing
 
     # ------------------------------------------------------------------ #
     def _build_chain(self, target: Tier) -> List[Tier]:

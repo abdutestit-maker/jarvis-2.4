@@ -128,8 +128,11 @@ def test_p0_model_routing_propagation(settings, fake_backend, tmp_path):
     assert len(tiers) >= 1, "get_llm_backend вообще не вызывался"
     # Роутер должен выбрать тир, а не молча FAST; проверяем, что
     # запрашиваемый тир совпадает с тем, что вернул ModelRouter.
+    # Sprint 3 TIER 2: для JSON-плана маршрут проходит route_for_planning
+    # (планировщик поднимается с FAST до первого внешнего тира).
     from core.model_router import ModelRouter
-    decision = ModelRouter(settings).route("покажи файлы в папке")
+    router = ModelRouter(settings)
+    decision = router.route_for_planning(router.route("покажи файлы в папке"))
     assert decision.tier in tiers, (
         f"ModelRouter выбрал {decision.tier}, но get_llm_backend вызвался с {tiers}"
     )

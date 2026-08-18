@@ -86,4 +86,41 @@
 
 .hint { font-size: 0.6875rem; color: var(--text-muted); line-height: var(--leading-normal); }
 
-@media (max-width: 520px) { .themes { grid-template-columns: repeat(3, 1fr); } }
+/* ---- Cloud LLM section ---- */
+.cloudGrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.field { display: flex; flex-direction: column; gap: var(--space-1); }
+.field > span {
+  font-family: var(--font-mono); font-size: 0.625rem;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.keyMask {
+  font-style: normal; color: var(--accent-cyan);
+  text-transform: none; letter-spacing: 0.02em;
+}
+.cloudNote, .cloudNoteError {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-sm); color: var(--text-secondary);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+}
+.cloudNoteError { color: var(--accent-red); border-color: rgba(248,113,113,0.3); }
+.cloudActions { display: flex; align-items: center; gap: var(--space-2); }
+.saveBtn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent-cyan), #0891b2);
+  color: #04141a; font-size: var(--text-sm); font-weight: 600;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.saveBtn:hover:not(:disabled) { box-shadow: 0 4px 18px rgba(34,211,238,0.35); }
+.saveBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.spinSoft { animation: spinSoft 1s linear infinite; }
+@keyframes spinSoft { to { transform: rotate(360deg); } }
+.value[data-has-key='true'] { color: var(--accent-green); }
+.value[data-has-key='false'] { color: var(--accent-amber); }
+
+@media (max-width: 520px) { .themes { grid-template-columns: repeat(3, 1fr); } .cloudGrid { grid-template-columns: 1fr; } }

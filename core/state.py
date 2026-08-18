@@ -86,6 +86,7 @@ class JarvisState(TypedDict, total=False):
 
     user_input: str                        # текст пользователя (микрофона нет)
     intent: Optional[str]                  # категория от keyword-роутера: app/media/web/...
+    executive: Dict[str, Any]              # bounded Executive Mind snapshot
     tier: str                              # выбранный тир совета: fast/analyst/coder/architect
     short_memory: List[Message]            # последние N сообщений (ОЗУ)
     retrieved_context: RetrievedContext    # что подняли слои памяти
@@ -93,6 +94,7 @@ class JarvisState(TypedDict, total=False):
     action_results: List[ActionResult]      # результаты инструментов
     response: Optional[str]                # финальный текст ответа
     tts_text: Optional[str]                # текст для озвучки (может быть короче response)
+    assistant_output: Dict[str, Any]       # typed display/speech/debug/error contract
     timestamp: str                         # ISO-8601 UTC начала витка
     error: Optional[str]                   # человекочитаемая ошибка витка
 
@@ -100,6 +102,12 @@ class JarvisState(TypedDict, total=False):
     source: str                            # 'user' | 'proactive' | 'reminder'
     escalations: List[str]                  # история эскалаций тиров за виток
     latency: Dict[str, float]               # тайминги узлов, сек
+    task_contract: Dict[str, Any]           # normalized Universal Intake contract
+    evidence: List[Dict[str, Any]]          # bounded claim/action evidence
+    latency_budget: Dict[str, Any]          # active numerical budget metadata
+    tool: str                               # selected tool, if any
+    verified: bool                          # independent verification result
+    mode: str                               # active execution mode
 
 
 def utc_timestamp() -> str:
@@ -122,9 +130,10 @@ def new_state(
         source: кто инициировал виток ('user' / 'proactive' / 'reminder').
         tier: стартовый тир (по умолчанию лицо Джарвиса — 'fast').
     """
-    return JarvisState(
+    state = JarvisState(
         user_input=user_input,
         intent=None,
+        executive={},
         tier=tier,
         short_memory=list(short_memory) if short_memory else [],
         retrieved_context=RetrievedContext(),
@@ -132,12 +141,27 @@ def new_state(
         action_results=[],
         response=None,
         tts_text=None,
+        assistant_output={},
         timestamp=utc_timestamp(),
         error=None,
         source=source,
         escalations=[],
         latency={},
+        task_contract={},
+        evidence=[],
+        latency_budget={},
+        tool="",
+        verified=False,
+        mode="conversation",
     )
+    # Every state-producing path is self-describing.  The local import avoids
+    # a cycle while the router package is initialising.
+    try:
+        from core.router.intent_router import resolve_keyword_tool
+        state["intent"] = resolve_keyword_tool(user_input, user_input)
+    except Exception:
+        state["intent"] = None
+    return state
 
 
 def push_message(state: JarvisState, role: Role, content: str,

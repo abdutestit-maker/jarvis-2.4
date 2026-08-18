@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "J.A.R.V.I.S.",
+  "version": "3.0.0",
+  "identifier": "com.jarvis.oracle",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "J.A.R.V.I.S.",
+        "width": 360,
+        "height": 520,
+        "minWidth": 360,
+        "minHeight": 520,
+        "transparent": false,
+        "decorations": false,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "center": true,
+        "titleBarStyle": "Transparent",
+        "hiddenTitle": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/256x256.png",
+      "icons/icon.ico"
+    ]
+  }
+}

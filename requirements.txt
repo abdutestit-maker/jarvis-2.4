@@ -30,7 +30,8 @@ beautifulsoup4==4.12.3
 lxml==5.3.0
 
 # --- Windows-интеграция (toast-уведомления, COM, окна) ---------------------
-pywin32==308; sys_platform == "win32"
+pywin32==311; sys_platform == "win32"
+pywinauto==0.6.9; sys_platform == "win32"
 
 # --- GUI: системный трей (tkinter входит в стандартную поставку Python) -----
 pystray==0.19.5

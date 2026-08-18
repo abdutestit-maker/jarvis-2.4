@@ -1,0 +1,96 @@
+{
+  "feature": "browser_bridge_v2_1",
+  "created_at": "2026-08-17T18:18:18Z",
+  "files": [
+    {
+      "path": "core/platform/__init__.py",
+      "kind": "existing",
+      "sha256": "7f646904bf47759a944b3e89ed7ba47cafa676e798e037fcd43c4adbf190b794",
+      "bytes": 586
+    },
+    {
+      "path": "core/actions/__init__.py",
+      "kind": "existing",
+      "sha256": "f6e89231fbfd3fad93d714805cd497341f4d0683302c87d37f3259df9486fbd0",
+      "bytes": 2075
+    },
+    {
+      "path": "core/platform/browser_bridge.py",
+      "kind": "new",
+      "sha256": "c804bd54c1af0a345511fe30bf9032425665fdf163fb4e64cf2d0e42614c8e0e",
+      "bytes": 31667
+    },
+    {
+      "path": "core/actions/browser_bridge.py",
+      "kind": "new",
+      "sha256": "eed214ffcff0d18759f1d3633f4b6b731f569b31b8b1b6054c55437b222bd0b3",
+      "bytes": 7058
+    },
+    {
+      "path": "tests/test_browser_bridge.py",
+      "kind": "new",
+      "sha256": "97a6b44398d1a1bf2169d7857917a39fb4fdac07a42f6ec42ca103d190176907",
+      "bytes": 8019
+    },
+    {
+      "path": "scripts/browser_bridge_live_demo.py",
+      "kind": "new",
+      "sha256": "05ce4675467bc46d6ad111a2f74f0545a7bcd22133de6fbf18d21f5507da2665",
+      "bytes": 3524
+    },
+    {
+      "path": "scripts/rollback_browser_bridge.ps1",
+      "kind": "new",
+      "sha256": "73b6d5f89faa5c381f21a07069af1512da84602a95d927ecaab996de1c45ce5d",
+      "bytes": 2550
+    },
+    {
+      "path": "docs/sprints/BROWSER_BRIDGE_V2_1_CHANGESET.md",
+      "kind": "new",
+      "sha256": "068ff1eda9793d4fa43776cbbbc04a22ab360defb09d4b6998bb6b78ab47652d",
+      "bytes": 3328
+    },
+    {
+      "path": "docs/sprints/BROWSER_BRIDGE_V2_1_VERIFICATION.md",
+      "kind": "new",
+      "sha256": "a3d0b7a517e061cfe9a5419b132aa29f2f5df500ffe557726ea025b1af7acb80",
+      "bytes": 2238
+    },
+    {
+      "path": "artifacts/browser_bridge/live/fixture.html",
+      "kind": "new",
+      "sha256": "45ec636406cc74abe67c6ae58128cdec4baf4f66752488dcc02bdfc1b6b2bb12",
+      "bytes": 539
+    },
+    {
+      "path": "artifacts/browser_bridge/live/live_demo_report.json",
+      "kind": "new",
+      "sha256": "678369552bbf6836a09c64f9bf392f22213d325d6756181de4f54a7c832c9c4d",
+      "bytes": 3115
+    },
+    {
+      "path": "artifacts/browser_bridge/full_pytest_after.txt",
+      "kind": "new",
+      "sha256": "9a6044c84a41127b90d45c766215dcf18b80e2616e3e4950fde8967b96b5bdfe",
+      "bytes": 184958
+    },
+    {
+      "path": "artifacts/browser_bridge/full_pytest_without_bridge.txt",
+      "kind": "new",
+      "sha256": "8d88ca329b2019bc0de99ed2f969a7f6d5d2e57e863ab2f4d2b571afc41745ec",
+      "bytes": 184360
+    },
+    {
+      "path": "artifacts/browser_bridge/targeted_pytest.txt",
+      "kind": "new",
+      "sha256": "f784d91362c0bfcb642f7917353fa043b3ad1079a3c7f7c342048066ba34c5f1",
+      "bytes": 81
+    },
+    {
+      "path": "artifacts/browser_bridge/verification_record.md",
+      "kind": "new",
+      "sha256": "be31ffa616c454203ba72a5bc5d6dab61dbf31a16f788b35f18a1b0bd7bea54e",
+      "bytes": 2756
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "rollback_exit": 0,
+  "stage": "E:\\jarvis-project\\artifacts\\sprint11\\rollback_stage_verified",
+  "checks": {
+    "core\\agent.py": true,
+    "core\\orchestrator.py": true,
+    "core\\shadow\\backlog.py": true,
+    "core\\shadow\\engine.py": true,
+    "core_living_removed": true,
+    "data_living_removed": true,
+    "sprint11_test_removed": true,
+    "voice_preserved": true,
+    "sprint10_preserved": true
+  },
+  "verified": true
+}

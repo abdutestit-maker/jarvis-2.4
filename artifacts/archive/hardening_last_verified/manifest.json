@@ -1,0 +1,209 @@
+﻿{
+    "created_at":  "2026-08-17T16:15:55.3083299Z",
+    "files":  [
+                  {
+                      "path":  ".gitignore",
+                      "sha256":  "379684ABF96594E268CB38902D5E5D14490D056F5CB987D3660A6F712B5C96C4"
+                  },
+                  {
+                      "path":  "core/actions/app_control.py",
+                      "sha256":  "49867CC102BF208F9917F7B26E22FE7B1FEA8DC81BF63A7654BCC7DD9777DB48"
+                  },
+                  {
+                      "path":  "core/actions/base.py",
+                      "sha256":  "7A48260407BE4BD8167BDE64B1A62C900E65EF8DB8E9D69770FB47595D700AF4"
+                  },
+                  {
+                      "path":  "core/actions/executor.py",
+                      "sha256":  "114F92F492B360C89409B433691F17535D2B7396C1348B2F561D897AD9E0249B"
+                  },
+                  {
+                      "path":  "core/actions/filesystem.py",
+                      "sha256":  "2D5E0EA48A4A79F22166E4C62BCA4363B95DFB493583E8768EED240E9E6EDA51"
+                  },
+                  {
+                      "path":  "core/actions/web_fetch.py",
+                      "sha256":  "55121635EE78DC7A6A8EEA5114B1C9E4825AE984045E0C04840A3349E7DA4090"
+                  },
+                  {
+                      "path":  "core/ingest.py",
+                      "sha256":  "CFA7E457B98490FDBABBF1EB5C3DE34B63A6AA485806A42D889B42CD051FB910"
+                  },
+                  {
+                      "path":  "core/living/context.py",
+                      "sha256":  "9884AD417481CD432CF8ACB1C3F7943CB16B587B6CD53F3C0B87B10D6D36D604"
+                  },
+                  {
+                      "path":  "core/living/monitor.py",
+                      "sha256":  "99D8F0820D87F940E6C3045C1697455BBF9C4F7AB49C7A48C09C07110922F582"
+                  },
+                  {
+                      "path":  "core/living/proactive.py",
+                      "sha256":  "8282F3BFFAA5744AFBE93A3B70E1E0B59508DDEEFEF2560A3F43083CFF42AFEC"
+                  },
+                  {
+                      "path":  "core/living/service.py",
+                      "sha256":  "04168EF7188DA91441E047F362A21501742E0EF53F02A2A0411CCA2B4B3020B4"
+                  },
+                  {
+                      "path":  "core/memory/secret_filter.py",
+                      "sha256":  "898F45DA12693371E8AB3A0985BCA73E5BAB07768448A3F8A4EE963E557C0EED"
+                  },
+                  {
+                      "path":  "core/memory/relationship/store.py",
+                      "sha256":  "358985B5B7B5E616E5216B0323C2EDCE946354E0EA97D0766D8BFF0F5355930D"
+                  },
+                  {
+                      "path":  "core/memory/relationship/learning.py",
+                      "sha256":  "781CDFCDB4F21861B04EF57264A734D11078674138CC9FF35079396BE7F3B3CD"
+                  },
+                  {
+                      "path":  "core/metacognition/store.py",
+                      "sha256":  "0751158D9A02435137CA5C97F2A477475B4E5D3C25319DA9EDFB1975C2910A0D"
+                  },
+                  {
+                      "path":  "core/metacognition/audit.py",
+                      "sha256":  "A55A23EBC0B3A30903C6ABED449665D5FDBCD25DBDF1AF12D44E2960DD040654"
+                  },
+                  {
+                      "path":  "core/metacognition/failures.py",
+                      "sha256":  "1BE4F40C8AF975CC3B7D624523DC70607849021311DAAFD0C8C497A028AC8CD9"
+                  },
+                  {
+                      "path":  "core/network_guard.py",
+                      "sha256":  "169E90EE102BAAA3A8C437B1710EAD2DA3CCD89FED2BD44C5CAAC6E06AE2C626"
+                  },
+                  {
+                      "path":  "core/operator/adapters.py",
+                      "sha256":  "8CECEB37F179D92CFA19FDA7FEBBD720554CA6ED3B6349DC74DDAE9C8000735C"
+                  },
+                  {
+                      "path":  "core/operator/knowledge.py",
+                      "sha256":  "32D6C0F375D70007682CBDE7C3139A235B52F9F555C15D85DE3CF34334F91FEA"
+                  },
+                  {
+                      "path":  "core/operator/software.py",
+                      "sha256":  "1451B0C4D0B8C91D1F1FD194E70B790989280EB8C967BE8F1A5C2CD84C5EB728"
+                  },
+                  {
+                      "path":  "core/operator/reference.py",
+                      "sha256":  "F20D5C9646F008569CAC93616AB72018F33F0141BFA9776AD63C5D143CBD80DF"
+                  },
+                  {
+                      "path":  "core/platform/windows.py",
+                      "sha256":  "B452A5FF0BF22CD68BB98F8B299AFF5D1638A6F3E5C774D84C54675539708FD1"
+                  },
+                  {
+                      "path":  "core/platform/browser.py",
+                      "sha256":  "52524435ABF3554F6B3590F595373D17D77CF412BD8996F78C2C782DB57B9A23"
+                  },
+                  {
+                      "path":  "core/actions/browser_automation.py",
+                      "sha256":  "B94EBC1C819AB90ABC6E21A068E9E53303202E5A54191ABF7829B02189EDACD2"
+                  },
+                  {
+                      "path":  "core/proactive/background_tasks.py",
+                      "sha256":  "64E87FF6515206D2B5D276B6393871730D7638F72B445DA42911A39B571C9A20"
+                  },
+                  {
+                      "path":  "core/proactive/proactor.py",
+                      "sha256":  "AD834DC1B71F83BB78E0A547F86D22861BBB05594FCC996333D140D2EF9F80CC"
+                  },
+                  {
+                      "path":  "core/redact.py",
+                      "sha256":  "C7EE19611BAA9D15EA1269BD1FD2F9E0863FFBB6DF8E34A042817044F1391042"
+                  },
+                  {
+                      "path":  "core/security/__init__.py",
+                      "sha256":  "18442E53562805A6459FDF4B33F54B87DED3B59A72CE6A6A6DAC6F1BAE02370E"
+                  },
+                  {
+                      "path":  "core/security/atomic.py",
+                      "sha256":  "F4E304831B71ACDB8E43780F1ADCB5E616FCF619E5818394BC6DC7AEFC4A2618"
+                  },
+                  {
+                      "path":  "core/security/redaction.py",
+                      "sha256":  "73313F9C919A560CD05A0ADD651912CE75826AF3908B9E0CBCA5A6E3C4880012"
+                  },
+                  {
+                      "path":  "core/shadow/__init__.py",
+                      "sha256":  "43C1383B8282773CC32D1AB7E44EFDBEE1B64A6440DB271203CFAA262AED43C7"
+                  },
+                  {
+                      "path":  "core/shadow/engine.py",
+                      "sha256":  "FCC2872DB066AD384BDC6EF7A3C61A0CC034BD969EE27A5F85EEE826BDD0DE30"
+                  },
+                  {
+                      "path":  "core/shadow/patterns.py",
+                      "sha256":  "D84ABC4AD7E0D2FC5FC57B7DB57A1036477AEE487B8E5D5DCFF65D2178A18D85"
+                  },
+                  {
+                      "path":  "core/shadow/sandbox.py",
+                      "sha256":  "D84B256C9EF3B863D6C52C65DAEC13CC206630D30414B3DDFC68DA97F4BDD633"
+                  },
+                  {
+                      "path":  "core/skill_forge.py",
+                      "sha256":  "BC55971F2F3837B91AD030EF00CDCCBFF24D3535742B91E20F2FE20AD4849D6E"
+                  },
+                  {
+                      "path":  "core/task_runtime.py",
+                      "sha256":  "E9F6C1E324CEAAA4EF096D6F930B903DF15EDF418469153CCDF6105EB8721D99"
+                  },
+                  {
+                      "path":  "core/trust.py",
+                      "sha256":  "B11A7F298E15092B8DAF0EECD08F8328DA65E9176AACEA6A985A6739B9CF55EF"
+                  },
+                  {
+                      "path":  "core/utils/model_manager.py",
+                      "sha256":  "5F65BFF44F1590213B455180E401FF4473C3DCC7876457A4B0FD5A2DCDB4B79C"
+                  },
+                  {
+                      "path":  "core/voice/tts.py",
+                      "sha256":  "FED6FA2D3B3138E22D049F4B04D55E0333A084329C449982017A1BD079429393"
+                  },
+                  {
+                      "path":  "core/voice/tts_queue.py",
+                      "sha256":  "B74550D1B614F2B992582F9F3870EB3E90FBBAE6BEDD52AEE183FB2AD51128A7"
+                  },
+                  {
+                      "path":  "core/voice/tts_sanitizer.py",
+                      "sha256":  "17EF266BD342400300E825A395D749461D26E795B6B13580E6132EC8306D5827"
+                  },
+                  {
+                      "path":  "core/ws_server.py",
+                      "sha256":  "15C077F41B5DB5AADEB4BF5BB1A2667BD5AC9A944C56E2C226B86FAD3CB228F6"
+                  },
+                  {
+                      "path":  "core/lifecycle.py",
+                      "sha256":  "F7E979A79F5FF464A2EC710A8C242285BEEAEADBF27F8A40377452BBF3AC0717"
+                  },
+                  {
+                      "path":  "core/capability_engine.py",
+                      "sha256":  "04DDDD0F8FF72F2F70048141B08F06C003FD67137377747763B2B964659B6617"
+                  },
+                  {
+                      "path":  "docs/audits/RED_TEAM_REMEDIATION.md",
+                      "sha256":  "34EF260CB67D16759EF60DEC2836CCFCE183C88DF428D3741C17C5B682FE3E38"
+                  },
+                  {
+                      "path":  "scripts/archive_source_snapshots.ps1",
+                      "sha256":  "8CC84C3A44DB40A12BE6A268FE644261248D916EEB3864915FF288A810CBAB53"
+                  },
+                  {
+                      "path":  "scripts/measure_hardening_performance.py",
+                      "sha256":  "19CE29B74A65A8D320DD3535A19C397670AA453F5205BD73F5005009039AC823"
+                  },
+                  {
+                      "path":  "scripts/rollback_stability_hardening.ps1",
+                      "sha256":  "37E4FEB38E0948BE41F9D97054C5469812914A47B7409C32B1A7E42931C57DA4"
+                  },
+                  {
+                      "path":  "scripts/hardening_stress.py",
+                      "sha256":  "38A4127B77D1DC4AE3D6CA0AAD2BA21D8518E627A95872DE281D2B4EDE712B55"
+                  },
+                  {
+                      "path":  "scripts/hardening_crash_probe.py",
+                      "sha256":  "1CE647A453FB69CC0D7D8BC78E1F609DB357F5FE572EE9400F1AF59795DA92EA"
+                  }
+              ]
+}

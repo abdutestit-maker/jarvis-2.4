@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "episodes": [
+    {
+      "goal": "enable fixture feature",
+      "task_class": "fixture_config",
+      "strategy": "cached_provider",
+      "failure_category": "expectation_mismatch",
+      "observed_mismatch": {
+        "feature_enabled": {
+          "expected": true,
+          "actual": false
+        }
+      },
+      "environment_fingerprint": "30de49e77249da07f36ebe2b",
+      "confidence": 0.9,
+      "successful_repair": "atomic_config",
+      "evidence_refs": [
+        "disk:fixture_app.json:feature_enabled"
+      ],
+      "episode_id": "5deef73981494e129796ae060f6f8090",
+      "created_at": "2026-08-17T14:58:13.128727+00:00"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "record_reopened": true,
+  "record_verified": true,
+  "roles": {
+    "modified_artifact": "E:\\jarvis-project\\artifacts\\sprint12\\jarvis_sprint12_modified.zip",
+    "patch": "E:\\jarvis-project\\artifacts\\sprint12\\sprint12.patch",
+    "verification_record": "E:\\jarvis-project\\artifacts\\sprint12\\verification_record.json",
+    "rollback": "E:\\jarvis-project\\scripts\\rollback_sprint12.ps1"
+  },
+  "roles_exist": {
+    "modified_artifact": true,
+    "patch": true,
+    "verification_record": true,
+    "rollback": true
+  },
+  "zip_reopened": true,
+  "verified": true
+}

@@ -1,0 +1,46 @@
+{
+  "verified": true,
+  "checks": {
+    "test_summary": true,
+    "live_verified": true,
+    "workflow_context_seen": true,
+    "workflow_suggested": true,
+    "workflow_rehearsed": true,
+    "workflow_second_run": true,
+    "learned_capability_exists": true,
+    "dom_media_real": true,
+    "busy_prepared_silently": true,
+    "after_busy_suggested": true,
+    "beginner_verified": true,
+    "shadow_registered": true,
+    "shadow_tool_exists": true,
+    "patch_verified": true,
+    "rollback_verified": true,
+    "four_roles_verified": true,
+    "zip_reopened": true,
+    "voice_runtime": true,
+    "no_frontend_files": true,
+    "changed_files_exist": true,
+    "review_complete": true
+  },
+  "tests": {
+    "passed": 295,
+    "skipped": 2,
+    "failed": 0,
+    "seconds": 74.16
+  },
+  "voice": {
+    "channels": 1,
+    "sample_rate": 22050,
+    "frames": 70516,
+    "duration": 3.198
+  },
+  "changed_files": 23,
+  "live_run_id": "20260817T124613847815Z",
+  "artifacts": {
+    "modified_artifact": "E:\\jarvis-project\\artifacts\\sprint11\\sprint11_modified.zip",
+    "patch": "E:\\jarvis-project\\artifacts\\sprint11\\sprint11.patch",
+    "verification_record": "E:\\jarvis-project\\artifacts\\sprint11\\verification_record.json",
+    "rollback": "E:\\jarvis-project\\scripts\\rollback_sprint11.ps1"
+  }
+}

@@ -40,7 +40,7 @@ _USER_AGENT = (
 _REQUEST_TIMEOUT = 10
 
 
-def duckduckgo_search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+def duckduckgo_search(query: str, max_results: int = 5, timeout: float | None = None) -> List[Dict[str, str]]:
     """Выполняет поиск через DuckDuckGo HTML.
 
     Args:
@@ -62,7 +62,7 @@ def duckduckgo_search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
             _DDG_HTML_URL,
             data=params,
             headers=headers,
-            timeout=_REQUEST_TIMEOUT,
+            timeout=float(timeout or _REQUEST_TIMEOUT),
         )
         resp.raise_for_status()
     except requests.RequestException as exc:
@@ -165,7 +165,9 @@ class WebSearchTool(Tool):
         query = args["query"]
         max_results = args.get("max_results", 5)
 
-        results = duckduckgo_search(query, max_results)
+        budget = getattr(getattr(context, "settings", None), "latency_budgets", None)
+        timeout = float(getattr(budget, "research_source_timeout_ms", 8000.0)) / 1000.0
+        results = duckduckgo_search(query, max_results, timeout=timeout)
 
         if not results:
             return ActionResult(

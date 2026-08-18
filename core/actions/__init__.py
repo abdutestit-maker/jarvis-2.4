@@ -30,6 +30,10 @@ from core.actions import (  # noqa: F401
     filesystem,
     reminders,
     weather,
+    screen_capture,
+    browser_bridge,
+    media,
+    time,
 )
 
 __all__ = [

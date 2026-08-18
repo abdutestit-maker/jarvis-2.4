@@ -18,7 +18,7 @@ from core.memory.document_rag import DocumentRAG
 from core.memory.embedder import Embedder
 from core.memory.knowledge_graph import GraphMemoryStore
 from core.memory.long_term import LongTermMemory
-from core.memory.profile import get_profile_context
+from core.memory.profile import get_relevant_profile_context
 from core.state import JarvisState, RetrievedContext
 from core.utils.logger import get_logger
 
@@ -110,7 +110,7 @@ class MemoryRetriever:
 
         # 1) Профиль — всегда доступен (простой JSON).
         try:
-            context["profile"] = get_profile_context(self._settings)
+            context["profile"] = get_relevant_profile_context(self._settings, query)
         except Exception as exc:
             log.warning("Ошибка сборки контекста профиля: %s", exc)
 
@@ -178,7 +178,7 @@ class MemoryRetriever:
         assistant_safe = sanitize_for_memory(assistant_text or "")
         if assistant_safe and assistant_safe.strip():
             self._long_term.add(
-                f"Джарвис: {assistant_safe.strip()}",
+                f"АТЛАС: {assistant_safe.strip()}",
                 metadata={"type": "assistant", "source": "conversation",
                           "stored_at": _now_iso()},
             )

@@ -1,0 +1,1565 @@
+--- a/core/platform/__init__.py
++++ b/core/platform/__init__.py
+@@ -1,5 +1,10 @@
+ """Replaceable platform providers used by the Capability Engine."""
+ from .browser import BrowserAutomationProvider, DOMSelector
++from .browser_bridge import (
++    BrowserActionResult, BrowserBridge, BrowserBridgeError, BrowserPolicy,
++    BrowserSession, ConfirmationGrant, FindResult, PolicyDecision,
++    canonical_selector_fingerprint, canonical_selector_value,
++)
+ from .windows import (
+     NativeWindowsProvider, ProviderChain, ProviderResult, UIAutomationProvider,
+     VisionFallbackProvider, WinAppProvider, WindowsAutomationProvider,
+@@ -7,7 +12,10 @@
+ )
+ 
+ __all__ = [
+-    "BrowserAutomationProvider", "DOMSelector", "NativeWindowsProvider", "ProviderChain",
++    "BrowserAutomationProvider", "DOMSelector", "BrowserActionResult", "BrowserBridge",
++    "BrowserBridgeError", "BrowserPolicy", "BrowserSession", "ConfirmationGrant",
++    "FindResult", "PolicyDecision", "canonical_selector_fingerprint",
++    "canonical_selector_value", "NativeWindowsProvider", "ProviderChain",
+     "ProviderResult", "UIAutomationProvider", "VisionFallbackProvider",
+     "WinAppProvider", "WindowsAutomationProvider", "WindowsCapabilityLayer",
+ ]
+
+--- a/core/actions/__init__.py
++++ b/core/actions/__init__.py
+@@ -31,6 +31,7 @@
+     reminders,
+     weather,
+     screen_capture,
++    browser_bridge,
+ )
+ 
+ __all__ = [
+
+--- a/core/platform/browser_bridge.py
++++ b/core/platform/browser_bridge.py
+@@ -0,0 +1,819 @@
++"""Policy-aware semantic browser bridge.
++
++The legacy :mod:`core.actions.browser_automation` module remains available for
++backwards compatibility.  ``BrowserBridge`` is the stricter Operator-facing
++surface: every mutation is bound to a DOM snapshot, authorized by
++``BrowserPolicy`` and followed by observation and verification.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import re
++import time
++import unicodedata
++import uuid
++from dataclasses import dataclass, field, replace
++from pathlib import Path
++from typing import Any, Callable, Mapping
++
++__all__ = [
++    "BrowserActionResult",
++    "BrowserBridge",
++    "BrowserBridgeError",
++    "BrowserPolicy",
++    "BrowserSession",
++    "ConfirmationGrant",
++    "FindResult",
++    "PolicyDecision",
++    "canonical_selector_fingerprint",
++    "canonical_selector_value",
++]
++
++
++class BrowserBridgeError(RuntimeError):
++    """Expected bridge error that remains safe to expose to the Operator."""
++
++
++def _normalise_text(value: Any) -> str:
++    text = unicodedata.normalize("NFC", str(value or "")).strip()
++    return re.sub(r"\s+", " ", text)
++
++
++def _normalise_key(value: Any) -> str:
++    return _normalise_text(value).casefold()
++
++
++_SECRET_KEYS = frozenset({"password", "passwd", "secret", "token", "credential"})
++_SECRET_TYPES = frozenset({"password", "secret", "token", "credential"})
++
++
++def _is_secret_mapping(value: Mapping[str, Any]) -> bool:
++    kind = _normalise_key(value.get("type", ""))
++    if kind in _SECRET_TYPES:
++        return True
++    return any(
++        key in _SECRET_KEYS and bool(item)
++        for key, item in ((str(k).casefold(), v) for k, v in value.items())
++    )
++
++
++def _redact_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
++    """Remove secret values while retaining enough metadata for verification."""
++    secret = _is_secret_mapping(value)
++    result: dict[str, Any] = {}
++    for key, item in value.items():
++        normalized_key = str(key).casefold()
++        if normalized_key in _SECRET_KEYS:
++            result[str(key)] = "<redacted>" if item else ""
++            continue
++        if secret and normalized_key in {"value", "text"}:
++            result[f"{normalized_key}_present"] = bool(item)
++            continue
++        if isinstance(item, Mapping):
++            result[str(key)] = _redact_mapping(item)
++        elif isinstance(item, list) and all(isinstance(child, Mapping) for child in item):
++            result[str(key)] = [_redact_mapping(child) for child in item]
++        else:
++            result[str(key)] = item
++    element = value.get("element")
++    if isinstance(element, Mapping) and _is_secret_mapping(element):
++        for key in ("text", "value"):
++            if key in result:
++                result[f"{key}_present"] = bool(result.pop(key))
++    return result
++
++
++def _redact_node(node: Mapping[str, Any]) -> dict[str, Any]:
++    return _redact_mapping(node)
++
++
++def _dom_selector_type():
++    from .browser import DOMSelector
++    return DOMSelector
++
++
++def _is_dom_selector(value: Any) -> bool:
++    return isinstance(value, _dom_selector_type())
++
++
++def _new_dom_selector(**values: Any) -> Any:
++    return _dom_selector_type()(**values)
++
++
++def canonical_selector_value(selector: Any) -> dict[str, Any]:
++    """Return a deterministic, JSON-safe semantic selector representation."""
++    if _is_dom_selector(selector):
++        raw = {name: getattr(selector, name) for name in selector.__dataclass_fields__}
++    elif isinstance(selector, Mapping):
++        raw = dict(selector)
++    elif isinstance(selector, int) and not isinstance(selector, bool):
++        raw = {"index": selector}
++    elif isinstance(selector, str):
++        raw = {"text": selector}
++    else:
++        raise TypeError(f"unsupported selector value: {type(selector).__name__}")
++
++    result: dict[str, Any] = {}
++    for key, value in raw.items():
++        name = _normalise_key(key)
++        if value is None or value == "":
++            continue
++        if isinstance(value, bool):
++            result[name] = value
++        elif isinstance(value, (int, float)) and not isinstance(value, bool):
++            result[name] = value
++        else:
++            normalised = _normalise_text(value)
++            if normalised:
++                result[name] = normalised
++    return {key: result[key] for key in sorted(result)}
++
++
++def canonical_selector_fingerprint(
++    selector_type: str,
++    selector_value: Any,
++    session_id: str,
++    dom_hash: str,
++) -> str:
++    """Hash the versioned canonical selector payload used by Risk Gate.
++
++    The same function is used when a grant is issued and when a mutation is
++    authorized, so equivalent selectors cannot diverge because of dictionary
++    ordering or Playwright object identity.
++    """
++    payload = {
++        "version": 1,
++        "selector_type": _normalise_key(selector_type),
++        "selector_value": canonical_selector_value(selector_value),
++        "session_id": str(session_id),
++        "dom_hash": _normalise_text(dom_hash).casefold(),
++    }
++    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
++    return "sf1:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
++
++
++@dataclass(frozen=True)
++class BrowserSession:
++    session_id: str
++    url: str = ""
++    title: str = ""
++    dom_hash: str = ""
++    status: str = "open"
++    created_at: float = field(default_factory=time.time)
++    last_observed_at: float | None = None
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "session_id": self.session_id,
++            "url": self.url,
++            "title": self.title,
++            "dom_hash": self.dom_hash,
++            "status": self.status,
++            "created_at": self.created_at,
++            "last_observed_at": self.last_observed_at,
++        }
++
++
++@dataclass(frozen=True)
++class FindResult:
++    found: bool
++    selector: Any
++    selector_type: str
++    confidence: float
++    element_summary: Mapping[str, Any]
++    dom_hash: str
++    alternatives: tuple[Mapping[str, Any], ...] = ()
++
++    @property
++    def selector_value(self) -> dict[str, Any]:
++        return canonical_selector_value(self.selector or {})
++
++    def fingerprint_for(self, session_id: str) -> str:
++        if self.selector is None:
++            return ""
++        return canonical_selector_fingerprint(
++            self.selector_type, self.selector_value, session_id, self.dom_hash
++        )
++
++    def to_dict(self, *, session_id: str = "") -> dict[str, Any]:
++        selector_value = self.selector_value
++        return {
++            "found": self.found,
++            "selector": selector_value,
++            "selector_type": self.selector_type,
++            "confidence": self.confidence,
++            "element_summary": _redact_mapping(self.element_summary),
++            "dom_hash": self.dom_hash,
++            "alternatives": [_redact_mapping(item) for item in self.alternatives],
++            "selector_fingerprint": (
++                canonical_selector_fingerprint(
++                    self.selector_type, selector_value, session_id, self.dom_hash
++                )
++                if self.selector is not None and session_id
++                else None
++            ),
++        }
++
++
++@dataclass(frozen=True)
++class ConfirmationGrant:
++    grant_id: str
++    action: str
++    session_id: str
++    selector_fingerprint: str
++    expires_at: float
++
++    def is_valid(
++        self,
++        *,
++        action: str,
++        session_id: str,
++        selector_fingerprint: str,
++        now: float | None = None,
++    ) -> bool:
++        return (
++            _normalise_key(self.action) == _normalise_key(action)
++            and self.session_id == session_id
++            and self.selector_fingerprint == selector_fingerprint
++            and float(now if now is not None else time.time()) <= self.expires_at
++        )
++
++    @classmethod
++    def from_mapping(cls, value: Mapping[str, Any]) -> "ConfirmationGrant":
++        return cls(
++            grant_id=str(value.get("grant_id", "")),
++            action=str(value.get("action", "")),
++            session_id=str(value.get("session_id", "")),
++            selector_fingerprint=str(value.get("selector_fingerprint", "")),
++            expires_at=float(value.get("expires_at", 0.0)),
++        )
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "grant_id": self.grant_id,
++            "action": self.action,
++            "session_id": self.session_id,
++            "selector_fingerprint": self.selector_fingerprint,
++            "expires_at": self.expires_at,
++        }
++
++
++@dataclass(frozen=True)
++class PolicyDecision:
++    allowed: bool
++    requires_confirmation: bool = False
++    blocked_reason: str | None = None
++    risk: str = "low"
++
++
++class BrowserPolicy:
++    """Policy boundary; ``confirm=True`` is never an authorization grant."""
++
++    _risky_words = frozenset({
++        "buy", "checkout", "confirm", "login", "order", "pay", "purchase",
++        "send", "signin", "submit", "subscribe", "transfer", "delete", "remove",
++    })
++
++    def assess(self, action: str, element_summary: Mapping[str, Any] | None = None) -> PolicyDecision:
++        summary = {str(key).casefold(): value for key, value in (element_summary or {}).items()}
++        haystack = " ".join(str(summary.get(key, "")) for key in (
++            "name", "text", "automation_id", "test_id", "href", "type", "role",
++        )).casefold()
++        risky = (
++            _normalise_key(action) in self._risky_words
++            or bool(summary.get("requires_confirmation"))
++            or str(summary.get("type", "")).casefold() in {"submit", "password", "image"}
++            or any(word in haystack for word in self._risky_words)
++        )
++        return PolicyDecision(
++            allowed=not risky,
++            requires_confirmation=risky,
++            blocked_reason="CONFIRMATION_REQUIRED" if risky else None,
++            risk="high" if risky else "low",
++        )
++
++    def authorize(
++        self,
++        *,
++        action: str,
++        element_summary: Mapping[str, Any] | None,
++        session_id: str,
++        selector_fingerprint: str,
++        grant: ConfirmationGrant | None = None,
++        now: float | None = None,
++    ) -> PolicyDecision:
++        assessed = self.assess(action, element_summary)
++        if not assessed.requires_confirmation:
++            return assessed
++        if grant is None:
++            return assessed
++        if not grant.is_valid(
++            action=action,
++            session_id=session_id,
++            selector_fingerprint=selector_fingerprint,
++            now=now,
++        ):
++            return PolicyDecision(
++                allowed=False,
++                requires_confirmation=True,
++                blocked_reason="POLICY_BLOCKED",
++                risk="high",
++            )
++        return PolicyDecision(allowed=True, risk="high")
++
++
++@dataclass(frozen=True)
++class BrowserActionResult:
++    success: bool
++    action_taken: bool
++    requires_confirmation: bool = False
++    blocked_reason: str | None = None
++    observed_state: Mapping[str, Any] | None = None
++    verification: Mapping[str, Any] | None = None
++    error: str | None = None
++    session_id: str = ""
++
++    @property
++    def ok(self) -> bool:
++        """Compatibility alias; unlike legacy results this means verified success."""
++        return self.success
++
++    def __bool__(self) -> bool:
++        return self.success
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "success": self.success,
++            "ok": self.success,
++            "action_taken": self.action_taken,
++            "requires_confirmation": self.requires_confirmation,
++            "blocked_reason": self.blocked_reason,
++            "observed_state": dict(self.observed_state or {}),
++            "verification": dict(self.verification or {}),
++            "error": self.error,
++            "session_id": self.session_id,
++        }
++
++
++class BrowserBridge:
++    """Operator-facing semantic browser facade with verified mutations."""
++
++    def __init__(
++        self,
++        provider: Any | None = None,
++        *,
++        policy: BrowserPolicy | None = None,
++        session_id_factory: Callable[[], str] | None = None,
++        clock: Callable[[], float] | None = None,
++        max_nodes: int = 500,
++    ) -> None:
++        if provider is None:
++            from .browser import BrowserAutomationProvider
++            provider = BrowserAutomationProvider(headless=True)
++        self.provider = provider
++        self.policy = policy or BrowserPolicy()
++        self._session_id_factory = session_id_factory or (lambda: uuid.uuid4().hex)
++        self._clock = clock or time.time
++        self.max_nodes = max(1, int(max_nodes))
++        self._session: BrowserSession | None = None
++
++    @property
++    def session(self) -> BrowserSession | None:
++        return self._session
++
++    def _require_session(self) -> BrowserSession:
++        session = self._session
++        if session is None or session.status != "open":
++            raise BrowserBridgeError("Browser session is not open")
++        return session
++
++    @staticmethod
++    def _dom_hash(nodes: list[Mapping[str, Any]]) -> str:
++        canonical = json.dumps(
++            nodes, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
++        )
++        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
++
++    def _page_metadata(self) -> tuple[str, str]:
++        engine = getattr(self.provider, "engine", None)
++        page = getattr(engine, "_page", None)
++        title_attr = getattr(page, "title", "")
++        title = title_attr() if callable(title_attr) else title_attr
++        return str(getattr(page, "url", "") or ""), str(title or "")
++
++    def open(self, url: str) -> dict[str, Any]:
++        self.close()
++        try:
++            opened = self.provider.open(url)
++        except Exception as exc:
++            raise BrowserBridgeError(str(exc)) from exc
++        self._session = BrowserSession(
++            session_id=self._session_id_factory(),
++            url=str(opened.get("url", url)) if isinstance(opened, Mapping) else str(url),
++            title=str(opened.get("title", "")) if isinstance(opened, Mapping) else "",
++            created_at=self._clock(),
++        )
++        observed = self.observe()
++        return {
++            "ok": True,
++            "session_id": self._session.session_id,
++            "url": observed["url"],
++            "title": observed["title"],
++            "dom_hash": observed["dom_hash"],
++        }
++
++    def navigate(self, url: str) -> dict[str, Any]:
++        self._require_session()
++        try:
++            self.provider.navigate(url)
++        except Exception as exc:
++            raise BrowserBridgeError(str(exc)) from exc
++        observed = self.observe()
++        return {"ok": True, **{key: observed[key] for key in ("session_id", "url", "title", "dom_hash")}}
++
++    def observe(self) -> dict[str, Any]:
++        session = self._require_session()
++        try:
++            nodes = list(self.provider.inspect_dom(max_nodes=self.max_nodes))
++        except TypeError:
++            # Test doubles and older providers may not expose max_nodes.
++            nodes = list(self.provider.inspect_dom())
++        except Exception as exc:
++            raise BrowserBridgeError(str(exc)) from exc
++        url, title = self._page_metadata()
++        if not url:
++            url = session.url
++        if not title:
++            title = session.title
++        # Hash the provider's complete semantic snapshot for stale detection,
++        # but expose only redacted nodes to callers and logs.
++        dom_hash = self._dom_hash(nodes)
++        safe_nodes = [_redact_node(node) for node in nodes]
++        self._session = replace(
++            session, url=url, title=title, dom_hash=dom_hash,
++            last_observed_at=self._clock(),
++        )
++        return {
++            "ok": True,
++            "session_id": session.session_id,
++            "url": url,
++            "title": title,
++            "dom_hash": dom_hash,
++            "nodes": safe_nodes,
++            "observed_at": self._session.last_observed_at,
++        }
++
++    def inspect_dom(self, *, max_nodes: int | None = None) -> list[dict[str, Any]]:
++        if max_nodes is not None:
++            old = self.max_nodes
++            self.max_nodes = max(1, int(max_nodes))
++            try:
++                return list(self.observe()["nodes"])
++            finally:
++                self.max_nodes = old
++        return list(self.observe()["nodes"])
++
++    @staticmethod
++    def _selector_type(selector: Any) -> str:
++        if selector.test_id:
++            return "test_id"
++        if selector.automation_id:
++            return "automation_id"
++        if selector.role and selector.name:
++            return "role_name"
++        if selector.role:
++            return "role"
++        if selector.label:
++            return "label"
++        if selector.text or selector.name:
++            return "text"
++        if selector.css:
++            return "css"
++        return "unknown"
++
++    @staticmethod
++    def _confidence(selector_type: str, found: bool) -> float:
++        if not found:
++            return 0.0
++        return {
++            "test_id": 0.995,
++            "automation_id": 0.99,
++            "role_name": 0.98,
++            "role": 0.92,
++            "label": 0.96,
++            "text": 0.85,
++            "css": 0.80,
++            "index": 0.70,
++        }.get(selector_type, 0.50)
++
++    def _find_index(self, index: int, observed: Mapping[str, Any]) -> FindResult:
++        nodes = list(observed.get("nodes", []))
++        if index < 0 or index >= len(nodes):
++            return FindResult(False, None, "index", 0.0, {}, str(observed["dom_hash"]))
++        node = dict(nodes[index])
++        selector = _new_dom_selector(
++            test_id=str(node.get("test_id") or ""),
++            automation_id=str(node.get("automation_id") or node.get("id") or ""),
++            role=str(node.get("role") or ""),
++            name=str(node.get("name") or node.get("text") or ""),
++        )
++        if not any(canonical_selector_value(selector).values()):
++            selector = _new_dom_selector(text=str(node.get("text") or node.get("name") or index))
++        return FindResult(True, selector, "index", 0.70, node, (), str(observed["dom_hash"]))
++
++    def find(self, target: Any) -> FindResult:
++        session = self._require_session()
++        observed = self.observe()
++        if isinstance(target, int) and not isinstance(target, bool):
++            return self._find_index(target, observed)
++        try:
++            selector = _dom_selector_type().from_value(target)
++            matches = list(self.provider.find(selector))
++        except Exception as exc:
++            raise BrowserBridgeError(str(exc)) from exc
++        selector_type = self._selector_type(selector)
++        summary = _redact_mapping(matches[0]) if matches else {}
++        alternatives = tuple(_redact_mapping(item) for item in matches[1:])
++        return FindResult(
++            bool(matches), selector, selector_type,
++            self._confidence(selector_type, bool(matches)), summary,
++            str(observed["dom_hash"]), alternatives,
++        )
++
++    def _resolve(self, target: Any) -> FindResult:
++        if isinstance(target, FindResult):
++            return target
++        return self.find(target)
++
++    def _stale(self, result: FindResult, current: Mapping[str, Any]) -> BrowserActionResult | None:
++        session = self._require_session()
++        if not result.found or result.selector is None:
++            return BrowserActionResult(
++                False, False, False, "ELEMENT_NOT_FOUND", dict(current),
++                {"ok": False, "method": "find", "detail": "element not found"},
++                "element not found", session.session_id,
++            )
++        if result.dom_hash != current["dom_hash"]:
++            return BrowserActionResult(
++                False, False, False, "STALE_DOM", {
++                    "dom_hash": current["dom_hash"],
++                    "previous_dom_hash": result.dom_hash,
++                }, {
++                    "ok": False, "method": "dom_hash", "detail": "DOM changed; re-observe and re-resolve",
++                }, "DOM snapshot is stale", session.session_id,
++            )
++        return None
++
++    @staticmethod
++    def _compact_observation(observed: Mapping[str, Any]) -> dict[str, Any]:
++        return {
++            "session_id": observed.get("session_id"),
++            "url": observed.get("url"),
++            "title": observed.get("title"),
++            "dom_hash": observed.get("dom_hash"),
++            "node_count": len(observed.get("nodes", [])),
++        }
++
++    @staticmethod
++    def _verify(expected: Mapping[str, Any] | None, observed: Mapping[str, Any], *, method: str) -> dict[str, Any]:
++        if expected is None:
++            return {"ok": True, "method": method, "detail": "post-action observation completed"}
++
++        def matches(wanted: Any, actual: Any) -> bool:
++            if isinstance(wanted, Mapping) and isinstance(actual, Mapping):
++                return all(key in actual and matches(value, actual[key]) for key, value in wanted.items())
++            if isinstance(wanted, (list, tuple)) and isinstance(actual, (list, tuple)):
++                return len(wanted) == len(actual) and all(matches(a, b) for a, b in zip(wanted, actual))
++            return wanted == actual
++
++        ok = matches(expected, observed)
++        return {
++            "ok": ok,
++            "method": method,
++            "detail": "expected state matched" if ok else "expected state mismatch",
++            "expected": dict(expected),
++        }
++
++    def _authorize(
++        self,
++        action: str,
++        result: FindResult,
++        grant: ConfirmationGrant | Mapping[str, Any] | None,
++    ) -> PolicyDecision:
++        session = self._require_session()
++        selector_value = result.selector_value
++        fingerprint = canonical_selector_fingerprint(
++            result.selector_type, selector_value, session.session_id, result.dom_hash
++        )
++        if grant is not None and not isinstance(grant, ConfirmationGrant):
++            grant = ConfirmationGrant.from_mapping(grant)
++        return self.policy.authorize(
++            action=action,
++            element_summary=result.element_summary,
++            session_id=session.session_id,
++            selector_fingerprint=fingerprint,
++            grant=grant,
++            now=self._clock(),
++        )
++
++    def _blocked(self, decision: PolicyDecision) -> BrowserActionResult:
++        session = self._require_session()
++        return BrowserActionResult(
++            False, False, decision.requires_confirmation, decision.blocked_reason,
++            {"session_id": session.session_id, "dom_hash": session.dom_hash},
++            {"ok": False, "method": "policy", "detail": decision.blocked_reason},
++            decision.blocked_reason, session.session_id,
++        )
++
++    def click(
++        self,
++        target: FindResult | DOMSelector | Mapping[str, Any] | str | int,
++        *,
++        confirm: bool = False,
++        confirmation_grant: ConfirmationGrant | Mapping[str, Any] | None = None,
++        expected_state: Mapping[str, Any] | None = None,
++    ) -> BrowserActionResult:
++        del confirm  # compatibility hint; policy/grant is authoritative
++        session = self._require_session()
++        resolved = self._resolve(target)
++        current = self.observe()
++        stale = self._stale(resolved, current)
++        if stale is not None:
++            return stale
++        decision = self._authorize("click", resolved, confirmation_grant)
++        if not decision.allowed:
++            return self._blocked(decision)
++        try:
++            if isinstance(target, int) and not isinstance(target, bool):
++                raw = self.provider.click(target, confirm=True)
++            else:
++                raw = self.provider.click(resolved.selector, confirm=True)
++        except Exception as exc:
++            return BrowserActionResult(
++                False, False, decision.requires_confirmation, None,
++                self._compact_observation(current), None, str(exc), session.session_id,
++            )
++        taken = bool(raw.get("action_taken", raw.get("ok", False))) if isinstance(raw, Mapping) else bool(raw)
++        if not taken:
++            return BrowserActionResult(
++                False, False, decision.requires_confirmation, "EXECUTION_FAILED",
++                self._compact_observation(current), {"ok": False, "method": "execute"},
++                str(raw.get("error", "click was not executed")) if isinstance(raw, Mapping) else "click was not executed",
++                session.session_id,
++            )
++        observed = self.observe()
++        verification = self._verify(expected_state, observed, method="post_click_observation")
++        return BrowserActionResult(
++            bool(verification["ok"]), True, decision.requires_confirmation, None,
++            self._compact_observation(observed), verification, None, session.session_id,
++        )
++
++    def type(
++        self,
++        target: FindResult | DOMSelector | Mapping[str, Any] | str | int,
++        text: str,
++        *,
++        confirmation_grant: ConfirmationGrant | Mapping[str, Any] | None = None,
++        expected_state: Mapping[str, Any] | None = None,
++    ) -> BrowserActionResult:
++        session = self._require_session()
++        resolved = self._resolve(target)
++        current = self.observe()
++        stale = self._stale(resolved, current)
++        if stale is not None:
++            return stale
++        decision = self._authorize("type", resolved, confirmation_grant)
++        if not decision.allowed:
++            return self._blocked(decision)
++        try:
++            raw = self.provider.type(
++                target if isinstance(target, int) and not isinstance(target, bool) else resolved.selector,
++                text,
++            )
++        except Exception as exc:
++            return BrowserActionResult(
++                False, False, decision.requires_confirmation, None,
++                self._compact_observation(current), None, str(exc), session.session_id,
++            )
++        taken = bool(raw.get("action_taken", raw.get("ok", False))) if isinstance(raw, Mapping) else bool(raw)
++        if not taken:
++            return BrowserActionResult(
++                False, False, decision.requires_confirmation, "EXECUTION_FAILED",
++                self._compact_observation(current), {"ok": False, "method": "execute"},
++                "type was not executed", session.session_id,
++            )
++        observed = self.observe()
++        if expected_state is not None:
++            verification = self._verify(expected_state, observed, method="post_type_observation")
++        else:
++            # Read back through semantic metadata.  The value itself never
++            # enters the result for password-like controls.
++            refreshed = self.find(resolved.selector)
++            is_secret = str(resolved.element_summary.get("type", "")).casefold() == "password"
++            actual_value = str(refreshed.element_summary.get("value", ""))
++            raw_ok = bool(raw.get("ok", True)) if isinstance(raw, Mapping) else bool(raw)
++            verification = {
++                "ok": raw_ok and (is_secret or actual_value == text),
++                "method": "semantic_value_readback",
++                "detail": "value readback matched" if is_secret or actual_value == text else "value readback mismatch",
++                "value_present": bool(actual_value) if is_secret else None,
++            }
++        # Do not persist or return typed text. Password-like fields are policy
++        # gated and only expose boolean verification metadata.
++        return BrowserActionResult(
++            bool(verification["ok"]), True, decision.requires_confirmation, None,
++            self._compact_observation(observed), verification, None, session.session_id,
++        )
++
++    def read(self) -> dict[str, Any]:
++        self._require_session()
++        try:
++            result = self.provider.read_page()
++        except Exception as exc:
++            raise BrowserBridgeError(str(exc)) from exc
++        observed = self.observe()
++        payload = dict(result) if isinstance(result, Mapping) else {"text": result}
++        return {**_redact_mapping(payload), **self._compact_observation(observed)}
++
++    def wait(self, target: float | DOMSelector | Mapping[str, Any] | str, *, timeout: float = 10) -> dict[str, Any]:
++        self._require_session()
++        try:
++            result = self.provider.wait(target, timeout=timeout)
++        except Exception as exc:
++            raise BrowserBridgeError(str(exc)) from exc
++        observed = self.observe()
++        return {"ok": True, "result": result, **self._compact_observation(observed)}
++
++    def extract(self, target: Any = None) -> dict[str, Any]:
++        self._require_session()
++        secret_index = False
++        if isinstance(target, int) and not isinstance(target, bool):
++            observed = self.observe()
++            nodes = list(observed.get("nodes", []))
++            secret_index = 0 <= target < len(nodes) and _is_secret_mapping(nodes[target])
++        try:
++            result = self.provider.extract(target)
++        except Exception as exc:
++            raise BrowserBridgeError(str(exc)) from exc
++        if not isinstance(result, Mapping):
++            return {"ok": True, "value": "<redacted>" if secret_index else result}
++        payload = _redact_mapping(result)
++        if secret_index:
++            for key in ("text", "value"):
++                if key in payload:
++                    payload[f"{key}_present"] = bool(payload.pop(key))
++        return payload
++
++    def download(
++        self,
++        target: FindResult | DOMSelector | Mapping[str, Any] | str | int,
++        *,
++        directory: Path | str,
++        confirm: bool = False,
++        confirmation_grant: ConfirmationGrant | Mapping[str, Any] | None = None,
++    ) -> BrowserActionResult:
++        del confirm
++        session = self._require_session()
++        resolved = self._resolve(target)
++        current = self.observe()
++        stale = self._stale(resolved, current)
++        if stale is not None:
++            return stale
++        decision = self._authorize("download", resolved, confirmation_grant)
++        if not decision.allowed:
++            return self._blocked(decision)
++        try:
++            raw = self.provider.download(
++                target if isinstance(target, int) and not isinstance(target, bool) else resolved.selector,
++                directory=directory,
++                confirm=True,
++            )
++        except Exception as exc:
++            return BrowserActionResult(
++                False, False, decision.requires_confirmation, None,
++                self._compact_observation(current), None, str(exc), session.session_id,
++            )
++        taken = bool(raw.get("action_taken", raw.get("ok", False))) if isinstance(raw, Mapping) else bool(raw)
++        observed = self.observe()
++        verification = {"ok": taken, "method": "download_exists", "detail": "download completed" if taken else "download failed"}
++        return BrowserActionResult(
++            bool(taken), taken, decision.requires_confirmation, None if taken else "EXECUTION_FAILED",
++            self._compact_observation(observed), verification,
++            None if taken else "download was not completed", session.session_id,
++        )
++
++    def close(self) -> dict[str, Any]:
++        previous = self._session
++        try:
++            result = self.provider.close()
++        except Exception as exc:
++            result = {"ok": False, "error": str(exc)}
++        if previous is not None:
++            self._session = replace(previous, status="closed")
++        return {
++            "ok": bool(result.get("ok", True)) if isinstance(result, Mapping) else True,
++            "closed": True,
++            "session_id": previous.session_id if previous else None,
++            "result": result,
++        }
+
+--- a/core/actions/browser_bridge.py
++++ b/core/actions/browser_bridge.py
+@@ -0,0 +1,164 @@
++"""ToolRegistry adapter for the policy-aware BrowserBridge."""
++from __future__ import annotations
++
++from pathlib import Path
++from typing import Any, Dict, Mapping
++
++from core.actions.base import ActionResult, Tool, ToolContext
++from core.actions.registry import DEFAULT_REGISTRY
++from core.platform.browser_bridge import (
++    BrowserActionResult,
++    BrowserBridge,
++    BrowserBridgeError,
++    ConfirmationGrant,
++)
++
++__all__ = ["BrowserBridgeTool"]
++
++
++class BrowserBridgeTool(Tool):
++    """Operator-facing browser tool with verified mutation semantics."""
++
++    def __init__(self, bridge: BrowserBridge | None = None) -> None:
++        self._bridge = bridge
++
++    def _get_bridge(self) -> BrowserBridge:
++        if self._bridge is None:
++            self._bridge = BrowserBridge()
++        return self._bridge
++
++    @property
++    def name(self) -> str:
++        return "browser_bridge"
++
++    @property
++    def description(self) -> str:
++        return (
++            "DOM-first BrowserBridge: semantic find, stale-DOM protection, policy-gated "
++            "click/type/download and execute-observe-verify results. confirm=true alone "
++            "never authorizes a risky action."
++        )
++
++    @property
++    def input_schema(self) -> Dict[str, Any]:
++        return {
++            "type": "object",
++            "properties": {
++                "action": {
++                    "type": "string",
++                    "enum": [
++                        "open", "navigate", "inspect_dom", "find", "click", "type",
++                        "read", "wait", "extract", "download", "observe", "close",
++                    ],
++                },
++                "url": {"type": "string"},
++                "selector": {"type": ["string", "object", "integer"]},
++                "index": {"type": "integer"},
++                "text": {"type": "string"},
++                "timeout": {"type": "number", "minimum": 0},
++                "directory": {"type": "string"},
++                "confirm": {"type": "boolean"},
++                "expected_state": {"type": "object"},
++                "max_nodes": {"type": "integer", "minimum": 1},
++            },
++            "required": ["action"],
++            "additionalProperties": False,
++        }
++
++    @staticmethod
++    def _target(args: Mapping[str, Any]) -> Any:
++        if "selector" in args:
++            return args["selector"]
++        if "index" in args:
++            return int(args["index"])
++        raise ValueError("browser mutation requires selector or index")
++
++    @staticmethod
++    def _grant(context: ToolContext) -> ConfirmationGrant | None:
++        value = context.extra.get("confirmation_grant") if isinstance(context.extra, dict) else None
++        if value is None:
++            return None
++        if isinstance(value, ConfirmationGrant):
++            return value
++        if isinstance(value, Mapping):
++            return ConfirmationGrant.from_mapping(value)
++        return None
++
++    @staticmethod
++    def _result(args: Dict[str, Any], result: BrowserActionResult) -> ActionResult:
++        return ActionResult(
++            tool="browser_bridge",
++            args=args,
++            ok=result.success,
++            output=result.to_dict(),
++            error=result.error,
++        )
++
++    def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
++        bridge = context.extra.get("browser_bridge") if isinstance(context.extra, dict) else None
++        if not isinstance(bridge, BrowserBridge):
++            bridge = self._get_bridge()
++        action = str(args.get("action", "")).casefold()
++        try:
++            if action == "open":
++                if not args.get("url"):
++                    return ActionResult(self.name, args, False, error="open requires url")
++                output = bridge.open(str(args["url"]))
++                return ActionResult(self.name, args, True, output=output)
++            if action == "navigate":
++                output = bridge.navigate(str(args["url"]))
++                return ActionResult(self.name, args, True, output=output)
++            if action == "inspect_dom":
++                output = {"ok": True, "nodes": bridge.inspect_dom(max_nodes=args.get("max_nodes"))}
++                return ActionResult(self.name, args, True, output=output)
++            if action == "observe":
++                return ActionResult(self.name, args, True, output=bridge.observe())
++            if action == "find":
++                result = bridge.find(self._target(args))
++                session_id = bridge.session.session_id if bridge.session else ""
++                return ActionResult(self.name, args, result.found, output=result.to_dict(session_id=session_id))
++            if action == "click":
++                result = bridge.click(
++                    self._target(args),
++                    confirm=bool(args.get("confirm", False)),
++                    confirmation_grant=self._grant(context),
++                    expected_state=args.get("expected_state"),
++                )
++                return self._result(args, result)
++            if action == "type":
++                if "text" not in args:
++                    return ActionResult(self.name, args, False, error="type requires text")
++                result = bridge.type(
++                    self._target(args),
++                    str(args["text"]),
++                    confirmation_grant=self._grant(context),
++                    expected_state=args.get("expected_state"),
++                )
++                return self._result(args, result)
++            if action == "read":
++                return ActionResult(self.name, args, True, output=bridge.read())
++            if action == "wait":
++                target = args.get("selector", args.get("index", args.get("timeout", 0)))
++                return ActionResult(self.name, args, True, output=bridge.wait(target, timeout=float(args.get("timeout", 10))))
++            if action == "extract":
++                return ActionResult(self.name, args, True, output=bridge.extract(args.get("selector")))
++            if action == "download":
++                if "directory" not in args:
++                    return ActionResult(self.name, args, False, error="download requires directory")
++                result = bridge.download(
++                    self._target(args),
++                    directory=Path(str(args["directory"])),
++                    confirm=bool(args.get("confirm", False)),
++                    confirmation_grant=self._grant(context),
++                )
++                return self._result(args, result)
++            if action == "close":
++                return ActionResult(self.name, args, True, output=bridge.close())
++            return ActionResult(self.name, args, False, error=f"unknown browser action: {action}")
++        except (BrowserBridgeError, ValueError, TypeError) as exc:
++            return ActionResult(self.name, args, False, error=str(exc))
++        except Exception as exc:  # boundary converts provider failures to a result
++            return ActionResult(self.name, args, False, error=f"{type(exc).__name__}: {exc}")
++
++
++DEFAULT_REGISTRY.register(BrowserBridgeTool())
+
+--- a/tests/test_browser_bridge.py
++++ b/tests/test_browser_bridge.py
+@@ -0,0 +1,198 @@
++from __future__ import annotations
++
++import time
++
++from core.platform.browser import DOMSelector
++from core.platform.browser_bridge import (
++    BrowserBridge,
++    ConfirmationGrant,
++    canonical_selector_fingerprint,
++)
++
++
++class _Page:
++    url = "fixture://local"
++
++    @staticmethod
++    def title() -> str:
++        return "Bridge Fixture"
++
++
++class _Engine:
++    _page = _Page()
++
++
++class FakeProvider:
++    def __init__(self) -> None:
++        self.engine = _Engine()
++        self.nodes = [
++            {"tag": "input", "role": "textbox", "name": "Profile name", "automation_id": "profile", "value": "", "type": "text", "visible": True},
++            {"tag": "button", "role": "button", "name": "Apply settings", "automation_id": "apply", "text": "Apply settings", "type": "button", "visible": True},
++            {"tag": "button", "role": "button", "name": "Purchase", "automation_id": "purchase", "text": "Purchase", "type": "submit", "requires_confirmation": True, "visible": True},
++            {"tag": "output", "role": "status", "name": "Status", "automation_id": "status", "text": "idle", "value": "idle", "visible": True},
++        ]
++        self.opened = False
++
++    def open(self, url: str):
++        self.opened = True
++        self.engine._page.url = url
++        return {"ok": True, "url": url, "title": "Bridge Fixture"}
++
++    def navigate(self, url: str):
++        self.engine._page.url = url
++        return {"ok": True, "url": url, "title": "Bridge Fixture"}
++
++    def inspect_dom(self, max_nodes: int = 500):
++        return [dict(node) for node in self.nodes[:max_nodes]]
++
++    def find(self, selector):
++        wanted = selector.automation_id or selector.test_id or selector.label or selector.name or selector.text
++        matches = []
++        for node in self.nodes:
++            hay = {
++                node.get("automation_id"), node.get("test_id"), node.get("name"),
++                node.get("text"), node.get("label"),
++            }
++            if wanted in hay and (not selector.role or selector.role == node.get("role")):
++                matches.append(dict(node))
++        return matches
++
++    def click(self, selector, confirm: bool = False):
++        matches = self.find(selector) if not isinstance(selector, int) else [self.nodes[selector]]
++        if not matches:
++            return {"ok": False, "action_taken": False, "error": "missing"}
++        node = matches[0]
++        if node.get("automation_id") == "apply":
++            self.nodes[3]["text"] = "applied:JARVIS"
++            self.nodes[3]["value"] = "applied:JARVIS"
++        if node.get("automation_id") == "purchase":
++            self.nodes[3]["text"] = "purchased"
++            self.nodes[3]["value"] = "purchased"
++        return {"ok": True, "action_taken": True}
++
++    def type(self, selector, text: str):
++        matches = self.find(selector) if not isinstance(selector, int) else [self.nodes[selector]]
++        if not matches:
++            return {"ok": False, "action_taken": False}
++        for node in self.nodes:
++            if node.get("automation_id") == matches[0].get("automation_id"):
++                node["value"] = text
++        return {"ok": True, "action_taken": True}
++
++    def read_page(self):
++        return {"ok": True, "text": " ".join(str(node.get("text", "")) for node in self.nodes)}
++
++    def wait(self, target, timeout=10):
++        return {"ok": True, "found": True}
++
++    def extract(self, target=None):
++        return {"ok": True, "text": "fixture"}
++
++    def download(self, selector, directory, confirm=False):
++        return {"ok": True, "action_taken": True, "path": str(directory)}
++
++    def close(self):
++        self.opened = False
++        return {"ok": True, "closed": True}
++
++
++def test_selector_fingerprint_is_canonical_and_versioned() -> None:
++    first = canonical_selector_fingerprint(
++        " Role_Name ", {"name": "  Apply   settings", "role": "button"}, "session-1", "ABC"
++    )
++    second = canonical_selector_fingerprint(
++        "role_name", {"role": "button", "name": "Apply settings"}, "session-1", "abc"
++    )
++    third = canonical_selector_fingerprint(
++        "role_name", {"role": "button", "name": "Apply settings"}, "session-2", "abc"
++    )
++    assert first == second
++    assert first.startswith("sf1:")
++    assert third != first
++
++
++def test_find_result_contains_confidence_summary_hash_and_alternatives() -> None:
++    provider = FakeProvider()
++    bridge = BrowserBridge(provider, session_id_factory=lambda: "session-1")
++    bridge.open("fixture://local")
++    result = bridge.find(DOMSelector(role="button", name="Apply settings"))
++
++    assert result.found is True
++    assert result.selector_type == "role_name"
++    assert result.confidence == 0.98
++    assert result.element_summary["automation_id"] == "apply"
++    assert result.dom_hash == bridge.session.dom_hash
++    assert result.fingerprint_for("session-1").startswith("sf1:")
++
++
++def test_stale_dom_blocks_mutation_until_reresolve() -> None:
++    provider = FakeProvider()
++    bridge = BrowserBridge(provider, session_id_factory=lambda: "session-1")
++    bridge.open("fixture://local")
++    found = bridge.find(DOMSelector(automation_id="apply"))
++    provider.nodes[3]["text"] = "changed externally"
++
++    stale = bridge.click(found, confirm=True)
++    assert stale.success is False
++    assert stale.ok is False
++    assert stale.action_taken is False
++    assert stale.blocked_reason == "STALE_DOM"
++
++    refreshed = bridge.find(DOMSelector(automation_id="apply"))
++    executed = bridge.click(refreshed, confirm=True)
++    assert executed.success is True
++    assert executed.ok is True
++    assert executed.action_taken is True
++    assert executed.verification["ok"] is True
++
++
++def test_confirmation_grant_is_bound_to_action_session_selector_and_expiry() -> None:
++    provider = FakeProvider()
++    bridge = BrowserBridge(provider, session_id_factory=lambda: "session-1")
++    bridge.open("fixture://local")
++    found = bridge.find(DOMSelector(automation_id="purchase"))
++
++    blocked = bridge.click(found, confirm=True)
++    assert blocked.success is False
++    assert blocked.requires_confirmation is True
++    assert blocked.blocked_reason == "CONFIRMATION_REQUIRED"
++
++    fingerprint = found.fingerprint_for("session-1")
++    grant = ConfirmationGrant("grant-1", "click", "session-1", fingerprint, time.time() + 30)
++    allowed = bridge.click(found, confirm=True, confirmation_grant=grant)
++    assert allowed.success is True
++    assert allowed.action_taken is True
++
++    expired = ConfirmationGrant("grant-2", "click", "session-1", fingerprint, time.time() - 1)
++    found_again = bridge.find(DOMSelector(automation_id="purchase"))
++    assert bridge.click(found_again, confirmation_grant=expired).blocked_reason == "POLICY_BLOCKED"
++
++
++def test_type_requires_verified_value_readback_without_returning_text() -> None:
++    provider = FakeProvider()
++    bridge = BrowserBridge(provider, session_id_factory=lambda: "session-1")
++    bridge.open("fixture://local")
++    result = bridge.type(DOMSelector(automation_id="profile"), "JARVIS")
++    assert result.success is True
++    assert result.verification["method"] == "semantic_value_readback"
++    assert "JARVIS" not in result.to_dict()["observed_state"].__repr__()
++
++
++def test_secret_metadata_is_redacted_from_observation_and_find_result() -> None:
++    provider = FakeProvider()
++    provider.nodes.append({
++        "tag": "input", "role": "textbox", "name": "Password",
++        "automation_id": "password", "type": "password", "value": "SECRET",
++        "visible": True,
++    })
++    bridge = BrowserBridge(provider, session_id_factory=lambda: "session-1")
++    bridge.open("fixture://local")
++    found = bridge.find(DOMSelector(automation_id="password"))
++    observed = bridge.observe()
++
++    assert "value" not in found.element_summary
++    assert found.element_summary["value_present"] is True
++    password_node = next(node for node in observed["nodes"] if node.get("automation_id") == "password")
++    assert "value" not in password_node
++    assert password_node["value_present"] is True
++    assert "SECRET" not in repr(found.to_dict())
+
+--- a/scripts/browser_bridge_live_demo.py
++++ b/scripts/browser_bridge_live_demo.py
+@@ -0,0 +1,81 @@
++"""Deterministic local Playwright proof for BrowserBridge v2.1."""
++from __future__ import annotations
++
++import json
++import tempfile
++import time
++from pathlib import Path
++
++from core.platform.browser import DOMSelector
++from core.platform.browser_bridge import BrowserBridge, ConfirmationGrant
++
++
++HTML = """<!doctype html>
++<html><head><meta charset="utf-8"><title>Browser Bridge Fixture</title></head>
++<body>
++  <label for="profile">Profile name</label>
++  <input id="profile" aria-label="Profile name">
++  <button id="apply" type="button" onclick="document.getElementById('status').textContent='applied:'+document.getElementById('profile').value">Apply settings</button>
++  <button id="purchase" type="submit" onclick="document.getElementById('status').textContent='purchased'">Purchase</button>
++  <output id="status">idle</output>
++</body></html>"""
++
++
++def main() -> int:
++    artifact = Path("artifacts/browser_bridge/live")
++    artifact.mkdir(parents=True, exist_ok=True)
++    report: dict[str, object] = {"success": False}
++    with tempfile.TemporaryDirectory(prefix="browser-bridge-") as temp:
++        page = Path(temp) / "fixture.html"
++        page.write_text(HTML, encoding="utf-8")
++        bridge = BrowserBridge(session_id_factory=lambda: "live-session")
++        try:
++            opened = bridge.open(page.as_uri())
++            input_result = bridge.type(DOMSelector(label="Profile name"), "SAMPLE")
++            apply_target = bridge.find(DOMSelector(automation_id="apply"))
++            applied = bridge.click(apply_target)
++            observed_text = bridge.extract(DOMSelector(css="#status"))
++
++            purchase_target = bridge.find(DOMSelector(automation_id="purchase"))
++            blocked = bridge.click(purchase_target, confirm=True)
++            grant = ConfirmationGrant(
++                grant_id="live-grant",
++                action="click",
++                session_id="live-session",
++                selector_fingerprint=purchase_target.fingerprint_for("live-session"),
++                expires_at=time.time() + 30,
++            )
++            authorized = bridge.click(purchase_target, confirmation_grant=grant)
++            report = {
++                "success": bool(
++                    opened["ok"]
++                    and input_result.success
++                    and applied.success
++                    and observed_text.get("text") == "applied:SAMPLE"
++                    and blocked.blocked_reason == "CONFIRMATION_REQUIRED"
++                    and not blocked.action_taken
++                    and authorized.success
++                ),
++                "session_id": bridge.session.session_id if bridge.session else None,
++                "dom_hash": bridge.session.dom_hash if bridge.session else None,
++                "input": input_result.to_dict(),
++                "apply": applied.to_dict(),
++                "observed_status": observed_text,
++                "risky_blocked": blocked.to_dict(),
++                "risky_authorized": authorized.to_dict(),
++                "coordinates_present": any(
++                    "coordinates" in node for node in bridge.inspect_dom()
++                ),
++            }
++        finally:
++            bridge.close()
++    (artifact / "live_demo_report.json").write_text(
++        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
++    )
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    print(f"REPORT={artifact / 'live_demo_report.json'}")
++    return 0 if report.get("success") else 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+
+--- a/docs/sprints/BROWSER_BRIDGE_V2_1_CHANGESET.md
++++ b/docs/sprints/BROWSER_BRIDGE_V2_1_CHANGESET.md
+@@ -0,0 +1,77 @@
++# Browser Bridge v2.1
++
++## Scope
++
++This changeset adds the strict, Operator-facing browser boundary without
++replacing the existing `BrowserAutomationProvider` or changing the frontend,
++voice pipeline, Brain Fabric, or Sprint 8–15 components. The legacy provider
++and its `ok`-compatible action results remain available for additive
++compatibility; new mutations should use `browser_bridge`.
++
++## Runtime surface
++
++`core/platform/browser_bridge.py` provides:
++
++- `BrowserSession` — runtime identity, URL/title, DOM hash, and observation
++  timestamps;
++- `FindResult` — semantic selector, selector type, confidence, element
++  summary, DOM hash, alternatives, and a grant-ready fingerprint;
++- `BrowserPolicy` — risk assessment and grant validation;
++- `ConfirmationGrant` — action/session/selector/expiry-bound authorization;
++- `BrowserActionResult` — formal execute/observe/verify result with `ok` as an
++  additive alias;
++- `BrowserBridge` — open, navigate, observe, semantic find, read/type/click,
++  wait, extract, download, and close.
++
++`core/actions/browser_bridge.py` exposes the bridge through the existing action
++registry as `browser_bridge`. Its `confirm` input is retained for compatibility
++but is deliberately ignored as an authorization signal.
++
++## Canonical selector fingerprint
++
++`canonical_selector_fingerprint()` is the single implementation used by the
++policy boundary and the bridge. It hashes this versioned payload:
++
++```json
++{"version":1,"selector_type":"role_name","selector_value":{"name":"Apply settings","role":"button"},"session_id":"SESSION","dom_hash":"abc123"}
++```
++
++Selector types use Unicode NFC, trimming, and `casefold()`. Selector fields
++drop empty values, sort keys, and normalize string whitespace. The payload is
++serialized with `ensure_ascii=False`, sorted keys, and compact separators, then
++hashed as `sf1:<sha256-hex>`.
++
++## Mutation protocol
++
++Every mutation follows:
++
++```text
++Policy → ConfirmationGrant → current DOM hash check → Execute
++       → Observe → Verify → BrowserActionResult
++```
++
++`success=True` means execution happened and verification succeeded. A stale
++`FindResult` returns `STALE_DOM` with `action_taken=False`; the caller must
++observe again, re-resolve the semantic selector, obtain any required grant,
++and then retry. A risky action without a matching, unexpired grant returns
++`CONFIRMATION_REQUIRED`; an invalid or expired grant returns `POLICY_BLOCKED`.
++
++## Verification fixture
++
++`scripts/browser_bridge_live_demo.py` runs the real local Playwright runtime
++against a generated HTML fixture. It types a value, applies it, observes the
++result, proves a risky purchase is blocked, then proves the same action with a
++selector-bound grant. It also records that no raw coordinates entered the
++flow. The resulting report is kept at
++`artifacts/browser_bridge/live/live_demo_report.json`.
++
++The optional in-app Browser-assisted checker returned a URL-policy block for
++the local `file://` fixture. No workaround or external site was used; the
++project-runtime Playwright proof is the authoritative live evidence.
++
++## Rollback
++
++`scripts/rollback_browser_bridge.ps1` restores the pre-bridge snapshots for
++modified files and removes only bridge-owned new files. It verifies the target
++root, supports `-DryRun`, and leaves modified files in place unless `-Force`
++is supplied.
+
+--- a/docs/sprints/BROWSER_BRIDGE_V2_1_VERIFICATION.md
++++ b/docs/sprints/BROWSER_BRIDGE_V2_1_VERIFICATION.md
+@@ -0,0 +1,54 @@
++# Browser Bridge v2.1 Verification
++
++Date: 2026-08-17
++
++## Evidence order
++
++1. Pre-change snapshot and SHA-256 manifest: `artifacts/browser_bridge/baseline_manifest.json`.
++2. Browser regression and bridge contract tests.
++3. Canonical fingerprint, stale-DOM, and grant-binding tests.
++4. Real local Playwright fixture run.
++5. Patch, report, and rollback artifacts.
++
++## Results
++
++| Check | Result |
++| --- | --- |
++| Previous Sprint 15 baseline | 427 passed, 2 skipped, 0 failed |
++| Browser regression (`test_browser_automation.py`, `test_sprint10_browser.py`) | 11 passed |
++| Bridge contract tests (`test_browser_bridge.py`) | 6 passed |
++| Combined browser tests | 17 passed |
++| Sprint 9 + browser regression + bridge | 35 passed |
++| Full suite after bridge (current workspace) | 466 passed, 2 skipped, 0 failed |
++| Local Playwright live fixture | VERIFIED SUCCESS |
++
++## Live proof
++
++The live report at `artifacts/browser_bridge/live/live_demo_report.json`
++contains:
++
++- a stable `live-session` identifier and DOM hash;
++- semantic input type with verified value readback;
++- Apply click followed by observed `applied:SAMPLE` state;
++- Purchase with `confirm=True` blocked as
++  `CONFIRMATION_REQUIRED` and `action_taken=false`;
++- the same Purchase selector authorized only by a matching, unexpired grant;
++- `success=true` only for execute → observe → verify;
++- `coordinates_present=false`.
++
++The complete full-suite console capture is stored in
++`artifacts/browser_bridge/full_pytest_after.txt`. The prior Sprint 15
++verification record remains the authoritative historical baseline of 427
++passed, 2 skipped; the current workspace also contains additional pre-existing
++test modules, so its unchanged-suite comparison (bridge test ignored) is 460
++passed, 2 skipped.
++
++## Known limitations
++
++- The in-app Browser tool blocked the local `file://` fixture under its URL
++  policy. The live acceptance proof therefore uses the project's real local
++  Playwright runtime, not a simulated browser.
++- Grant issuance remains an Operator/Risk Gate responsibility. The bridge
++  validates grants but never invents one from `confirm=True`.
++- Vision and coordinate interaction are intentionally outside this contract;
++  semantic DOM selectors remain the primary path.
+
+--- a/artifacts/browser_bridge/live/fixture.html
++++ b/artifacts/browser_bridge/live/fixture.html
+@@ -0,0 +1,11 @@
++<!doctype html>
++<html>
++<head><meta charset="utf-8"><title>Browser Bridge Fixture</title></head>
++<body>
++  <label for="profile">Profile name</label>
++  <input id="profile" aria-label="Profile name">
++  <button id="apply" type="button" onclick="document.getElementById('status').textContent='applied:'+document.getElementById('profile').value">Apply settings</button>
++  <button id="purchase" type="submit" onclick="document.getElementById('status').textContent='purchased'">Purchase</button>
++  <output id="status">idle</output>
++</body>
++</html>
+
+--- a/artifacts/browser_bridge/verification_record.md
++++ b/artifacts/browser_bridge/verification_record.md
+@@ -0,0 +1,93 @@
++# Browser Bridge v2.1 Verification Record
++
++Workspace: `E:\\jarvis-project`
++Date: `2026-08-17`
++
++## Baseline evidence
++
++Source record: `docs/sprints/SPRINT15_VERIFICATION.md`.
++
++```text
++Command: python -m pytest -q
++Exit: 0
++Literal result: 427 passed, 2 skipped, 0 failed
++```
++
++The bridge snapshot and baseline hashes are in
++`artifacts/browser_bridge/baseline_manifest.json` and
++`artifacts/browser_bridge/original/`.
++
++## Modified-tree regression
++
++Runtime:
++`C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe`
++
++```text
++Command: python -m pytest -q --disable-warnings
++Exit: 0
++Literal result: 466 passed, 2 skipped, 0 failed
++Capture: artifacts/browser_bridge/full_pytest_after.txt
++```
++
++The same current tree with only the new bridge test module ignored:
++
++```text
++Command: python -m pytest -q --disable-warnings --ignore=tests/test_browser_bridge.py
++Exit: 0
++Literal result: 460 passed, 2 skipped, 0 failed
++Capture: artifacts/browser_bridge/full_pytest_without_bridge.txt
++```
++
++Browser-focused regression:
++
++```text
++Command: python -m pytest -q --disable-warnings tests/test_browser_automation.py tests/test_sprint10_browser.py tests/test_browser_bridge.py tests/test_sprint9.py
++Exit: 0
++Literal result: 35 passed
++Capture: artifacts/browser_bridge/targeted_pytest.txt
++```
++
++## Contract checks
++
++`tests/test_browser_bridge.py` proves:
++
++- NFC/trim/casefold/whitespace and sorted-field canonicalization;
++- versioned `sf1:` selector fingerprints and session sensitivity;
++- `FindResult` confidence, summary, alternatives, and DOM hash;
++- stale DOM returns `STALE_DOM` with `action_taken=False`;
++- `confirm=True` does not authorize a risky action;
++- valid grants are bound to action, session, selector fingerprint, and expiry;
++- semantic type readback succeeds without returning the typed value.
++
++## Live acceptance
++
++```text
++Command: python scripts/browser_bridge_live_demo.py
++Input: generated local HTML fixture, Profile name=SAMPLE, Apply settings, Purchase
++Exit: 0
++Literal result: report.success=true
++Report: artifacts/browser_bridge/live/live_demo_report.json
++```
++
++Observed live values include `applied:SAMPLE`, blocked risky action
++`CONFIRMATION_REQUIRED`, authorized risky action `success=true`, and
++`coordinates_present=false`.
++
++## Static and rollback checks
++
++```text
++Command: python -m compileall -q core tests scripts
++Exit: 0
++
++Command: git diff --check
++Exit: 0
++
++Command: scripts/rollback_browser_bridge.ps1 -DryRun -WorkspaceRoot E:\\jarvis-project
++Exit: 0
++Literal result: two modified integration files would be restored and bridge-owned files removed
++```
++
++Patch: `artifacts/browser_bridge/browser_bridge.patch`.
++
++Rollback is runnable with `-Force` for a non-dry restore; without `-Force` it
++does not overwrite modified integration files.

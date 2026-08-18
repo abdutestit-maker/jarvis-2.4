@@ -88,6 +88,9 @@ class LocalQwenBackend(LLMBackend):
         self._llama: Optional[Any] = None
         self._lock = threading.RLock()
         self._load_failed_reason: Optional[str] = None
+        self._warmup_ms: float | None = None
+        self._warmup_complete = False
+        self._gpu_offload_supported: bool | None = None
 
     # ------------------------------------------------------------------ #
     #  Загрузка модели
@@ -213,7 +216,9 @@ class LocalQwenBackend(LLMBackend):
             raise BackendUnavailable(
                 f"Прогрев локальной модели не удался: {exc}"
             ) from exc
-        log.info("Прогрев локальной модели завершён за %.2f с", time.perf_counter() - started)
+        self._warmup_ms = (time.perf_counter() - started) * 1000.0
+        self._warmup_complete = True
+        log.info("Прогрев локальной модели завершён за %.2f с", self._warmup_ms / 1000.0)
 
     # ------------------------------------------------------------------ #
     #  Генерация
@@ -362,6 +367,32 @@ class LocalQwenBackend(LLMBackend):
         if self._llama is not None:
             return None
         return self._load_failed_reason or (self._model_file_error() or None)
+
+    def runtime_info(self) -> Dict[str, Any]:
+        """Bounded diagnostics used by the startup audit and UI telemetry."""
+        if self._gpu_offload_supported is None:
+            try:
+                import llama_cpp
+                probe = getattr(llama_cpp, "llama_supports_gpu_offload", None)
+                self._gpu_offload_supported = bool(probe()) if callable(probe) else None
+            except Exception:
+                self._gpu_offload_supported = None
+        return {
+            "backend": self.name,
+            "runtime_backend": "cuda" if self._n_gpu_layers != 0 else "cpu",
+            "model_path": str(self._gguf_path),
+            "model_exists": self._gguf_path.is_file(),
+            "loaded": self.is_loaded,
+            "n_gpu_layers": self._n_gpu_layers,
+            "n_threads": self._n_threads,
+            "n_batch": self._n_batch,
+            "n_ctx": self._n_ctx,
+            "embedding": self._embedding_mode,
+            "load_failed": self._load_failed_reason,
+            "warmup_ms": self._warmup_ms,
+            "warmup_complete": self._warmup_complete,
+            "gpu_offload_supported": self._gpu_offload_supported,
+        }
 
     def close(self) -> None:
         """Выгружает модель из памяти."""

@@ -28,7 +28,7 @@ from typing import List, Optional, Tuple
 from config.settings import Settings
 from core.utils.logger import get_logger
 
-__all__ = ["STTEngine", "STT_DISABLED_MSG"]
+__all__ = ["STTEngine", "STT_DISABLED_MSG", "STT_NEED_BACKEND_MSG", "VoiceActivityDetector"]
 
 log = get_logger(__name__)
 
@@ -54,9 +54,9 @@ class STTEngine:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._enabled = bool(
-            getattr(getattr(settings, "voice", None), "stt_enabled", False)
-        )
+        self._model = None
+        voice_enabled = bool(getattr(getattr(settings, "voice", None), "stt_enabled", False))
+        self._enabled = voice_enabled or bool(getattr(getattr(settings, "stt", None), "enabled", False))
         if not self._enabled:
             log.info("STT отключён (settings.voice.stt_enabled=False)")
         else:
@@ -99,19 +99,37 @@ class STTEngine:
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(STT_NEED_BACKEND_MSG) from exc
 
-        model_size = getattr(
-            getattr(self._settings, "voice", None), "stt_model", DEFAULT_WHISPER_MODEL
-        ) or DEFAULT_WHISPER_MODEL
+        model_size = getattr(getattr(self._settings, "stt", None), "model", "") or getattr(getattr(self._settings, "voice", None), "stt_model", DEFAULT_WHISPER_MODEL)
+        if model_size.startswith("faster-whisper-"): model_size = model_size.removeprefix("faster-whisper-")
         device = getattr(getattr(self._settings, "voice", None), "stt_device", "cpu") or "cpu"
 
-        log.info("STT: загрузка модели '%s' на %s...", model_size, device)
-        model = WhisperModel(model_size, device=device, compute_type="int8")
+        if self._model is None:
+            log.info("STT: загрузка модели '%s' на %s...", model_size, device)
+            self._model = WhisperModel(model_size, device=device, compute_type="int8")
+        model = self._model
         segments: List[Tuple[float, float, str]] = []
+        confidences: list[float] = []
         for seg in model.transcribe(audio_path, language="ru", beam_size=5)[0]:
             segments.append((seg.start, seg.end, seg.text))
+            if getattr(seg, "avg_logprob", None) is not None:
+                import math
+                confidences.append(max(0.0, min(1.0, math.exp(float(seg.avg_logprob)))))
         text = " ".join(s.strip() for _, _, s in segments if s and s.strip())
         log.info("STT: распознано %d сегментов, %d символов", len(segments), len(text))
+        self.last_confidence = sum(confidences) / len(confidences) if confidences else 1.0
         return text.strip()
+
+    def transcribe_with_confidence(self, audio_path: str) -> tuple[str, float]:
+        """Return text plus Whisper's mean segment confidence when available."""
+        text = self.transcribe_file(audio_path)
+        confidence = 1.0
+        # Keep the public legacy method stable; callers that need confidence
+        # can use this optional metadata path.
+        try:
+            confidence = float(getattr(self, "last_confidence", confidence))
+        except (TypeError, ValueError):
+            pass
+        return text, confidence
 
     # ------------------------------------------------------------------ #
     #  Потоковое / одноразовое прослушивание с микрофона
@@ -159,6 +177,9 @@ class STTEngine:
             except OSError:
                 pass
 
+    def transcribe_with_confidence_from_mic(self, timeout: float = 5.0) -> tuple[str, float]:
+        return self.listen_once(timeout=timeout), float(getattr(self, "last_confidence", 1.0))
+
     # ------------------------------------------------------------------ #
     #  Потоковая транскрипция (минимальный hook — делегирует в файл)
     # ------------------------------------------------------------------ #
@@ -193,3 +214,20 @@ class STTEngine:
                 os.unlink(tmp_path)
             except OSError:
                 pass
+
+
+class VoiceActivityDetector:
+    """Optional VAD boundary. Uses webrtcvad when installed, otherwise silence-safe."""
+    def __init__(self, aggressiveness: int = 2) -> None:
+        self.aggressiveness = max(0, min(3, int(aggressiveness)))
+        self._vad = None
+        try:
+            import webrtcvad  # type: ignore
+            self._vad = webrtcvad.Vad(self.aggressiveness)
+        except Exception:
+            pass
+    @property
+    def available(self) -> bool: return self._vad is not None
+    def is_speech(self, frame: bytes, sample_rate: int = 16000) -> bool:
+        if self._vad is None: return bool(frame and any(frame))
+        return bool(self._vad.is_speech(frame, sample_rate))

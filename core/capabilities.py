@@ -66,10 +66,11 @@ class RiskLevel(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    CRITICAL = "critical"
 
     @property
     def requires_confirmation(self) -> bool:
-        return self is RiskLevel.HIGH
+        return self in (RiskLevel.HIGH, RiskLevel.CRITICAL)
 
 
 class Speed(str, Enum):
@@ -176,6 +177,22 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
         speed=Speed.FAST,
         success_check="в ответе реально присутствуют метрики CPU/RAM/диск",
         tags=["system", "статус", "cpu", "память", "ram", "диск", "батарея"],
+    ),
+    "current_time": dict(
+        description="Показывает локальные часы, дату и часовой пояс без сети.",
+        examples=["который час", "сколько времени", "какая дата"],
+        risk_level=RiskLevel.LOW,
+        speed=Speed.INSTANT,
+        success_check="ответ содержит локальное время и дату",
+        tags=["system", "время", "час", "дата", "clock", "time"],
+    ),
+    "play_music": dict(
+        description="Открывает локальный трек или явно разрешённый медиасервис.",
+        examples=["поставь музыку", "включи трек", "открой песню"],
+        risk_level=RiskLevel.LOW,
+        speed=Speed.FAST,
+        success_check="медиаточка открыта launcher-ом",
+        tags=["media", "музыка", "трек", "песня", "spotify", "youtube", "плеер"],
     ),
     "web_search": dict(
         description="Ищет информацию в интернете через DuckDuckGo.",

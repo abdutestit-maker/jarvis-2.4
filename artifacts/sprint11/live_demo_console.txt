@@ -1,0 +1,11 @@
+2026-08-17 17:46:13 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']
+2026-08-17 17:46:17 | INFO     | jarvis.core.task_runtime     | Миссия JARVIS-2026-00001 завершена за 0.1s
+{
+  "verified": true,
+  "report": "E:\\jarvis-project\\artifacts\\sprint11\\live_demo_report.json",
+  "workflow": true,
+  "attention": true,
+  "beginner": true,
+  "shadow": true,
+  "second_run_reuse": true
+}

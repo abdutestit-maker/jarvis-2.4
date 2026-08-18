@@ -1,0 +1,503 @@
+{
+  "sprint": "14",
+  "identity": "ATLAS / АТЛАС",
+  "status": "VERIFIED",
+  "timestamp": "2026-08-17T20:03:11+05:00",
+  "baseline": {
+    "command": "$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; python -m pytest -o addopts='' -q",
+    "input": "Sprint 13 VERIFIED working tree",
+    "exit_status": 0,
+    "literal_output": ".............................................ss......................... [ 19%]\n........................................................................ [ 38%]\n........................................................................ [ 58%]\n........................................................................ [ 77%]\n........................................................................ [ 97%]\n..........                                                               [100%]\n============================== warnings summary ===============================\ncore\\ws_server.py:58\n  E:\\jarvis-project\\core\\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated\n    from websockets.server import serve\n\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6\n  C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions\n    warnings.warn(  # deprecated in 14.0 - 2024-11-09\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n368 passed, 2 skipped, 2 warnings in 82.52s (0:01:22)",
+    "result": {
+      "passed": 368,
+      "skipped": 2,
+      "failed": 0,
+      "warnings": 2
+    }
+  },
+  "final": {
+    "command": "$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; python -m pytest -o addopts='' -q",
+    "input": "Sprint 14 working tree",
+    "exit_status": 0,
+    "literal_output": ".............................................ss......................... [ 17%]\n........................................................................ [ 34%]\n........................................................................ [ 52%]\n........................................................................ [ 69%]\n........................................................................ [ 86%]\n.......................................................                  [100%]\n============================== warnings summary ===============================\ncore\\ws_server.py:58\n  E:\\jarvis-project\\core\\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated\n    from websockets.server import serve\n\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6\n  C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions\n    warnings.warn(  # deprecated in 14.0 - 2024-11-09\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n413 passed, 2 skipped, 2 warnings in 71.88s (0:01:11)",
+    "result": {
+      "passed": 413,
+      "skipped": 2,
+      "failed": 0,
+      "warnings": 2
+    }
+  },
+  "sprint14_tests": {
+    "command": "$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; python -m pytest -o addopts='' -q tests\\test_sprint14_epistemic.py tests\\test_sprint14_knowledge.py tests\\test_sprint14_correction.py tests\\test_sprint14_integration.py tests\\test_sprint14_adversarial.py tests\\test_sprint14_live_demo.py",
+    "exit_status": 0,
+    "literal_output": ".............................................                            [100%]\n45 passed in 1.46s",
+    "result": {
+      "passed": 45,
+      "failed": 0
+    }
+  },
+  "adversarial": {
+    "command": "python -m pytest -o addopts='' -q tests\\test_sprint14_adversarial.py",
+    "exit_status": 0,
+    "literal_output": "........                                                                 [100%]\n8 passed in 0.16s",
+    "result": {
+      "passed": 8,
+      "failed": 0
+    },
+    "coverage": [
+      "repeated false claim does not accumulate certainty",
+      "copied provider evidence counts as one origin",
+      "stale memory yields to direct disk observation",
+      "provider ok without desired-state change is not success",
+      "contextual verified failure overrides a stale success label",
+      "leading false question does not seed a fact",
+      "freshness and provider uncertainty reduce confidence",
+      "observer -> capability -> research order is preserved"
+    ]
+  },
+  "voice": {
+    "baseline_command": "$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; python scripts\\voice_runtime_smoke.py artifacts\\sprint14\\baseline_voice.wav",
+    "baseline_exit_status": 0,
+    "baseline_literal_output": "2026-08-17 19:37:56 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\\jarvis-project\\config\\settings.json\n2026-08-17 19:37:56 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-17 19:37:57 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n{\n  \"success\": true,\n  \"input\": \"Сэр, я вас понял. Это тестовый ответ АТЛАСА.\",\n  \"runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"expected_runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"output\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint14\\\\baseline_voice.wav\",\n  \"channels\": 1,\n  \"sample_rate\": 22050,\n  \"sample_width\": 2,\n  \"frames\": 69748,\n  \"duration_seconds\": 3.163,\n  \"error\": null\n}",
+    "modified_command": "$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; python scripts\\voice_runtime_smoke.py artifacts\\sprint14\\final_voice.wav",
+    "modified_exit_status": 0,
+    "modified_literal_output": "2026-08-17 19:58:19 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\\jarvis-project\\config\\settings.json\n2026-08-17 19:58:19 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-17 19:58:20 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n{\n  \"success\": true,\n  \"input\": \"Сэр, я вас понял. Это тестовый ответ АТЛАСА.\",\n  \"runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"expected_runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"output\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint14\\\\final_voice.wav\",\n  \"channels\": 1,\n  \"sample_rate\": 22050,\n  \"sample_width\": 2,\n  \"frames\": 70004,\n  \"duration_seconds\": 3.175,\n  \"error\": null\n}",
+    "verified_behavior": "pinned local Windows Piper produced 22050 Hz mono 16-bit Russian WAV; final duration 3.175 seconds"
+  },
+  "live_demo": {
+    "command": "$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; python scripts\\sprint14_live_demo.py artifacts\\sprint14\\live_demo_final",
+    "input": "real local JSON state, stale memory, misleading provider success, independent observation, repair, restart and provenance",
+    "exit_status": 0,
+    "literal_output": "2026-08-17 19:58:13 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']\n{\n  \"scenario\": \"stale belief -> observe -> contradict -> expect -> misleading success -> surprise -> repair -> verify -> learn -> restart -> avoid failure -> provenance\",\n  \"stale_value\": \"1.0\",\n  \"observed_value\": \"2.0\",\n  \"belief_status\": \"observed\",\n  \"belief_confidence\": 0.99,\n  \"contradictions\": [\n    \"previous:'1.0' (memory)\"\n  ],\n  \"belief_correction_message\": \"Раньше было сохранено другое значение. Сейчас система показывает 2.0.\",\n  \"first_action_calls\": [\n    \"cached_provider\",\n    \"atomic_config\"\n  ],\n  \"misleading_action_reported_success\": true,\n  \"misleading_action_verified\": false,\n  \"surprise\": {\n    \"action_id\": \"enable-feature\",\n    \"expected\": {\n      \"feature_enabled\": true\n    },\n    \"observed\": {\n      \"feature_enabled\": false\n    },\n    \"mismatch\": {\n      \"feature_enabled\": {\n        \"expected\": true,\n        \"actual\": false\n      }\n    },\n    \"failure_indicators\": [\n      \"feature_enabled remains false\"\n    ],\n    \"evidence_refs\": [\n      \"disk:fixture_app.json:feature_enabled\"\n    ],\n    \"created_at\": \"2026-08-17T14:58:13.113751+00:00\"\n  },\n  \"selected_repair\": \"atomic_config\",\n  \"first_response\": \"Готово. Проверил — работает.\",\n  \"final_observed\": {\n    \"feature_enabled\": true\n  },\n  \"final_verified\": true,\n  \"failure_episode\": {\n    \"goal\": \"enable fixture feature\",\n    \"task_class\": \"fixture_config\",\n    \"strategy\": \"cached_provider\",\n    \"failure_category\": \"expectation_mismatch\",\n    \"observed_mismatch\": {\n      \"feature_enabled\": {\n        \"expected\": true,\n        \"actual\": false\n      }\n    },\n    \"environment_fingerprint\": \"30de49e77249da07f36ebe2b\",\n    \"confidence\": 0.9,\n    \"successful_repair\": \"atomic_config\",\n    \"evidence_refs\": [\n      \"disk:fixture_app.json:feature_enabled\"\n    ],\n    \"episode_id\": \"5deef73981494e129796ae060f6f8090\",\n    \"created_at\": \"2026-08-17T14:58:13.128727+00:00\"\n  },\n  \"second_run_calls\": [\n    \"atomic_config\"\n  ],\n  \"second_run_skipped\": [\n    \"cached_provider\"\n  ],\n  \"second_run_verified\": true,\n  \"second_response\": \"Готово. Проверил — работает.\",\n  \"provenance_response\": \"Я проверил это в локальной системе.\",\n  \"audit_event_types\": [\n    \"action\",\n    \"belief_transition\",\n    \"expectation\",\n    \"observation\",\n    \"provenance\",\n    \"strategy_change\",\n    \"surprise\",\n    \"verification\"\n  ],\n  \"audit_bundle\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint14\\\\live_demo_final\\\\sprint14_audit_bundle.json\",\n  \"report_path\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint14\\\\live_demo_final\\\\live_demo_report.json\"\n}",
+    "result": {
+      "scenario": "stale belief -> observe -> contradict -> expect -> misleading success -> surprise -> repair -> verify -> learn -> restart -> avoid failure -> provenance",
+      "stale_value": "1.0",
+      "observed_value": "2.0",
+      "belief_status": "observed",
+      "belief_confidence": 0.99,
+      "contradictions": [
+        "previous:'1.0' (memory)"
+      ],
+      "belief_correction_message": "Раньше было сохранено другое значение. Сейчас система показывает 2.0.",
+      "first_action_calls": [
+        "cached_provider",
+        "atomic_config"
+      ],
+      "misleading_action_reported_success": true,
+      "misleading_action_verified": false,
+      "surprise": {
+        "action_id": "enable-feature",
+        "expected": {
+          "feature_enabled": true
+        },
+        "observed": {
+          "feature_enabled": false
+        },
+        "mismatch": {
+          "feature_enabled": {
+            "expected": true,
+            "actual": false
+          }
+        },
+        "failure_indicators": [
+          "feature_enabled remains false"
+        ],
+        "evidence_refs": [
+          "disk:fixture_app.json:feature_enabled"
+        ],
+        "created_at": "2026-08-17T14:58:13.113751+00:00"
+      },
+      "selected_repair": "atomic_config",
+      "first_response": "Готово. Проверил — работает.",
+      "final_observed": {
+        "feature_enabled": true
+      },
+      "final_verified": true,
+      "failure_episode": {
+        "goal": "enable fixture feature",
+        "task_class": "fixture_config",
+        "strategy": "cached_provider",
+        "failure_category": "expectation_mismatch",
+        "observed_mismatch": {
+          "feature_enabled": {
+            "expected": true,
+            "actual": false
+          }
+        },
+        "environment_fingerprint": "30de49e77249da07f36ebe2b",
+        "confidence": 0.9,
+        "successful_repair": "atomic_config",
+        "evidence_refs": [
+          "disk:fixture_app.json:feature_enabled"
+        ],
+        "episode_id": "5deef73981494e129796ae060f6f8090",
+        "created_at": "2026-08-17T14:58:13.128727+00:00"
+      },
+      "second_run_calls": [
+        "atomic_config"
+      ],
+      "second_run_skipped": [
+        "cached_provider"
+      ],
+      "second_run_verified": true,
+      "second_response": "Готово. Проверил — работает.",
+      "provenance_response": "Я проверил это в локальной системе.",
+      "audit_event_types": [
+        "action",
+        "belief_transition",
+        "expectation",
+        "observation",
+        "provenance",
+        "strategy_change",
+        "surprise",
+        "verification"
+      ],
+      "audit_bundle": "E:\\jarvis-project\\artifacts\\sprint14\\live_demo_final\\sprint14_audit_bundle.json",
+      "report_path": "E:\\jarvis-project\\artifacts\\sprint14\\live_demo_final\\live_demo_report.json"
+    }
+  },
+  "architecture": {
+    "epistemic_contracts": "core/metacognition/models.py",
+    "confidence_calibration": "core/metacognition/calibration.py",
+    "freshness_policy": "core/metacognition/freshness.py",
+    "bounded_belief_store": "core/metacognition/store.py",
+    "knowledge_resolution_and_provenance": "core/metacognition/engine.py",
+    "expectation_observation_surprise": "core/metacognition/expectation.py",
+    "bounded_self_correction": "core/metacognition/correction.py",
+    "contextual_failure_learning": "core/metacognition/failures.py",
+    "structured_audit": "core/metacognition/audit.py",
+    "mind_integration": "core/cognitive/models.py + core/cognitive/state.py + core/cognitive/orchestrator.py",
+    "existing_owners_reused": [
+      "CurrentMindState/CognitiveOrchestrator",
+      "Capability Engine",
+      "Living Context",
+      "Shadow Engine",
+      "Risk Gate",
+      "Voice pipeline"
+    ]
+  },
+  "epistemic_model": {
+    "statuses": [
+      "known",
+      "observed",
+      "inferred",
+      "assumed",
+      "unknown",
+      "conflicted"
+    ],
+    "verification_statuses": [
+      "verified",
+      "unverified",
+      "needs_verification",
+      "failed"
+    ],
+    "source_types": [
+      "user",
+      "direct_observation",
+      "memory",
+      "verified_episode",
+      "capability",
+      "local_system",
+      "research",
+      "inference",
+      "provider"
+    ],
+    "mind_fields": [
+      "known",
+      "unknown",
+      "uncertain",
+      "conflicted",
+      "needs_verification",
+      "active_epistemic_key"
+    ],
+    "private_reasoning_persisted": false
+  },
+  "confidence_calibration": {
+    "deterministic": true,
+    "signals": [
+      "source reliability",
+      "direct observation",
+      "desired-state verification",
+      "freshness",
+      "independent origins",
+      "memory confidence",
+      "contradictions",
+      "prior success",
+      "provider uncertainty"
+    ],
+    "duplicate_rule": "evidence is deduplicated by origin_id before independent-source scoring",
+    "hygiene": [
+      "status caps",
+      "stale penalty",
+      "contradiction penalty",
+      "bounded storage",
+      "supersession"
+    ]
+  },
+  "resolution_order": [
+    "existing observation",
+    "relevant memory",
+    "local inspection",
+    "registered capability",
+    "safe research",
+    "user question"
+  ],
+  "verification_invariant": "ActionResult.ok and provider success never produce mission success without independent desired-state comparison.",
+  "self_correction": {
+    "loop": [
+      "plan",
+      "expect",
+      "act",
+      "observe",
+      "compare",
+      "diagnose",
+      "update belief",
+      "replan",
+      "retry"
+    ],
+    "bounded_attempts": "1..5 and risk-gated",
+    "identical_strategy_rule": "one attempt per strategy name; contextual failure forces strategy change",
+    "live_selected_repair": "atomic_config"
+  },
+  "failure_learning": {
+    "privacy_safe": true,
+    "environment_fingerprint": "30de49e77249da07f36ebe2b",
+    "failed_strategy": "cached_provider",
+    "successful_repair": "atomic_config",
+    "second_run_calls": [
+      "atomic_config"
+    ],
+    "second_run_skipped": [
+      "cached_provider"
+    ]
+  },
+  "audit": {
+    "success": true,
+    "artifact": "E:\\jarvis-project\\artifacts\\sprint14\\live_demo_final\\sprint14_audit_bundle.json",
+    "sha256": "a01690e525c9238ecee6a8edf0bd0b4364315b5b16636ce845c1899cdce63c10",
+    "event_count": 18,
+    "belief_count": 3,
+    "failure_episode_count": 1,
+    "checks": {
+      "schema": true,
+      "required_event_types": true,
+      "confidence_inputs": true,
+      "contradiction_preserved": true,
+      "failure_episode": true,
+      "successful_repair": true,
+      "provenance_refs": true,
+      "no_private_reasoning": true,
+      "no_raw_secret": true
+    },
+    "event_types": [
+      "action",
+      "belief_transition",
+      "expectation",
+      "observation",
+      "provenance",
+      "strategy_change",
+      "surprise",
+      "verification"
+    ],
+    "review_artifact": "E:\\jarvis-project\\artifacts\\sprint14\\live_demo_final\\sprint14_audit_bundle.json"
+  },
+  "privacy": {
+    "raw_secrets_stored": false,
+    "private_reasoning_stored": false,
+    "failure_tracebacks_stored": false,
+    "audit_check": {
+      "schema": true,
+      "required_event_types": true,
+      "confidence_inputs": true,
+      "contradiction_preserved": true,
+      "failure_episode": true,
+      "successful_repair": true,
+      "provenance_refs": true,
+      "no_private_reasoning": true,
+      "no_raw_secret": true
+    }
+  },
+  "changed_files": [
+    {
+      "path": "core/cognitive/models.py",
+      "role": "modified",
+      "original_sha256": "94455896b37bc030adaa394d06069671d6880fb40fa0d696db87ea90abf3d0d4",
+      "current_sha256": "7253fb87e6f4f150d2e50e55dd5c6f727c57f6c9d1c4c518b9b7787d2ba2d2ec"
+    },
+    {
+      "path": "core/cognitive/state.py",
+      "role": "modified",
+      "original_sha256": "3070c9c8bd8870f21487361363723cbb7094f01355174d34a7fc9840126564a4",
+      "current_sha256": "c8409c70c5d9add8c51e743a8a37f18c42e7f78b58b4f0cfab84032487672ab5"
+    },
+    {
+      "path": "core/cognitive/orchestrator.py",
+      "role": "modified",
+      "original_sha256": "29f6baa0de54ce594fc7e262c06a919dd0b5a215a531b01fb478f7b2da75e0b9",
+      "current_sha256": "abefd1f3565948f93a68c984844b3ff991293e92b5223fdcb582007a67181a31"
+    },
+    {
+      "path": "core/metacognition/__init__.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "f41f25a87a5f4b0fa74d00d7b7487b5650931dd1c095e7095b0a7ad76f97b822"
+    },
+    {
+      "path": "core/metacognition/audit.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "ad96f1299a2a586aca133f495dbcdba4e3df8d3e93d8a11311c512d4a238c1c1"
+    },
+    {
+      "path": "core/metacognition/calibration.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "badc32917a463b228234e4fa911301d0d266cfa10312303c140363a63facc8c9"
+    },
+    {
+      "path": "core/metacognition/correction.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "52364aec74dcfcb43c5f1a56f50f648b14f9e06bea9f85573e22dfb7c063e35c"
+    },
+    {
+      "path": "core/metacognition/engine.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "f075bce56f5298947527b17aea56525c50f168dd9cf59ea43a07028f1db057af"
+    },
+    {
+      "path": "core/metacognition/expectation.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "41cf0b8ac9c866e43fbc33a16c312a37e026f881c1c093332394369e4d0daf12"
+    },
+    {
+      "path": "core/metacognition/failures.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "fab9ee9b8367b993799ebdb07bdef8ad3544a3121de683f8db3414e47e6a6482"
+    },
+    {
+      "path": "core/metacognition/freshness.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "4d99fdcb9452bdd53a70acc7492fa67819fb3922ea8f3b3dfd0f498e8d81bb1e"
+    },
+    {
+      "path": "core/metacognition/models.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "c03b7b745970e63d0902c8ba845bcc9307a08f1efd20514f9eb95b6bb06278d1"
+    },
+    {
+      "path": "core/metacognition/store.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "bf7bd112e2b4543b87aea858c279bcdfff368bca2bee3d50875260badf4e59e6"
+    },
+    {
+      "path": "docs/sprints/SPRINT14_SPEC.md",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "78b7a642c4c1053ff87f92bc464c566aff352821e275a69ea2e6bac03b37b6aa"
+    },
+    {
+      "path": "scripts/rollback_sprint14.ps1",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "2975b9aecb7db8035a08cf8039d215f151aa206c6955a2f1ab77caa53cddf45d"
+    },
+    {
+      "path": "scripts/sprint14_live_demo.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "b4f20d43ad0d4f9260e0b8898c8c6c5936665aa797d2a50aaedd4a4d9462a272"
+    },
+    {
+      "path": "tests/test_sprint14_adversarial.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "e5280489f6dc4167b3f2c4fc6d2c0326f8b65870d2c93829d8362818a88ea50c"
+    },
+    {
+      "path": "tests/test_sprint14_correction.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "f301fb53b8ead59a3117549797b2371f9c1bf551a650248ed5d214bdca78513b"
+    },
+    {
+      "path": "tests/test_sprint14_epistemic.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "eab50cbf123b66ae2a4bc01ada3c4ee2f2b760fc2782574fc6fb969ff92bf551"
+    },
+    {
+      "path": "tests/test_sprint14_integration.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "81d589d62f69ab1063806eb5428e20e8d9ef1970a34158b4d705d475455b6449"
+    },
+    {
+      "path": "tests/test_sprint14_knowledge.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "257025972f226004e37195e17ac76940621fe110e4c6cc83495c2b2661540bb9"
+    },
+    {
+      "path": "tests/test_sprint14_live_demo.py",
+      "role": "added",
+      "original_sha256": null,
+      "current_sha256": "82e183f7ba56229e61c5a8c76312a56f59f5028facbaf31b79709d755076cd18"
+    }
+  ],
+  "artifacts": {
+    "modified_artifact": {
+      "path": "E:\\jarvis-project\\artifacts\\sprint14\\atlas_sprint14_modified.zip",
+      "sha256": "a8aa0d68c8b1288a8584b51183f637d06bc58a541e38fe6c62eaeb528ded5fe8",
+      "verified": true,
+      "entries": 22
+    },
+    "patch": {
+      "path": "E:\\jarvis-project\\artifacts\\sprint14\\sprint14.patch",
+      "sha256": "de33c1e4499138e9147e6c90bfca7baa41c23778088c775206a8d73bf0abc356",
+      "verified": true,
+      "verification": {
+        "success": true,
+        "verification": "git apply --check + apply + normalized UTF-8 content",
+        "verified_files": 22,
+        "mismatches": [],
+        "line_endings": "exact bytes are packaged separately"
+      }
+    },
+    "verification_record": {
+      "path": "E:\\jarvis-project\\artifacts\\sprint14\\verification_record.json"
+    },
+    "rollback": {
+      "path": "E:\\jarvis-project\\scripts\\rollback_sprint14.ps1",
+      "sha256": "2975b9aecb7db8035a08cf8039d215f151aa206c6955a2f1ab77caa53cddf45d",
+      "probe_verified": true,
+      "probe_result": {
+        "success": true,
+        "restored_originals": 3,
+        "removed_added_files": 19,
+        "mismatches": []
+      }
+    },
+    "audit_bundle": {
+      "path": "E:\\jarvis-project\\artifacts\\sprint14\\live_demo_final\\sprint14_audit_bundle.json",
+      "sha256": "a01690e525c9238ecee6a8edf0bd0b4364315b5b16636ce845c1899cdce63c10",
+      "verified": true
+    }
+  },
+  "known_limitations": [
+    "Confidence is a deterministic evidence heuristic, not a universal probability; production datasets can tune weights.",
+    "Freshness TTLs are conservative key/domain rules and need explicit policies for new volatile domains.",
+    "Failure avoidance is scoped to the same privacy-safe environment fingerprint.",
+    "Resolution callbacks must exist for a particular unknown; otherwise ATLAS truthfully asks after exhausting safe sources.",
+    "Restart reconstructs safe state and failure episodes; it does not serialize an executing Python call stack.",
+    "The suite retains two upstream websockets deprecation warnings."
+  ],
+  "rollback_command": "powershell -ExecutionPolicy Bypass -File E:\\jarvis-project\\scripts\\rollback_sprint14.ps1 -ProjectRoot E:\\jarvis-project",
+  "sprint15_started": false
+}

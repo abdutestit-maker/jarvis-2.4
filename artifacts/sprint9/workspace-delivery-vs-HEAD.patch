@@ -1,0 +1,3580 @@
+diff --git a/core/actions/filesystem.py b/core/actions/filesystem.py
+index 46c4f92..a34074f 100644
+--- a/core/actions/filesystem.py
++++ b/core/actions/filesystem.py
+@@ -13,6 +13,7 @@
+ from __future__ import annotations
+ 
+ import fnmatch
++import shutil
+ from pathlib import Path
+ from typing import Any, Dict, List
+ 
+@@ -32,6 +33,9 @@ __all__ = [
+     "ReadFileTool",
+     "WriteFileTool",
+     "SearchFilesTool",
++    "CopyFileTool",
++    "MoveFileTool",
++    "ListFilesRecursiveTool",
+ ]
+ 
+ log = get_logger(__name__)
+@@ -161,6 +165,40 @@ def write_file(path: str, content: str, settings: Settings) -> ActionResult:
+         )
+ 
+ 
++def copy_file(source: str, destination: str, settings: Settings) -> ActionResult:
++    """Copies a file inside documents_dir; destination parents are created."""
++    try:
++        src = resolve_docs_path(source, settings)
++        dst = resolve_docs_path(destination, settings)
++        if not src.is_file():
++            raise ValueError(f"Файл не найден: {source}")
++        dst.parent.mkdir(parents=True, exist_ok=True)
++        shutil.copy2(src, dst)
++        return ActionResult("file_copy", {"source": source, "destination": destination},
++                            True, f"Скопировано: {source} -> {destination}")
++    except Exception as exc:
++        return ActionResult("file_copy", {"source": source, "destination": destination},
++                            False, error=f"Копирование не выполнено: {exc}")
++
++
++def move_file(source: str, destination: str, settings: Settings) -> ActionResult:
++    """Moves a file inside documents_dir; path traversal remains blocked."""
++    try:
++        src = resolve_docs_path(source, settings)
++        dst = resolve_docs_path(destination, settings)
++        if not src.is_file():
++            raise ValueError(f"Файл не найден: {source}")
++        if dst.exists():
++            raise ValueError(f"Назначение уже существует: {destination}")
++        dst.parent.mkdir(parents=True, exist_ok=True)
++        shutil.move(str(src), str(dst))
++        return ActionResult("file_move", {"source": source, "destination": destination},
++                            True, f"Перемещено: {source} -> {destination}")
++    except Exception as exc:
++        return ActionResult("file_move", {"source": source, "destination": destination},
++                            False, error=f"Перемещение не выполнено: {exc}")
++
++
+ def search_files(
+     query: str,
+     settings: Settings,
+@@ -436,8 +474,48 @@ class SearchFilesTool(Tool):
+         )
+ 
+ 
++class CopyFileTool(Tool):
++    @property
++    def name(self) -> str: return "file_copy"
++    @property
++    def description(self) -> str: return "Копирует файл внутри documents_dir с проверкой границ пути."
++    @property
++    def input_schema(self) -> Dict[str, Any]:
++        return {"type": "object", "properties": {
++            "source": {"type": "string"}, "destination": {"type": "string"}},
++            "required": ["source", "destination"], "additionalProperties": False}
++    def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
++        return copy_file(args["source"], args["destination"], context.settings)
++
++
++class MoveFileTool(Tool):
++    @property
++    def name(self) -> str: return "file_move"
++    @property
++    def description(self) -> str: return "Перемещает файл внутри documents_dir с проверкой границ пути."
++    @property
++    def input_schema(self) -> Dict[str, Any]:
++        return {"type": "object", "properties": {
++            "source": {"type": "string"}, "destination": {"type": "string"}},
++            "required": ["source", "destination"], "additionalProperties": False}
++    def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
++        return move_file(args["source"], args["destination"], context.settings)
++
++
++class ListFilesRecursiveTool(ListFilesTool):
++    @property
++    def name(self) -> str: return "list_files_recursive"
++    @property
++    def description(self) -> str: return "Рекурсивно перечисляет файлы внутри documents_dir для проверки состояния."
++    def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
++        return super().run({"dir_path": args.get("dir_path", ""), "recursive": True}, context)
++
++
+ # Авто-регистрация
+ DEFAULT_REGISTRY.register(ListFilesTool())
+ DEFAULT_REGISTRY.register(ReadFileTool())
+ DEFAULT_REGISTRY.register(WriteFileTool())
+-DEFAULT_REGISTRY.register(SearchFilesTool())
+\ No newline at end of file
++DEFAULT_REGISTRY.register(SearchFilesTool())
++DEFAULT_REGISTRY.register(CopyFileTool())
++DEFAULT_REGISTRY.register(MoveFileTool())
++DEFAULT_REGISTRY.register(ListFilesRecursiveTool())
+diff --git a/core/agent.py b/core/agent.py
+index adb7e38..91252e7 100644
+--- a/core/agent.py
++++ b/core/agent.py
+@@ -31,6 +31,7 @@
+ 
+ from __future__ import annotations
+ 
++import re
+ import threading
+ from dataclasses import dataclass, field
+ from typing import Any, Callable, Dict, List, Optional
+@@ -48,21 +49,28 @@ from core.llm import (
+     BackendConfigError,
+     BackendUnavailable,
+     Tier,
++    breaker,
+     get_llm_backend,
++    get_offline_backend,
+ )
+-from core.model_router import ModelRouter, RoutingDecision
++from core.memory.budget import fit_messages_to_budget
++from core.memory.facts import detect_tone, learn_facts
++from core.memory.profile import get_profile_context
++from core.memory.short_term import SessionManager
++from core.model_router import ModelRouter, RoutingDecision, classify_conversation
+ from core.repair import RepairLoop
+ from core.research import ResearchEngine, is_research_goal
+ from core.router.intent_router import resolve_keyword_tool
+ from core.safety import RiskAssessment, assess_risk
+ from core.redact import redact_args
+ from core.skill_forge import SkillForge, SkillManifest, SkillStatus
+-from core.structured import PLAN_SCHEMA_HINT, parse_structured, validate_tool_call
++from core.structured import PLAN_SCHEMA_HINT, AnswerStreamExtractor, parse_structured, validate_tool_call
+ from core.task_runtime import (
+     EVENT_CONFIRMATION_REQUIRED,
+     EVENT_PLAN_READY,
+     EVENT_REPAIR_COMPLETED,
+     EVENT_REPAIR_STARTED,
++    EVENT_STREAM_CHUNK,
+     EVENT_STEP_COMPLETED,
+     EVENT_STEP_STARTED,
+     EVENT_TASK_FAILED,
+@@ -79,6 +87,30 @@ __all__ = ["Agent", "AgentConfig", "AgentOutcome", "ACK_PHRASES", "pick_acknowle
+ 
+ log = get_logger(__name__)
+ 
++#: Префикс ошибки планирования «модель недоступна» (сеть/провайдер/ключ).
++#: Такая ошибка — НЕ «не умею» (§29): это временный сбой инфраструктуры,
++#: и пользователь должен получить короткую честную фразу без сырых деталей
++#: и без создания черновика навыка.
++MODEL_ERROR_PREFIX = "model_error:"
++
++#: Текст для пользователя при сбое модели (голос/чат). Технические детали —
++#: только в лог. Тон согласован с TTS-санитайзером (core/voice/tts_sanitizer.py).
++MODEL_UNAVAILABLE_TEXT = "Сэр, сейчас не отвечает. Попробуйте ещё раз."
++
++
++def _hide_reasoning_stream(cumulative: str) -> str:
++    """Прячет служебные ``<think>``-блоки из НАРАСТАЮЩЕГО текста стрима.
++
++    Закрытый блок вырезается целиком; незакрытый (модель ещё думает) —
++    скрывает всё после его начала. Применяется только в прямом разговорном
++    режиме (Sprint 2), где пользователю идёт сырой текст модели.
++    """
++    out = re.sub(r"<think>.*?</think>", "", cumulative, flags=re.DOTALL | re.IGNORECASE)
++    if "<think>" in out.lower():
++        idx = out.lower().rfind("<think>")
++        out = out[:idx]
++    return out
++
+ 
+ # --------------------------------------------------------------------------- #
+ #  §5 — FIRST ACKNOWLEDGEMENT (быстро, без тяжёлой модели)
+@@ -171,6 +203,9 @@ class AgentOutcome:
+     risk: Optional[RiskAssessment] = None
+     mode: str = "conversation"
+     trace: List[str] = field(default_factory=list)
++    #: Sprint 3 STEP 5: ответ пришёл с фолбэк-модели, а не с основной
++    #: (quality indicator для UI/TTS — не маскируем деградацию).
++    degraded: bool = False
+ 
+     def to_dict(self) -> Dict[str, Any]:
+         return {
+@@ -183,6 +218,7 @@ class AgentOutcome:
+             "risk": self.risk.to_dict() if self.risk else None,
+             "mode": self.mode,
+             "trace": list(self.trace),
++            "degraded": self.degraded,
+         }
+ 
+ 
+@@ -217,6 +253,21 @@ class Agent:
+         self._config = config or AgentConfig()
+         self._council = council
+         self._registry = DEFAULT_REGISTRY
++        # Sprint 8: Shadow Engine observes only when explicitly enabled in
++        # local settings. It is separate from the active request path.
++        from core.shadow import ShadowEngine
++        shadow_cfg = getattr(settings, "shadow", None)
++        shadow_data_dir = settings.paths.resolved("data_dir")
++        self._shadow = ShadowEngine(
++            data_dir=shadow_data_dir or "data", registry=self._registry, settings=settings,
++            enabled=bool(getattr(shadow_cfg, "enabled", False)),
++        )
++        from core.capability_engine import CapabilityCatalog, CapabilityPlanner
++        capability_dir = (shadow_data_dir or self._settings.data_dir) / "capabilities"
++        self._capability_catalog = CapabilityCatalog(capability_dir)
++        self._capability_planner = CapabilityPlanner(
++            self._capability_catalog, self._registry,
++        )
+         # P5 §5.7: делим ЕДИНЫЙ роутер моделей с CouncilRouter, чтобы оба
+         # пути (REPL/WebSocket и агентная миссия) маршрутизировались одинаково.
+         self._model_router = model_router if model_router is not None else ModelRouter(settings)
+@@ -238,6 +289,76 @@ class Agent:
+         self._pending_confirmations: Dict[str, Dict[str, Any]] = {}
+         self._confirmation_timers: Dict[str, "threading.Timer"] = {}
+         self._lock = threading.RLock()
++        # Sprint 1: стриминг sync-ответов. Sink устанавливается ПОТОКОМ,
++        # обрабатывающим конкретный запрос (thread-local), поэтому параллельные
++        # запросы друг друга не видят и не перемешивают.
++        self._stream_tls = threading.local()
++        # Sprint 4: bounded session memory — последние N сообщений диалога
++        # (10 пар user/assistant, FIFO). Подаётся ТОЛЬКО в разговорный путь;
++        # tool-промпты остаются чистыми (спринт, STEP 2.4).
++        session_size = int(getattr(getattr(settings, "limits", None),
++                                   "session_memory_messages", 20))
++        self._session = SessionManager(max_size=session_size)
++
++    # ------------------------------------------------------------------ #
++    #  Sprint 1 — stream sink (прогрессивный ответ в UI)
++    # ------------------------------------------------------------------ #
++
++    def install_stream_sink(self, sink) -> None:
++        """Регистрирует приёмник кумулятивного текста ответа для ТЕКУЩЕГО потока.
++
++        ``sink(visible_text_so_far: str)`` вызывается по мере реальной
++        генерации модели (SSE-дельты). Если бэкенд не поддерживает
++        streaming — sink просто не вызывается, поведение не меняется.
++        """
++        self._stream_tls.sink = sink
++
++    def clear_stream_sink(self) -> None:
++        self._stream_tls.sink = None
++
++    def _stream_consume(self, backend, messages: List[Dict[str, Any]], system: str,
++                        extract_answer: bool = True) -> str:
++        """chat() со стримингом, если установлен sink и бэкенд умеет streaming.
++
++        Возвращает ПОЛНЫЙ сырой ответ (как chat). Видимый кумулятивный текст
++        уходит в sink по мере прихода дельт — это реальный стриминг провайдера,
++        не фейк-чанкинг готовой строки. ``extract_answer=True`` (план-JSON)
++        извлекает поле ``answer``; ``False`` (прямой разговор) отдаёт сырой
++        текст с скрытием служебных ``<think>``-блоков.
++        Сбой сети/провайдера (BackendUnavailable/BackendConfigError)
++        пробрасывается наружу — существующая логика фолбэка тиров (§15)
++        сохранена без изменений.
++        """
++        sink = getattr(self._stream_tls, "sink", None)
++        stream = getattr(backend, "streaming", None)
++        if sink is None or stream is None:
++            return backend.chat(messages, system=system)
++
++        extractor = AnswerStreamExtractor() if extract_answer else None
++        parts: List[str] = []
++        try:
++            for piece in stream(messages, system=system):
++                if not piece:
++                    continue
++                parts.append(piece)
++                if extractor is not None:
++                    visible = extractor.feed(piece)
++                else:
++                    visible = _hide_reasoning_stream("".join(parts))
++                if visible:
++                    sink(visible)
++        except (BackendUnavailable, BackendConfigError):
++            raise  # наружу -> фолбэк тира / model_error (Sprint 1 STEP 5)
++        except Exception as exc:
++            # Неожиданная ошибка стриминга (бэкенд-специфика): честно
++            # деградируем до обычного chat() того же тира.
++            log.warning("streaming() упал (%s) — fallback на chat()", exc)
++            return backend.chat(messages, system=system)
++
++        raw = "".join(parts)
++        if not raw.strip():
++            return backend.chat(messages, system=system)
++        return raw
+ 
+     # ------------------------------------------------------------------ #
+     #  Публичный вход: исполнение миссии
+@@ -248,8 +369,28 @@ class Agent:
+ 
+         Вызывается ``TaskRuntime`` в отдельном потоке. Никаких ограничений
+         на длительность (§4) — только реальная отмена через ``cancel``.
++
++        Sprint 1 STEP 2: кумулятивный текст реального SSE-потока транслируется
++        в события миссии (EVENT_STREAM_CHUNK, correlation = task_id), а
++        финальный _output_callback того же потока закрывает стримленный
++        пузырь (см. consume_streamed_mission).
+         """
+-        outcome = self.execute(mission.goal, mission=mission, cancel=cancel)
++        tls = self._stream_tls
++        tls.streamed_rid = None
++
++        def _mission_sink(visible: str) -> None:
++            if getattr(tls, "streamed_rid", None) is None:
++                tls.streamed_rid = mission.task_id
++            try:
++                mission.emit(EVENT_STREAM_CHUNK, payload={"text": visible})
++            except Exception:  # pragma: no cover - события не ломают генерацию
++                pass
++
++        self.install_stream_sink(_mission_sink)
++        try:
++            outcome = self.execute(mission.goal, mission=mission, cancel=cancel)
++        finally:
++            self.clear_stream_sink()
+         mission.verification = outcome.verification.to_dict() if outcome.verification else None
+         mission.metadata["mode"] = outcome.mode
+         mission.metadata["verified"] = outcome.verified
+@@ -257,13 +398,68 @@ class Agent:
+             mission.metadata["needs_confirmation"] = True
+         return outcome.text
+ 
++    def consume_streamed_mission(self) -> Optional[str]:
++        """Отдаёт и сбрасывает task_id миссии, стримленной в ТЕКУЩЕМ потоке.
++
++        Вызывается ws-мостом в output_callback: финальный текст должен
++        закрыть УЖЕ открытый стрименный пузырь (тот же task_id), а не
++        создавать второй.
++        """
++        tls = self._stream_tls
++        rid = getattr(tls, "streamed_rid", None)
++        tls.streamed_rid = None
++        return rid
++
+     def execute(self, goal: str, mission: Optional[Mission] = None,
+                 cancel: Optional[threading.Event] = None) -> AgentOutcome:
+         """Главный цикл: intent -> risk -> mode -> plan -> execute -> verify -> repair.
+ 
+         Цикл сокращается автоматически (§3): тривиальный разговор и простые
+         команды не проходят через планирование.
++
++        Sprint 4: перед генерацией из реплики извлекаются явные факты
++        («меня зовут X») в профиль; после — пара (goal, ответ) попадает в
++        bounded session memory для контекста следующих вопросов.
+         """
++        goal = (goal or "").strip()
++        if goal:
++            try:
++                learn_facts(self._settings, goal)
++            except Exception as exc:  # noqa: BLE001 — память не ломает миссию
++                log.debug("Извлечение фактов не удалось: %s", exc)
++
++        outcome = self._execute_core(goal, mission, cancel)
++        try:
++            shadow_outcome = "success" if outcome.verified else (
++                "unfulfilled" if outcome.mode == "unknown_task" else "failure"
++            )
++            self._shadow.observe_command(goal, outcome=shadow_outcome)
++        except Exception as exc:  # Shadow mode must never affect Active mode.
++            log.debug("Shadow command observation skipped: %s", exc)
++        self._remember_exchange(goal, outcome)
++        return outcome
++
++    def _remember_exchange(self, goal: str, outcome: AgentOutcome) -> None:
++        """Записывает пару (user, assistant) в bounded session memory.
++
++        Пустые, отменённые и «пустой ввод» реплики не пишутся. Служебный
++        префикс [degraded] из ответа убирается (пользовательская память
++        хранит чистый текст).
++        """
++        try:
++            if not goal or outcome.mode in ("empty", "cancelled"):
++                return
++            text = (outcome.text or "").strip()
++            if text.startswith("[degraded] "):
++                text = text[len("[degraded] "):]
++            self._session.push("user", goal)
++            if text:
++                self._session.push("assistant", text)
++        except Exception as exc:  # noqa: BLE001
++            log.debug("Запись в session memory не удалась: %s", exc)
++
++    def _execute_core(self, goal: str, mission: Optional[Mission] = None,
++                      cancel: Optional[threading.Event] = None) -> AgentOutcome:
+         cancel = cancel or threading.Event()
+         goal = (goal or "").strip()
+         if not goal:
+@@ -333,6 +529,20 @@ class Agent:
+             fast.trace = trace + fast.trace
+             return fast
+ 
++        # ---- 7b. CONVERSATION GATE (Sprint 2): разговор без действия ----
++        # Офлайн-роутер уверенно распознал разговор: модель НЕ получает список
++        # инструментов и НЕ генерирует JSON-план — слабая fast-модель физически
++        # не может «позвать» list_files. Настоящие действия идут мимо гейта
++        # (явные глаголы/интент файлов/приложений/системы) в planner ниже.
++        is_conversation, conv_reason = classify_conversation(goal, intent)
++        if is_conversation:
++            trace.append(f"conversation gate: {conv_reason}")
++            if mission is not None:
++                mission.metadata["conversation_gate"] = conv_reason
++            return self._answer_conversation(
++                goal, mission, cancel, trace, routing, memory_ctx,
++            )
++
+         if cancel.is_set():
+             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
+ 
+@@ -354,7 +564,11 @@ class Agent:
+             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
+ 
+         if decision is None:
+-            # Модель недоступна/не смогла — это НЕ повод сказать "не умею" (§29).
++            # Сбой модели (сеть/провайдер/ключ) — временная ошибка инфраструктуры,
++            # а НЕ «не умею» (§29): никаких черновиков навыков и сырых ошибок
++            # в чат — короткая честная фраза, детали только в лог.
++            if plan_error.startswith(MODEL_ERROR_PREFIX):
++                return self._handle_model_unavailable(goal, mission, trace, plan_error)
+             trace.append(f"planning failed: {plan_error}")
+             return self._handle_unknown(goal, caps, mission, trace, plan_error)
+ 
+@@ -430,13 +644,29 @@ class Agent:
+     #  Роутинг модели (P0-2) + память (P0-5) + подтверждение (P0-3)
+     # ------------------------------------------------------------------ #
+ 
++    def _tier_breaker_open(self, tier) -> bool:
++        """Sprint 3 STEP 5: breaker модели тира разомкнут (серии сбоев).
++
++        Ключ — ``provider:model``, а не просто провайдер: несколько тиров
++        могут сидеть на одном провайдере (anymodel), и падение одной
++        модели (am/free) не должно блокировать остальные (cx/gpt-5.5).
++        """
++        try:
++            provider = self._settings.get_provider(tier)
++            model_id = self._settings.get_model_id(tier) or ""
++            return breaker.is_open(f"{provider}:{model_id}")
++        except Exception:  # noqa: BLE001 — конфиг может быть урезан в тестах
++            return False
++
+     def _backend_for_routing(self, routing: Optional[RoutingDecision]):
+         """Возвращает (backend, tier) по решению ModelRouter (cloud-first).
+ 
+         Идёт по цепочке [routing.tier] + fallback_chain, берёт первый
+-        реально доступный тир. Если ни один внешний не доступен — честный
+-        офлайн-фолбэк на локальную FAST (§17). Решение роутера обязано
+-        дойти до реального вызова модели (иначе выбор бессмыслен).
++        реально доступный тир. Тиры с разомкнутым circuit breaker'ом
++        (Sprint 3: 3 подряд сбоя провайдера) пропускаются до конца
++        cooldown. Если ни один внешний не доступен — честный офлайн-фолбэк
++        на ЛОКАЛЬНУЮ модель TIER 4 (§17). Решение роутера обязано дойти
++        до реального вызова модели (иначе выбор бессмыслен).
+         """
+         chain: List[Any] = []
+         if routing is not None:
+@@ -444,7 +674,11 @@ class Agent:
+         else:
+             chain = [Tier.FAST]
+ 
++        skipped_breakers: List[str] = []
+         for tier in chain:
++            if self._tier_breaker_open(tier):
++                skipped_breakers.append(str(tier))
++                continue
+             try:
+                 if not self._settings.is_tier_available(tier):
+                     continue
+@@ -453,16 +687,25 @@ class Agent:
+             except (BackendUnavailable, BackendConfigError) as exc:
+                 log.debug("Тир %s недоступен для планирования: %s", tier, exc)
+                 continue
++        if skipped_breakers:
++            log.info("Circuit breaker: тиры %s пропущены (недавние сбои провайдеров)",
++                     ", ".join(skipped_breakers))
+ 
+-        # Graceful offline fallback на локальную модель.
++        # Graceful offline fallback на локальную модель (TIER 4, без сети).
+         try:
+-            return self._get_local_backend(), Tier.FAST
++            return get_offline_backend(self._settings), Tier.FAST
+         except Exception as exc:
+             log.warning("Локальный фолбэк недоступен: %s", exc)
+             return None, None
+ 
+-    def _fallback_backend(self, routing: Optional[RoutingDecision], tried):
+-        """Следующий доступный бэкенд после ``tried`` (для повтора при сбое)."""
++    def _fallback_backend(self, routing: Optional[RoutingDecision], tried,
++                          policy_override=None):
++        """Следующий доступный бэкенд после ``tried`` (для повтора при сбое).
++
++        ``policy_override`` — короткая «разговорная» политика для простых
++        задач: фолбэк не должен ждать полный бюджет аналитического тира.
++        Тиры с разомкнутым breaker'ом пропускаются (Sprint 3).
++        """
+         chain: List[Any] = []
+         if routing is not None:
+             chain = [routing.tier] + list(routing.fallback_chain)
+@@ -475,10 +718,13 @@ class Agent:
+             except ValueError:
+                 pass
+         for tier in chain:
++            if self._tier_breaker_open(tier):
++                continue
+             try:
+                 if not self._settings.is_tier_available(tier):
+                     continue
+-                return get_llm_backend(self._settings, tier), tier
++                return get_llm_backend(self._settings, tier,
++                                       policy_override=policy_override), tier
+             except (BackendUnavailable, BackendConfigError):
+                 continue
+         return None, None
+@@ -742,11 +988,18 @@ class Agent:
+         Returns:
+             ``(ToolCallDecision | None, error_text)``.
+         """
++        # Sprint 3 TIER 2: JSON-план строит минимум внешний тир (analyst):
++        # надёжный tool calling важнее скорости планирования. Разговорный
++        # путь сюда не доходит (conversation gate Sprint 2).
++        if routing is not None:
++            routing = self._model_router.route_for_planning(routing)
+         backend, used_tier = self._backend_for_routing(routing)
+         if backend is None:
+-            return None, "ни одна модель недоступна (ни облачная, ни локальный фолбэк)"
++            return None, MODEL_ERROR_PREFIX + "ни одна модель недоступна (ни облачная, ни локальный фолбэк)"
+         if mission is not None and used_tier is not None:
+             mission.model_used = used_tier.value
++            if routing is not None and used_tier is not routing.tier:
++                mission.metadata["degraded"] = True
+ 
+         known = [c.name for c in caps]
+         tools_desc = describe_tools_for_model(caps, self._registry) or "(нет подходящих инструментов)"
+@@ -758,9 +1011,13 @@ class Agent:
+                 f"{memory_ctx}\n"
+             )
+ 
++        # Sprint 4 TIER 2: persona + фокус на точность tool calling.
++        # История/факты в tool-промпт НЕ идут (спринт STEP 2.4).
++        from persona.system_prompt import build_agent_system_prompt
++        persona_line = build_agent_system_prompt(self._settings, tier="plan")
+         system = (
+-            "Ты — J.A.R.V.I.S., операционная интеллектуальная система на компьютере "
+-            "пользователя. Твоя задача — решить, КАК выполнить цель.\n"
++            f"{persona_line}\n"
++            "Твоя задача — решить, КАК выполнить цель.\n"
+             "Верни СТРОГО ОДИН JSON-объект без markdown и пояснений:\n"
+             f"{PLAN_SCHEMA_HINT}\n"
+             "Правила:\n"
+@@ -786,23 +1043,32 @@ class Agent:
+                 "Исправь и верни ТОЛЬКО валидный JSON."
+             )
+             try:
+-                raw = backend.chat([{"role": "user", "content": prompt}], system=system)
++                raw = self._stream_consume(backend, [{"role": "user", "content": prompt}], system)
+             except (BackendUnavailable, BackendConfigError) as exc:
+                 # Попробуем следующий тир из цепочки фолбэка (cloud->...->local).
+                 log.warning("Модель недоступна (%s), пробуем фолбэк: %s", used_tier, exc)
+-                fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier)
++                # Простая (разговорная) задача: фолбэк тоже короткий — нечего
++                # ждать полный бюджет аналитического тира ради «привет».
++                fb_policy = (
++                    {"timeout": getattr(self._settings.limits, "fast_tier_timeout_sec", None),
++                     "max_retries": getattr(self._settings.limits, "fast_tier_max_retries", None)}
++                    if routing is not None and routing.tier is Tier.FAST else None
++                )
++                fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier,
++                                                             policy_override=fb_policy)
+                 if fb_backend is None:
+-                    return None, f"модель недоступна: {exc}"
++                    return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}"
+                 backend, used_tier = fb_backend, fb_tier
+                 if mission is not None:
+                     mission.model_used = used_tier.value
++                    mission.metadata["degraded"] = True
+                 try:
+-                    raw = backend.chat([{"role": "user", "content": prompt}], system=system)
++                    raw = self._stream_consume(backend, [{"role": "user", "content": prompt}], system)
+                 except Exception as exc2:
+-                    return None, f"модель недоступна: {exc2}"
++                    return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}"
+             except Exception as exc:
+                 log.warning("Модель не ответила на планирование: %s", exc)
+-                return None, f"модель недоступна: {exc}"
++                return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}"
+ 
+             parsed = parse_structured(raw, required_keys=None)
+             if not parsed.ok:
+@@ -885,12 +1151,23 @@ class Agent:
+                 })
+ 
+             log.info("Verification не прошла — вход в repair loop (%s)", tool)
++            # Sprint 3 STEP 4: повторный риск-гейт. Каждый retry (патч
++            # аргументов / fallback-инструмент / повтор) проходит ТУ ЖЕ
++            # проверку §21, что и первый вызов: переформулировкой нельзя
++            # обойти подтверждение HIGH-risk операции.
++            def _repair_risk_gate(call_tool: str, call_args: Dict[str, Any]) -> Optional[str]:
++                gate_risk = assess_risk(goal, call_tool, call_args)
++                if gate_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
++                    return "; ".join(gate_risk.reasons) or "повышенный риск операции"
++                return None
++
+             repair = self._repair.run(
+                 tool_name=tool,
+                 args=args,
+                 context=context,
+                 mission=mission,
+                 verification=lambda r: verify_action_result(r).verified,
++                risk_gate=_repair_risk_gate,
+             )
+             trace.extend(f"repair: {t}" for t in repair.trace)
+ 
+@@ -954,10 +1231,153 @@ class Agent:
+             return f"{body}\n\n(Проверка: {verification.detail}.)"
+         return body
+ 
++    # ------------------------------------------------------------------ #
++    #  Sprint 2 — прямой разговор (без инструментов и без JSON-плана)
++    # ------------------------------------------------------------------ #
++
++    def _answer_conversation(self, goal: str, mission: Optional[Mission],
++                             cancel: threading.Event, trace: List[str],
++                             routing: Optional[RoutingDecision],
++                             memory_ctx: str = "") -> AgentOutcome:
++        """Разговорный ответ напрямую: БЕЗ списка инструментов и JSON-плана.
++
++        Гейт ``classify_conversation`` уже уверенно определил, что действия
++        нет. Модель получает простой диалоговый промпт — она физически не
++        может «позвать» инструмент, потому что их имена ей не показаны.
++        Стриминг и фолбэк тиров — те же механизмы, что и в planner-пути.
++        """
++        if cancel.is_set():
++            return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
++
++        backend, used_tier = self._backend_for_routing(routing)
++        if backend is None:
++            return self._handle_model_unavailable(
++                goal, mission, trace,
++                MODEL_ERROR_PREFIX + "ни одна модель недоступна (ни облачная, ни локальный фолбэк)",
++            )
++        # Sprint 3 STEP 5.2: ответил не тот тир, что роутер выбрал изначально
++        # (breaker/недоступность) — это деградация, не маскируем её.
++        degraded = routing is not None and used_tier is not None and used_tier is not routing.tier
++        if mission is not None and used_tier is not None:
++            mission.model_used = used_tier.value
++            if degraded:
++                mission.metadata["degraded"] = True
++            mission.set_status(MissionStatus.ANALYZING, "разговорный ответ")
++
++        # Sprint 4: персона + факты профиля + память графа + тон — в system;
++        # bounded-история сессии — в messages (под бюджет TIER 1).
++        user = goal
++        system = self._build_conversation_prompt(memory_ctx, goal, backend)
++        history = self._session.get_recent()
++        budget = int(getattr(self._settings.limits, "context_budget_fast_tokens", 2000))
++        messages = fit_messages_to_budget(system, history, user, budget)
++
++        try:
++            text = self._stream_consume(backend, messages, system, extract_answer=False)
++        except (BackendUnavailable, BackendConfigError) as exc:
++            log.warning("Модель недоступна (%s) в разговоре, пробуем фолбэк: %s", used_tier, exc)
++            fb_policy = (
++                {"timeout": getattr(self._settings.limits, "fast_tier_timeout_sec", None),
++                 "max_retries": getattr(self._settings.limits, "fast_tier_max_retries", None)}
++                if routing is not None and routing.tier is Tier.FAST else None
++            )
++            fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier,
++                                                         policy_override=fb_policy)
++            if fb_backend is None:
++                return self._handle_model_unavailable(
++                    goal, mission, trace, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}")
++            backend, used_tier = fb_backend, fb_tier
++            degraded = True
++            if mission is not None:
++                mission.model_used = used_tier.value
++                mission.metadata["degraded"] = True
++            # Фолбэк мог привести на офлайн-модель (TIER 4) — персона
++            # честно говорит про ограниченный режим.
++            system = self._build_conversation_prompt(memory_ctx, goal, backend)
++            messages = fit_messages_to_budget(system, history, user, budget)
++            try:
++                text = self._stream_consume(backend, messages, system, extract_answer=False)
++            except Exception as exc2:
++                return self._handle_model_unavailable(
++                    goal, mission, trace, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}")
++
++        text = (text or "").strip() or "Я вас слушаю, сэр."
++        trace.append("режим: прямой разговор (без инструментов)")
++        if degraded:
++            trace.append(f"degraded: ответил {used_tier} вместо {routing.tier if routing else '?'}")
++            text = f"[degraded] {text}"
++        if mission is not None:
++            mission.set_progress(1.0, "ответ сформирован")
++        return AgentOutcome(text=text, verified=True, mode="conversation",
++                            trace=trace, degraded=degraded)
++
++    # ------------------------------------------------------------------ #
++    #  Sprint 4 — persona + memory сборка промпта
++    # ------------------------------------------------------------------ #
++
++    def _is_offline_backend(self, backend) -> bool:
++        """True, если бэкенд — локальная GGUF-модель (TIER 4, офлайн)."""
++        try:
++            from core.llm.local_qwen import LocalQwenBackend
++            return isinstance(backend, LocalQwenBackend)
++        except Exception:  # noqa: BLE001
++            return False
++
++    def _build_conversation_prompt(self, memory_ctx: str, goal: str,
++                                   backend) -> str:
++        """System prompt разговорного пути: персона + факты + тон + память.
++
++        Собирается ``persona.build_agent_system_prompt`` (Sprint 4 STEP 3).
++        Диалоговая природа пути дописывается явно: никаких инструментов.
++        """
++        from persona.system_prompt import build_agent_system_prompt
++
++        profile_ctx = ""
++        try:
++            profile_ctx = get_profile_context(self._settings)
++        except Exception as exc:  # noqa: BLE001
++            log.debug("Профиль недоступен: %s", exc)
++
++        prompt = build_agent_system_prompt(
++            self._settings,
++            tier="fast",
++            profile_ctx=profile_ctx,
++            memory_ctx=(memory_ctx or "")[:400],
++            tone=detect_tone(goal),
++            offline=self._is_offline_backend(backend),
++        )
++        return (
++            f"{prompt}\n"
++            "Это обычный диалог: никаких инструментов, файлов и команд — "
++            "просто ответь текстом. Не упоминай инструменты."
++        )
++
+     # ------------------------------------------------------------------ #
+     #  §8, §9, §29 — UNKNOWN != IMPOSSIBLE
+     # ------------------------------------------------------------------ #
+ 
++    def _handle_model_unavailable(self, goal: str, mission: Optional[Mission],
++                                  trace: List[str], plan_error: str) -> AgentOutcome:
++        """Сбой модели (таймаут/провайдер/ключ) — НЕ «не умею» и НЕ навык.
++
++        Это временная ошибка инфраструктуры: пользователю — короткая
++        дружелюбная фраза (без HTTP-кодов и трейсбеков), сырые детали —
++        только в лог. Черновик навыка (SkillForge) НЕ создаётся: навыки
++        фиксируются только для реальных «не умею», а не для сетевых сбоев.
++        """
++        detail = plan_error[len(MODEL_ERROR_PREFIX):].strip() or "модель недоступна"
++        log.warning("Модель недоступна при обработке цели: %s", detail)
++        trace.append(f"model unavailable: {detail}")
++        if mission is not None:
++            mission.note_error(detail)
++            mission.set_progress(1.0, "модель недоступна — ответ не сформирован")
++        return AgentOutcome(
++            text=MODEL_UNAVAILABLE_TEXT,
++            verified=False,
++            mode="model_error",
++            trace=trace,
++        )
++
+     def _handle_unknown(self, goal: str, caps: List[Capability],
+                         mission: Optional[Mission], trace: List[str],
+                         reason: str = "", attempted_tool: Optional[str] = None) -> AgentOutcome:
+@@ -969,6 +1389,77 @@ class Agent:
+             3. возвращаем честный ответ с планом исследования.
+         """
+         trace.append(f"unknown task path: {reason}")
++        # Sprint 9: a task class is resolved before generating another Python
++        # tool. Existing primitives are composed into a DAG and verified
++        # against desired state; only verified trajectories are learned.
++        try:
++            from core.capability_engine import (
++                CapabilityDefinition, CapabilityEngine, CapabilityKind,
++            )
++            capability_plan = self._capability_planner.plan(goal)
++            trace.append(f"capability acquisition={capability_plan.acquisition}")
++            if capability_plan.steps:
++                capability_engine = CapabilityEngine(
++                    self._capability_catalog, self._registry,
++                    context=ToolContext(settings=self._settings),
++                )
++                capability_report = capability_engine.execute(capability_plan, max_repairs=2)
++                trace.extend(f"capability: {item}" for item in capability_report.action_trace)
++                if capability_report.needs_confirmation:
++                    return AgentOutcome(
++                        text="Сэр, для следующего системного изменения требуется подтверждение.",
++                        verified=False, needs_confirmation=True,
++                        risk=assess_risk(goal), mode="confirmation_required", trace=trace,
++                    )
++                if capability_report.completed:
++                    return AgentOutcome(
++                        text="Готово. Проверяйте, сэр.", verified=True,
++                        tool_used=capability_plan.capability_id,
++                        mode="capability", trace=trace,
++                    )
++                self._shadow.backlog.add(
++                    capability_plan.capability_id or _skill_name_from_goal(goal),
++                    priority=0.95,
++                    reason="reactive capability execution or verification failed",
++                )
++                trace.append("failed capability queued for shadow repair")
++            elif capability_plan.acquisition == "research":
++                experimental_id = _skill_name_from_goal(goal)
++                self._capability_catalog.save(CapabilityDefinition(
++                    id=experimental_id, description=goal,
++                    kind=CapabilityKind.EXPERIMENTAL, confidence=0.3,
++                    success_criteria=list(capability_plan.requirements),
++                ))
++                self._shadow.backlog.add(
++                    experimental_id, priority=0.9,
++                    reason="reactive unknown request needs capability research",
++                )
++                trace.append("structured capability research queued")
++        except Exception as exc:
++            trace.append(f"capability engine skipped: {type(exc).__name__}")
++
++        # Sprint 8: for a low-risk novel request, Shadow Engine may already
++        # have a verified local tool ready (or create one with Qwen3-1.7B).
++        # The generated-tool sandbox permits only side-effect-free stdlib code;
++        # anything risky remains on the ordinary confirmation path below.
++        on_demand_risk = assess_risk(goal)
++        if not on_demand_risk.needs_confirmation:
++            try:
++                prepared = self._shadow.prepare_on_demand(goal)
++                if prepared is not None:
++                    trace.append(f"shadow on-demand: {prepared.name} ({prepared.status}, {prepared.confidence}%)")
++                    if prepared.status == "registered":
++                        result = execute_tool(
++                            self._registry, prepared.name, {"request": goal},
++                            ToolContext(settings=self._settings), max_retries=0,
++                        )
++                        if result.ok:
++                            return AgentOutcome(
++                                text=str(result.output or "Сейчас разберусь — способ подготовлен."),
++                                verified=True, tool_used=prepared.name, mode="tool", trace=trace,
++                            )
++            except Exception as exc:  # Generated tools never break Active mode.
++                trace.append(f"shadow on-demand skipped: {type(exc).__name__}")
+         if mission is not None:
+             mission.note_error(reason or "нет готового способа")
+             mission.metadata["unknown_task"] = True
+@@ -1007,8 +1498,9 @@ class Agent:
+         why = f" Причина: {reason}." if reason else ""
+         available = ", ".join(c.name for c in caps) if caps else "нет подходящих"
+ 
++        from core.shadow import active_mode_message
+         text = (
+-            f"Готового способа для этой задачи у меня пока нет — я ещё этому не научен.{attempted}{why}\n"
++            f"{active_mode_message(goal)}{attempted}{why}\n"
+             f"Доступные сейчас инструменты: {available}.\n"
+             f"Что я могу сделать дальше: изучить документацию и способ решения, "
+             f"собрать процедуру, проверить её на безопасном примере и сохранить как навык."
+@@ -1031,10 +1523,15 @@ class Agent:
+     # ------------------------------------------------------------------ #
+ 
+     def _get_local_backend(self):
+-        """Локальная Qwen3-4B — быстрый мозг (§16). None, если недоступна."""
++        """Локальная Qwen3-4B — офлайн-мозг TIER 4 (§16, Sprint 3).
++
++        Строится НАПРЯМУЮЮ из ``settings.local_model`` (GGUF), а не через
++        FAST-тир: провайдер FAST теперь внешний (am/free), и старый путь
++        молча возвращал ту же удалённую модель вместо офлайн-фолбэка.
++        None, если GGUF недоступна.
++        """
+         try:
+-            from core.llm import Tier, get_llm_backend
+-            backend = get_llm_backend(self._settings, Tier.FAST)
++            backend = get_offline_backend(self._settings)
+             if not backend.is_available():
+                 log.warning("Локальная модель недоступна: %s", backend.unavailable_reason())
+                 return None
+diff --git a/core/capabilities.py b/core/capabilities.py
+index 48c42e8..bcf9949 100644
+--- a/core/capabilities.py
++++ b/core/capabilities.py
+@@ -66,10 +66,11 @@ class RiskLevel(str, Enum):
+     LOW = "low"
+     MEDIUM = "medium"
+     HIGH = "high"
++    CRITICAL = "critical"
+ 
+     @property
+     def requires_confirmation(self) -> bool:
+-        return self is RiskLevel.HIGH
++        return self in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+ 
+ 
+ class Speed(str, Enum):
+diff --git a/core/llm/factory.py b/core/llm/factory.py
+index 4087bf3..7d94baa 100644
+--- a/core/llm/factory.py
++++ b/core/llm/factory.py
+@@ -27,6 +27,7 @@ from core.utils.logger import get_logger
+ 
+ __all__ = [
+     "get_llm_backend",
++    "get_offline_backend",
+     "get_embedding_backend",
+     "clear_backend_cache",
+     "warm_up_backends",
+@@ -35,8 +36,8 @@ __all__ = [
+ 
+ log = get_logger(__name__)
+ 
+-#: Кэш: (provider, model_id, mode) -> backend
+-_cache: Dict[Tuple[str, str, str], LLMBackend] = {}
++#: Кэш: (provider, model_id, mode, timeout, retries) -> backend
++_cache: Dict[Tuple[str, str, str, Any, Any], LLMBackend] = {}
+ _cache_lock = threading.RLock()
+ 
+ #: Ключ кэша для эмбеддингов, чтобы не путать с чат-режимом той же модели.
+@@ -49,39 +50,34 @@ def _cache_key(provider: str, model_id: str, mode: str) -> Tuple[str, str, str]:
+ 
+ 
+ def _build_backend(settings: Settings, provider: str, model_id: str,
+-                   mode: str) -> LLMBackend:
++                   mode: str, policy: Optional[Dict[str, Any]] = None,
++                   task_role: Tier = Tier.FAST) -> LLMBackend:
+     """Создаёт новый бэкенд без обращения к кэшу.
+ 
++    ``policy`` — опциональные переопределения таймаута/попыток для
++    удалённых бэкендов (см. :func:`_tier_policy`).
++
+     Raises:
+         BackendConfigError: конфигурация неполна.
+     """
+     if provider == LOCAL_PROVIDER:
+-        # Определяем тир по model_id (если это локальный тир)
+-        # model_id содержит логическое имя (например, "qwen-4b-local" или "qwen-coder-local")
+-        # Нужно найти, какому тиру соответствует этот model_id
+-        from core.llm.tiers import resolve_tier, tier_to_backend_key
+-        # Ищем тир, у которого model_tiers[key] == model_id
+-        tier_for_model = None
+-        for tier_key in ("fast", "analyst", "coder", "architect"):
+-            if settings.model_tiers.get(tier_key) == model_id:
+-                tier_for_model = tier_key
+-                break
+-
+-        # П1 §1.1: тяжёлую локальную модель (7B-coder/architect) БОЛЬШЕ НЕ
+-        # грузим «просто так» на локальном железе. Локальный провайдер
+-        # разрешён ТОЛЬКО для FAST-тира (лицо Qwen 4B). Любая попытка
+-        # поднять coder/architect локально — жёсткая ошибка конфигурации,
+-        # чтобы совет мудрецов честно деградировал до FAST, а не грузил 7B.
+-        if tier_for_model is not None and tier_for_model != "fast":
++        role = resolve_tier(task_role)
++        local_cfg = settings.get_local_config(role)
++        local_path = local_cfg.resolved_gguf_path
++
++        # In online mode a local heavy tier is still an invalid legacy
++        # configuration. Offline mode is different: the role remains CODER
++        # while the best existing local model provides that role.
++        if role is not Tier.FAST and not bool(getattr(settings, "offline_mode", False)):
+             raise BackendConfigError(
+-                f"Локальный провайдер для тира '{tier_for_model}' запрещён (П1 §1.1): "
++                f"Локальный провайдер для тира '{role.value}' запрещён (П1 §1.1): "
+                 f"тяжёлые локальные модели удалены из эскалации. Используйте "
+                 f"удалённого провайдера для coder/architect."
+             )
+-
+-        local_cfg = settings.get_local_config(tier_for_model) if tier_for_model else settings.local_model
++        if local_path is None or not local_path.is_file():
++            local_cfg = settings.local_model
+         
+-        return LocalQwenBackend(
++        backend = LocalQwenBackend(
+             gguf_path=local_cfg.resolved_gguf_path,
+             model_id=model_id,
+             n_gpu_layers=local_cfg.n_gpu_layers,
+@@ -94,10 +90,36 @@ def _build_backend(settings: Settings, provider: str, model_id: str,
+             verbose=local_cfg.verbose,
+             embedding=(mode == _MODE_EMBED),
+         )
+-    return RemoteAPIBackend.from_settings(settings, provider, model_id=model_id)
++        backend.task_role = role.value
++        return backend
++    return RemoteAPIBackend.from_settings(settings, provider, model_id=model_id,
++                                          **(policy or {}))
++
++
++def _tier_policy(settings: Settings, resolved_tier: Tier) -> Dict[str, Any]:
++    """Политика таймаута/попыток для тира.
++
++    FAST-тир обслуживает разговорные задачи: сбой провайдера должен
++    признаваться быстро (короткий таймаут, минимум попыток), а не
++    3×15 c ожидания перед честным фолбэком. CODER/ARCHITECT — глубокая
++    работа (код/архитектура, Sprint 3 TIER 3): им наоборот нужен щедрый
++    бюджет. ANALYST работает на общих ``limits.response_timeout_sec``.
++    """
++    limits = getattr(settings, "limits", None)
++    if resolved_tier is Tier.FAST and limits is not None:
++        return dict(
++            timeout=getattr(limits, "fast_tier_timeout_sec", None),
++            max_retries=getattr(limits, "fast_tier_max_retries", None),
++        )
++    if resolved_tier in (Tier.CODER, Tier.ARCHITECT) and limits is not None:
++        return dict(
++            timeout=getattr(limits, "deep_tier_timeout_sec", None),
++        )
++    return {}
+ 
+ 
+-def get_llm_backend(settings: Settings, tier: Union[str, Tier] = Tier.FAST) -> LLMBackend:
++def get_llm_backend(settings: Settings, tier: Union[str, Tier] = Tier.FAST,
++                    *, policy_override: Optional[Dict[str, Any]] = None) -> LLMBackend:
+     """Возвращает бэкенд для указанного тира совета мудрецов.
+ 
+     Инстансы кэшируются: повторный вызов с тем же тиром отдаёт тот же объект.
+@@ -105,6 +127,9 @@ def get_llm_backend(settings: Settings, tier: Union[str, Tier] = Tier.FAST) -> L
+     Args:
+         settings: конфигурация проекта.
+         tier: тир ('fast' / 'analyst' / 'coder' / 'architect' или ``Tier``).
++        policy_override: принудительная политика таймаута/попыток для
++            удалённого бэкенда (например, короткая «разговорная» политика
++            для фолбэка простой задачи). ``None`` — политика тира.
+ 
+     Returns:
+         Реализация :class:`LLMBackend`.
+@@ -118,24 +143,80 @@ def get_llm_backend(settings: Settings, tier: Union[str, Tier] = Tier.FAST) -> L
+     provider = settings.get_provider(resolved)
+     model_id = settings.get_model_id(resolved) or ""
+ 
++    if provider == LOCAL_PROVIDER and bool(getattr(settings, "offline_mode", False)):
++        selected = settings.get_local_config(resolved).resolved_gguf_path
++        if selected is None or not selected.is_file():
++            selected = settings.local_model.resolved_gguf_path
++        if selected is not None:
++            model_id = f"local-{resolved.value}:{selected.stem}"
++
+     if not model_id:
+         raise BackendConfigError(
+             f"Для тира '{tier_key}' не задан model-id "
+             f"(settings.json -> model_tiers.{tier_key})"
+         )
+ 
+-    key = _cache_key(provider, model_id, _MODE_CHAT)
++    policy = _tier_policy(settings, resolved)
++    if policy_override:
++        policy = {k: v for k, v in policy_override.items() if v is not None}
++    # Политика входит в ключ кэша: одна и та же модель в разных тирах
++    # может работать с разными таймаутами/попытками.
++    key = (provider.strip().lower(), (model_id or "").strip(), _MODE_CHAT,
++           policy.get("timeout"), policy.get("max_retries"))
+     with _cache_lock:
+         cached = _cache.get(key)
+         if cached is not None:
+             return cached
+ 
+-        backend = _build_backend(settings, provider, model_id, _MODE_CHAT)
++        backend = _build_backend(settings, provider, model_id, _MODE_CHAT, policy,
++                                 task_role=resolved)
+         _cache[key] = backend
+         log.info("Создан бэкенд для тира '%s': %s", tier_key, backend.name)
+         return backend
+ 
+ 
++def get_offline_backend(settings: Settings) -> LLMBackend:
++    """Настоящий офлайн-бэкенд TIER 4: локальная Qwen 4B (Sprint 3).
++
++    В отличие от ``get_llm_backend(settings, Tier.FAST)``, НЕ зависит от
++    того, какой провайдер сейчас обслуживает FAST-тир (ам/bitnet/...):
++    локальная GGUF-модель строится напрямую из ``settings.local_model`` и
++    работает без сети. Это гарантированный последний фолбэк, когда все
++    внешние провайдеры лежат или разомкнуты circuit breaker'ом.
++
++    Raises:
++        BackendConfigError: файл GGUF не задан или не существует.
++    """
++    local_cfg = settings.local_model
++    gguf = local_cfg.resolved_gguf_path
++    if gguf is None or not gguf.is_file():
++        raise BackendConfigError(
++            f"Офлайн-фолбэк недоступен: файл GGUF не найден "
++            f"({gguf or 'путь не задан'}; settings.json -> local_model.gguf_path)"
++        )
++    model_id = f"local:{gguf.stem}"
++    key = (LOCAL_PROVIDER, model_id, _MODE_CHAT, None, None)
++    with _cache_lock:
++        cached = _cache.get(key)
++        if cached is not None:
++            return cached
++        backend = LocalQwenBackend(
++            gguf_path=gguf,
++            model_id=model_id,
++            n_gpu_layers=local_cfg.n_gpu_layers,
++            n_ctx=local_cfg.n_ctx,
++            n_threads=local_cfg.effective_threads,
++            n_batch=local_cfg.n_batch,
++            temperature=local_cfg.temperature,
++            max_tokens=local_cfg.max_tokens,
++            chat_format=local_cfg.chat_format,
++            verbose=local_cfg.verbose,
++        )
++        _cache[key] = backend
++        log.info("Создан офлайн-бэкенд TIER 4: %s", backend.name)
++        return backend
++
++
+ def get_embedding_backend(settings: Settings) -> LLMBackend:
+     """Возвращает бэкенд для построения эмбеддингов.
+ 
+diff --git a/core/model_router.py b/core/model_router.py
+index 6350e55..361d59d 100644
+--- a/core/model_router.py
++++ b/core/model_router.py
+@@ -35,6 +35,7 @@ __all__ = [
+     "RoutingDecision",
+     "ModelRouter",
+     "estimate_complexity",
++    "classify_conversation",
+ ]
+ 
+ log = get_logger(__name__)
+@@ -189,6 +190,96 @@ def estimate_complexity(goal: str, context_tokens: int = 0,
+     )
+ 
+ 
++# --------------------------------------------------------------------------- #
++#  Sprint 2 — CONVERSATION vs ACTION (офлайн, консервативно)
++# --------------------------------------------------------------------------- #
++
++#: Явные глаголы действия. Их наличие = запрос уходит в обычный planner-путь
++#: (там свой risk gate и валидация) — гейт разговора НЕ срабатывает.
++_ACTION_VERB_RE = re.compile(
++    r"\b(открой|открыть|открой|закрой|закрыть|запусти|запустить|включи|выключи|"
++    r"найди|найти|поищи|поиск|искать|прочитай|прочитать|запиши|сохрани|удали|"
++    r"создай|перенеси|переименуй|напомни|поставь|включи|скачай|загрузи|"
++    r"покажи|выведи|посмотри|проверь|запусти|останови|отмени|"
++    r"open|close|launch|find|search|read|write|save|delete|create|show)\b",
++    re.IGNORECASE,
++)
++
++#: Доменные существительные без глагола, которые всё равно означают действие
++#: («погода сегодня» = вызвать инструмент погоды). Консервативно -> planner.
++_DOMAIN_NOUN_RE = re.compile(
++    r"(?:\bпогод|\bпрогноз\w*|\bтемператур[аы]\b(?:\s+(?:на улице|сейчас|за окном))?|"
++    r"\bнапоминани\w*|\bзаметк\w*|\bстатус\w*\s+систем|\bсистемн\w*\s+статус|"
++    r"\bгромкост\w*|\bяркост\w*|\bбатаре\w*|\bаккумулятор\w*|\bпроцессор\w*|\bcpu\b)",
++    re.IGNORECASE,
++)
++
++#: Разговорные маркеры: творчество, объяснения, smalltalk, мнение.
++_CONVERSATION_HINT_RE = re.compile(
++    r"\b(расскажи|расскажи-ка|объясни|объяснение|почему|зачем|отчего|что такое|"
++    r"кто так(ой|ая|ое)|кто был|придумай|сочини|напиши (сказку|историю|стих|"
++    r"стихотворение|эссе|письмо|поздравление)|анекдот|шутку|сказку|историю|"
++    r"как дела|как ты|как жизнь|поговорим|поболтаем|твоё мнение|что думаешь|"
++    r"тебе нравится|тебе нравится|расскажи мне|мне скучно|мне грустно|"
++    r"спасибо|благодарю|привет|здравствуй|доброе утро|добрый день|добрый вечер)\b",
++    re.IGNORECASE,
++)
++
++
++def classify_conversation(goal: str, intent: str) -> tuple:
++    """Консервативный офлайн-гейт «разговор vs действие» (Sprint 2).
++
++    Возвращает ``(is_conversation, reason)``. True — ТОЛЬКО когда офлайн-сигналы
++    уверенно говорят «это разговор, действий нет»: тогда агент отвечает напрямую,
++    БЕЗ списка инструментов и без JSON-плана (слабая fast-модель больше не может
++    галлюцинировать вызов инструмента).
++
++    Приоритет безопасности (Sprint 2 STEP 4):
++      1. не запускать ненужный tool;
++      2. не потерять настоящий action;
++      3. не ломать существующие команды.
++    Поэтому любое сомнение (явный глагол действия, intent файла/приложения/
++      системы/медиа) отправляет запрос в существующий planner-путь.
++
++    Args:
++        goal: текст запроса.
++        intent: интент из ``resolve_keyword_tool`` (offline).
++    """
++    text = (goal or "").strip()
++    if not text:
++        return False, ""
++
++    # Явный глагол действия — точно не разговор (даже если есть «расскажи»:
++    # «расскажи и найди» — действие).
++    if _ACTION_VERB_RE.search(text):
++        return False, ""
++
++    # Доменное существительное без глагола («погода сегодня») — действие
++    # над конкретной операционной зоной: консервативно в planner.
++    if _DOMAIN_NOUN_RE.search(text):
++        return False, ""
++
++    # Smalltalk-обращение («привет», «как дела») — точно разговор.
++    if _TRIVIAL_RE.match(text):
++        return True, "smalltalk-обращение"
++
++    # Интент, означающий конкретную операционную зону (файл/приложение/
++    # система/медиа/браузер) — консервативно в planner.
++    if intent not in ("none", "web"):
++        return False, ""
++
++    # Разговорный маркер без глаголов действия — разговор.
++    if _CONVERSATION_HINT_RE.search(text):
++        return True, "вопрос/творчество без действия"
++
++    # Короткая реплика без всяких маркеров («мне скучно») — разговор;
++    # длинное неявное — в planner (пусть решает модель с инструментами).
++    if intent == "none" and len(text.split()) <= 8:
++        return True, "короткая реплика без признаков действия"
++
++    return False, ""
++
++
+ # --------------------------------------------------------------------------- #
+ #  Решение о маршрутизации
+ # --------------------------------------------------------------------------- #
+@@ -272,6 +363,19 @@ class ModelRouter:
+             target = Tier.ANALYST
+             reason = f"нужен анализ/рассуждение (score={score:.2f})"
+ 
++        # Sprint 9 P1: offline — это доступность модели, не роль задачи.
++        # CODER/ANALYST/ARCHITECT сохраняются, а factory уже выбирает для
++        # этой роли лучшую доступную локальную GGUF. Так кодовая задача не
++        # попадает в conversational FAST pipeline.
++        if bool(getattr(self._settings, "offline_mode", False)):
++            return RoutingDecision(
++                tier=target,
++                complexity=cx,
++                reason=f"{reason}; offline model availability",
++                fallback_chain=[],
++                forced_local=True,
++            )
++
+         chain = self._build_chain(target)
+         if not chain:
+             # Ни один внешний тир не настроен — честная деградация (§17).
+@@ -290,6 +394,34 @@ class ModelRouter:
+             fallback_chain=chain[1:],
+         )
+ 
++    # ------------------------------------------------------------------ #
++    def route_for_planning(self, routing: RoutingDecision) -> RoutingDecision:
++        """TIER 2 (Sprint 3): маршрут для генерации JSON-плана.
++
++        Планировщику нужна НАДЁЖНОСТЬ tool calling'а, а не скорость: слабая
++        FAST-модель (am/free) регулярно ломает JSON и галлюцинирует имена
++        инструментов, сжигая попытки §13. Поэтому если роутер отправил
++        задачу на FAST, планирование поднимается до первого доступного
++        внешнего тира (обычно ANALYST). Разговор (TIER 1) остаётся на FAST —
++        там JSON не нужен. Офлайн-режим (forced_local) не трогаем.
++        """
++        if routing.forced_local or routing.tier is not Tier.FAST:
++            return routing
++        for tier in ESCALATION_ORDER[1:]:
++            if not self._is_available(tier):
++                continue
++            rest = [t for t in ESCALATION_ORDER
++                    if t is not tier and t is not Tier.FAST and self._is_available(t)]
++            return RoutingDecision(
++                tier=tier,
++                complexity=routing.complexity,
++                reason=(f"{routing.reason}; TIER 2: JSON-план — минимум "
++                        f"'{tier.value}' (надёжный tool calling)"),
++                fallback_chain=rest + [Tier.FAST],
++            )
++        # Внешних тиров нет вообще — остаёмся на FAST (честная деградация §17).
++        return routing
++
+     # ------------------------------------------------------------------ #
+     def _build_chain(self, target: Tier) -> List[Tier]:
+         """Цепочка доступных тиров: целевой, затем соседние, затем локальный."""
+diff --git a/core/orchestrator.py b/core/orchestrator.py
+index ee0310e..3fab719 100644
+--- a/core/orchestrator.py
++++ b/core/orchestrator.py
+@@ -80,7 +80,13 @@ class Orchestrator:
+         # Агент исполняет миссии, TaskRuntime даёт им асинхронную жизнь.
+         # НЕТ watchdog по умолчанию: миссия живёт столько, сколько нужно (§4).
+         self._agent = Agent(settings, council=self._council, model_router=self._model_router)
+-        self._runtime = TaskRuntime(default_watchdog_sec=None)
++        # Shadow Engine is owned by Agent but its cadence belongs to the
++        # orchestrator lifecycle, alongside other background services.
++        self._shadow = self._agent._shadow
++        self._runtime = TaskRuntime(
++            default_watchdog_sec=None,
++            persistence_dir=settings.data_dir / "missions",
++        )
+ 
+         # TTS
+         self._tts = PiperTTS(settings)
+@@ -109,6 +115,24 @@ class Orchestrator:
+     #  Публичный API
+     # --------------------------------------------------------------------- #
+ 
++    def install_stream_sink(self, sink) -> None:
++        """Sprint 1: проброс stream-sink в агент для ТЕКУЩЕГО потока запроса."""
++        install = getattr(self._agent, "install_stream_sink", None)
++        if callable(install):
++            install(sink)
++
++    def clear_stream_sink(self) -> None:
++        clear = getattr(self._agent, "clear_stream_sink", None)
++        if callable(clear):
++            clear()
++
++    def consume_streamed_mission(self):
++        """Sprint 1: task_id миссии, стримленной в текущем потоке (или None)."""
++        consume = getattr(self._agent, "consume_streamed_mission", None)
++        if callable(consume):
++            return consume()
++        return None
++
+     def start(self) -> None:
+         """Запускает все фоновые сервисы."""
+         with self._lock:
+@@ -131,6 +155,8 @@ class Orchestrator:
+             # Proactive
+             self._proactor.start()
+             self._scheduler.start()
++            shadow_cfg = getattr(self._settings, "shadow", None)
++            self._shadow.start(interval_sec=int(getattr(shadow_cfg, "interval_sec", 300)))
+ 
+             log.info("Оркестратор запущен")
+ 
+@@ -143,6 +169,7 @@ class Orchestrator:
+ 
+         self._proactor.stop()
+         self._scheduler.stop()
++        self._shadow.stop()
+         self._tts_queue.stop(wait=True)
+ 
+         log.info("Оркестратор остановлен")
+@@ -382,6 +409,15 @@ class Orchestrator:
+         """Отменяет миссию по ID (§24)."""
+         return self._runtime.cancel(task_id)
+ 
++    def pause_mission(self, task_id: str) -> bool:
++        return self._runtime.pause(task_id)
++
++    def skip_mission_step(self, task_id: str) -> bool:
++        return self._runtime.skip_step(task_id)
++
++    def explain_mission_step(self, task_id: str) -> str:
++        return self._runtime.explain_current_step(task_id)
++
+     def get_mission(self, task_id: str) -> Optional[Mission]:
+         """Возвращает миссию по ID (для UI/статуса)."""
+         return self._runtime.get(task_id)
+@@ -534,4 +570,4 @@ class Orchestrator:
+ 
+     @property
+     def proactor(self) -> Proactor:
+-        return self._proactor
+\ No newline at end of file
++        return self._proactor
+diff --git a/core/safety.py b/core/safety.py
+index 05c3065..5f781d9 100644
+--- a/core/safety.py
++++ b/core/safety.py
+@@ -43,6 +43,12 @@ log = get_logger(__name__)
+ #  §21 — Оценка риска
+ # --------------------------------------------------------------------------- #
+ 
++#: CRITICAL is reserved for irreversible system/security modification.
++_CRITICAL_RISK_PATTERNS: List[tuple[str, str]] = [
++    (r"format\s+[a-z]:|форматир\w*\s+(диск|раздел)|bootloader|загрузчик", "необратимое изменение диска"),
++    (r"system32|удал\w*\s+системн\w*\s+файл|disable\w*\s+(uac|defender)", "критическое изменение системы"),
++]
++
+ #: Признаки HIGH-risk намерения в тексте цели (рус + англ).
+ _HIGH_RISK_PATTERNS: List[tuple[str, str]] = [
+     (r"удал|снес|сотри|очист|delete|remove|wipe|format|rmdir|rm\s+-rf", "удаление данных"),
+@@ -113,7 +119,8 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
+ 
+     def bump(new: RiskLevel, why: str) -> None:
+         nonlocal level
+-        order = {RiskLevel.LOW: 0, RiskLevel.MEDIUM: 1, RiskLevel.HIGH: 2}
++        order = {RiskLevel.LOW: 0, RiskLevel.MEDIUM: 1,
++                 RiskLevel.HIGH: 2, RiskLevel.CRITICAL: 3}
+         if order[new] > order[level]:
+             level = new
+         if why and why not in reasons:
+@@ -129,6 +136,9 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
+ 
+     # 2) Текст цели.
+     text = (goal or "").lower()
++    for pattern, why in _CRITICAL_RISK_PATTERNS:
++        if re.search(pattern, text):
++            bump(RiskLevel.CRITICAL, why)
+     for pattern, why in _HIGH_RISK_PATTERNS:
+         if re.search(pattern, text):
+             bump(RiskLevel.HIGH, why)
+@@ -139,6 +149,9 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
+     # 3) Аргументы.
+     arg_text = " ".join(str(v) for v in (arguments or {}).values()).lower()
+     if arg_text:
++        for pattern, why in _CRITICAL_RISK_PATTERNS:
++            if re.search(pattern, arg_text):
++                bump(RiskLevel.CRITICAL, f"{why} (в аргументах)")
+         for pattern, why in _HIGH_RISK_PATTERNS:
+             if re.search(pattern, arg_text):
+                 bump(RiskLevel.HIGH, f"{why} (в аргументах)")
+diff --git a/core/task_runtime.py b/core/task_runtime.py
+index b802e82..65a70f8 100644
+--- a/core/task_runtime.py
++++ b/core/task_runtime.py
+@@ -38,12 +38,14 @@ from __future__ import annotations
+ 
+ import collections
+ import itertools
++import json
+ import threading
+ import time
+ import uuid
+ from dataclasses import dataclass, field
+ from datetime import datetime, timezone
+ from enum import Enum
++from pathlib import Path
+ from typing import Any, Callable, Dict, List, Optional
+ 
+ from core.utils.logger import get_logger
+@@ -356,7 +358,8 @@ class TaskRuntime:
+     """
+ 
+     def __init__(self, default_watchdog_sec: Optional[float] = None,
+-                 *, max_concurrent: int = 2) -> None:
++                 *, max_concurrent: int = 2,
++                 persistence_dir: Optional[str | Path] = None) -> None:
+         """
+         Args:
+             default_watchdog_sec: реальный потолок на ВСЮ миссию (сек).
+@@ -381,6 +384,11 @@ class TaskRuntime:
+         self._active_count = 0
+         # Очередь ожидающих миссий: (mission, runner, cancel, watchdog)
+         self._queue: "collections.deque" = collections.deque()
++        self._persistence_dir = Path(persistence_dir) if persistence_dir else None
++        if self._persistence_dir is not None:
++            self._persistence_dir.mkdir(parents=True, exist_ok=True)
++            self._restore_persisted()
++            self._bus.subscribe(self._persist_event)
+ 
+     # ------------------------------------------------------------------ #
+     #  Доступ к шине событий
+@@ -584,6 +592,48 @@ class TaskRuntime:
+             return True
+         return False
+ 
++    def pause(self, task_id: str) -> bool:
++        """Marks a mission paused; cooperative runners inspect this state."""
++        mission = self.get(task_id)
++        if mission is None or mission.status.is_terminal:
++            return False
++        mission.set_status(MissionStatus.PAUSED, "paused by user")
++        return True
++
++    def skip_step(self, task_id: str) -> bool:
++        """Skips only the current pending plan step and preserves the mission."""
++        mission = self.get(task_id)
++        if mission is None:
++            return False
++        for step in mission.plan:
++            if step.get("status") == "pending":
++                step["status"] = "skipped"
++                mission._touch()
++                mission.emit(EVENT_STEP_COMPLETED, payload={
++                    "step": step.get("description"), "status": "skipped",
++                })
++                return True
++        return False
++
++    def explain_current_step(self, task_id: str) -> str:
++        """Returns an action trace item, never hidden model reasoning."""
++        mission = self.get(task_id)
++        if mission is None:
++            return "mission not found"
++        for step in mission.plan:
++            if step.get("status") == "pending":
++                return str(step.get("description") or step.get("tool") or "pending")
++        return "completed"
++
++    def restore_mission(self, mission: Mission) -> Mission:
++        """Registers an externally reconstructed mission for continuation."""
++        mission._bus = self._bus
++        with self._lock:
++            self._missions[mission.task_id] = mission
++            self._cancel.setdefault(mission.task_id, threading.Event())
++        self._persist(mission)
++        return mission
++
+     def wait(self, task_id: str, timeout: Optional[float] = None) -> Optional[Mission]:
+         """Блокирует до терминального статуса миссии или до timeout.
+ 
+@@ -629,3 +679,49 @@ class TaskRuntime:
+         with self._lock:
+             th = self._threads.get(task_id)
+         return th is not None and th.is_alive()
++
++    # ------------------------------------------------------------------ #
++    #  Sprint 9 — local mission persistence
++    # ------------------------------------------------------------------ #
++    def _persist_event(self, event: TaskEvent) -> None:
++        mission = self.get(event.task_id)
++        if mission is not None:
++            self._persist(mission)
++
++    def _persist(self, mission: Mission) -> None:
++        if self._persistence_dir is None:
++            return
++        path = self._persistence_dir / f"{mission.task_id}.json"
++        tmp = path.with_suffix(".tmp")
++        tmp.write_text(json.dumps(mission.to_dict(), ensure_ascii=False, indent=2),
++                       encoding="utf-8")
++        tmp.replace(path)
++
++    def _restore_persisted(self) -> None:
++        if self._persistence_dir is None:
++            return
++        for path in self._persistence_dir.glob("*.json"):
++            try:
++                data = json.loads(path.read_text(encoding="utf-8"))
++                mission = Mission(
++                    task_id=data["task_id"], goal=data["goal"],
++                    status=MissionStatus(data.get("status", "queued")),
++                    created_at=data.get("created_at", _utcnow_iso()),
++                    updated_at=data.get("updated_at", _utcnow_iso()),
++                    result=data.get("result"), error=data.get("error"),
++                    plan=list(data.get("plan") or []), metadata=dict(data.get("metadata") or {}),
++                    progress=float(data.get("progress", 0.0)),
++                    current_step=data.get("current_step"), model_used=data.get("model_used"),
++                    tools_used=list(data.get("tools_used") or []),
++                    errors=list(data.get("errors") or []), verification=data.get("verification"),
++                    acknowledgement=data.get("acknowledgement"),
++                )
++                mission._bus = self._bus
++                self._missions[mission.task_id] = mission
++                self._cancel[mission.task_id] = threading.Event()
++            except (OSError, ValueError, TypeError, KeyError):
++                continue
++
++
++def _utcnow_iso() -> str:
++    return datetime.now(timezone.utc).isoformat()
+diff --git a/tests/test_p1_sprint.py b/tests/test_p1_sprint.py
+index 71da603..4a01e53 100644
+--- a/tests/test_p1_sprint.py
++++ b/tests/test_p1_sprint.py
+@@ -93,14 +93,14 @@ def test_p1_runtime_cancel_queued():
+ # --------------------------------------------------------------------------- #
+ 
+ def test_p1_no_local_heavy_escalation(monkeypatch):
+-    """Фабрика НЕ строит локальный бэкенд для coder/architect (П1 §1.1).
++    """Offline CODER keeps its role while reusing the configured local GGUF.
+ 
+-    Локальный провайдер разрешён ТОЛЬКО для FAST-тира. Любая попытка
+-    поднять тяжёлую локальную модель (7B) запрещена — совет мудрецов
+-    должен честно деградировать до FAST, а не грузить 7B.
++    Sprint 9 separates task role from model availability: no legacy heavy
++    coder model is loaded, and the task does not become conversational FAST.
+     """
+     from config import load_config
+-    from core.llm import BackendConfigError, get_llm_backend
++    from core.llm import get_llm_backend
++    from core.llm.factory import clear_backend_cache
+     from core.llm.tiers import Tier
+ 
+     settings = load_config()
+@@ -108,18 +108,17 @@ def test_p1_no_local_heavy_escalation(monkeypatch):
+     # для coder = 'local' через setattr (симуляция старой/сломанной конфигурации).
+     monkeypatch.setattr(settings.tier_providers, "coder", "local")
+     settings.model_tiers.coder = "qwen-coder-local"
+-    # gguf_path пуст (как и должно быть после П1) — но сам факт local-провайдера
+-    # для coder уже должен вызывать ошибку конфигурации.
+-    with pytest.raises(BackendConfigError):
+-        get_llm_backend(settings, Tier.CODER)
++    clear_backend_cache()
++    coder = get_llm_backend(settings, Tier.CODER)
++    assert coder.task_role == "coder"
++    assert coder.gguf_path == settings.local_model.resolved_gguf_path
+ 
+     # FAST-тир с локальным провайдером — разрешён (лицо Qwen 4B).
+     # (Не падает на BackendConfigError по причине local-provider;
+     #  может упасть только если GGUF реально не найден — это норма офлайн-теста.)
+-    try:
+-        get_llm_backend(settings, Tier.FAST)
+-    except BackendConfigError:
+-        pytest.fail("FAST-тир с локальным провайдером не должен падать на local-provider")
++    fast = get_llm_backend(settings, Tier.FAST)
++    assert fast.task_role == "fast"
++    clear_backend_cache()
+ 
+ 
+ def test_p1_council_escalate_no_local_heavy():
+--- /dev/null
++++ b/core/capability_engine.py
+@@ -0,0 +1,695 @@
++"""Sprint 9 Capability Engine built above the existing Tool Registry.
++
++The module stores task-class capabilities and successful episodes, composes
++existing primitive tools into a DAG, verifies desired state, performs targeted
++repair, and persists resumable mission state. It deliberately reuses
++``execute_tool``, ``RiskAssessment`` and the existing tool passports.
++"""
++from __future__ import annotations
++
++import json
++import re
++import shutil
++import threading
++import time
++import uuid
++from dataclasses import asdict, dataclass, field
++from datetime import datetime, timezone
++from enum import Enum
++from pathlib import Path
++from typing import Any, Callable, Iterable, Optional
++
++from core.actions.base import ActionResult, ToolContext
++from core.actions.executor import execute_tool
++from core.actions.registry import ToolRegistry
++
++
++def _utcnow() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++def _tokens(text: str) -> set[str]:
++    raw = re.findall(r"[a-zA-Zа-яА-ЯёЁ0-9]+", (text or "").lower())
++    stop = {"the", "and", "from", "with", "для", "как", "это", "или", "мне", "this"}
++    return {word for word in raw if len(word) > 2 and word not in stop}
++
++
++class CapabilityKind(str, Enum):
++    BUILTIN = "builtin"
++    COMPOSED = "composed"
++    LEARNED = "learned"
++    EXPERIMENTAL = "experimental"
++
++
++@dataclass
++class CapabilityDefinition:
++    id: str
++    description: str
++    inputs: list[str] = field(default_factory=list)
++    prerequisites: list[str] = field(default_factory=list)
++    tools: list[str] = field(default_factory=list)
++    learned_from: list[str] = field(default_factory=list)
++    success_criteria: list[str] = field(default_factory=list)
++    risk_class: str = "low"
++    confidence: float = 0.5
++    kind: CapabilityKind = CapabilityKind.EXPERIMENTAL
++    generalized_procedure: list[str] = field(default_factory=list)
++    procedure_steps: list[dict[str, Any]] = field(default_factory=list)
++    desired_state: dict[str, Any] = field(default_factory=dict)
++    times_used: int = 0
++    success_count: int = 0
++    failure_count: int = 0
++    average_duration: float = 0.0
++    last_used: Optional[str] = None
++    last_verified: Optional[str] = None
++    environment: dict[str, Any] = field(default_factory=dict)
++
++    def to_dict(self) -> dict[str, Any]:
++        data = asdict(self)
++        data["kind"] = self.kind.value
++        return data
++
++    @classmethod
++    def from_dict(cls, data: dict[str, Any]) -> "CapabilityDefinition":
++        payload = dict(data)
++        payload["kind"] = CapabilityKind(payload.get("kind", "experimental"))
++        return cls(**payload)
++
++    def record_result(self, *, success: bool, duration: float) -> None:
++        previous_total = self.average_duration * self.times_used
++        self.times_used += 1
++        self.success_count += int(success)
++        self.failure_count += int(not success)
++        self.average_duration = (previous_total + max(0.0, duration)) / self.times_used
++        self.last_used = _utcnow()
++        if success:
++            self.last_verified = self.last_used
++        observed = self.success_count / max(1, self.times_used)
++        self.confidence = round(max(0.05, min(0.99, 0.65 * self.confidence + 0.35 * observed)), 3)
++
++
++@dataclass
++class CapabilityEpisode:
++    goal: str
++    capability: str
++    task_class: str
++    successful_strategy: list[str]
++    failures: list[str] = field(default_factory=list)
++    repairs: list[str] = field(default_factory=list)
++    verification: list[str] = field(default_factory=list)
++    generalized_procedure: list[str] = field(default_factory=list)
++    tools_used: list[str] = field(default_factory=list)
++    important_observations: list[str] = field(default_factory=list)
++    risk_profile: str = "low"
++    duration: float = 0.0
++    environment_assumptions: dict[str, Any] = field(default_factory=dict)
++    confidence: float = 0.5
++    episode_id: str = field(default_factory=lambda: uuid.uuid4().hex)
++    created_at: str = field(default_factory=_utcnow)
++
++    @classmethod
++    def from_dict(cls, data: dict[str, Any]) -> "CapabilityEpisode":
++        return cls(**data)
++
++
++class CapabilityCatalog:
++    """Atomic JSON persistence for capabilities and episodes."""
++
++    def __init__(self, directory: Path | str) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.episodes_dir = self.directory / "episodes"
++        self.episodes_dir.mkdir(exist_ok=True)
++        self._lock = threading.RLock()
++
++    def save(self, capability: CapabilityDefinition) -> Path:
++        path = self.directory / f"{_safe_id(capability.id)}.json"
++        self._atomic_json(path, capability.to_dict())
++        return path
++
++    def get(self, capability_id: str) -> Optional[CapabilityDefinition]:
++        path = self.directory / f"{_safe_id(capability_id)}.json"
++        try:
++            return CapabilityDefinition.from_dict(json.loads(path.read_text(encoding="utf-8")))
++        except (OSError, ValueError, TypeError):
++            return None
++
++    def all(self) -> list[CapabilityDefinition]:
++        result = []
++        for path in sorted(self.directory.glob("*.json")):
++            item = self.get(path.stem)
++            if item is not None:
++                result.append(item)
++        return result
++
++    def find(self, goal: str, threshold: float = 0.18) -> Optional[CapabilityDefinition]:
++        query = _tokens(goal)
++        scored = []
++        for cap in self.all():
++            corpus = _tokens(" ".join([cap.id, cap.description, *cap.generalized_procedure]))
++            score = len(query & corpus) / max(1, len(query | corpus))
++            if score >= threshold:
++                scored.append((score * cap.confidence, cap))
++        return max(scored, default=(0.0, None), key=lambda item: item[0])[1]
++
++    def record_episode(self, episode: CapabilityEpisode) -> Path:
++        path = self.episodes_dir / f"{episode.episode_id}.json"
++        self._atomic_json(path, asdict(episode))
++        return path
++
++    def retrieve_episodes(self, goal: str, limit: int = 5) -> list[CapabilityEpisode]:
++        query = _tokens(goal)
++        scored: list[tuple[float, CapabilityEpisode]] = []
++        for path in self.episodes_dir.glob("*.json"):
++            try:
++                episode = CapabilityEpisode.from_dict(json.loads(path.read_text(encoding="utf-8")))
++            except (OSError, ValueError, TypeError):
++                continue
++            corpus = _tokens(" ".join([
++                episode.goal, episode.capability, episode.task_class,
++                *episode.successful_strategy, *episode.generalized_procedure,
++            ]))
++            overlap = len(query & corpus) / max(1, len(query))
++            if overlap > 0:
++                scored.append((overlap * episode.confidence, episode))
++        scored.sort(key=lambda item: (-item[0], item[1].created_at))
++        return [item[1] for item in scored[:limit]]
++
++    def _atomic_json(self, path: Path, payload: dict[str, Any]) -> None:
++        with self._lock:
++            tmp = path.with_suffix(path.suffix + ".tmp")
++            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
++            tmp.replace(path)
++
++
++@dataclass(frozen=True)
++class DesiredStateResult:
++    verified: bool
++    missing: dict[str, Any]
++    observed: dict[str, Any]
++
++
++class DesiredStateVerifier:
++    def verify(self, desired: dict[str, Any], observed: dict[str, Any]) -> DesiredStateResult:
++        missing: dict[str, Any] = {}
++        for key, expected in desired.items():
++            actual = observed.get(key)
++            if isinstance(expected, dict) and isinstance(actual, dict):
++                nested = self.verify(expected, actual)
++                if not nested.verified:
++                    missing[key] = nested.missing
++            elif actual != expected:
++                missing[key] = {"expected": expected, "actual": actual}
++        return DesiredStateResult(not missing, missing, dict(observed))
++
++
++@dataclass(frozen=True)
++class RiskDecision:
++    action: str
++    auto_execute: bool
++    reason: str
++
++
++class RiskConfidencePolicy:
++    """Two-dimensional policy; confidence never overrides elevated risk."""
++
++    def decide(self, *, confidence: float, risk: str) -> RiskDecision:
++        level = (risk or "medium").lower()
++        if level in {"critical", "high"}:
++            return RiskDecision("confirm", False, f"{level} risk requires confirmation")
++        if level == "medium":
++            return RiskDecision("confirm", False, "system/network change requires confirmation")
++        if confidence >= 0.9:
++            return RiskDecision("execute", True, "low risk and verified confidence")
++        if confidence >= 0.6:
++            return RiskDecision("sandbox", False, "low risk requires rehearsal")
++        return RiskDecision("research", False, "insufficient confidence")
++
++
++class Transaction:
++    """Checkpoint/rollback for file changes; every restore is idempotent."""
++
++    def __init__(self, directory: Path | str) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self._entries: list[dict[str, Any]] = []
++
++    def checkpoint_file(self, path: Path | str) -> Path:
++        target = Path(path).resolve()
++        backup = self.directory / f"{len(self._entries):04d}-{target.name}.bak"
++        existed = target.is_file()
++        if existed:
++            shutil.copy2(target, backup)
++        self._entries.append({"kind": "file", "path": str(target),
++                              "backup": str(backup), "existed": existed})
++        return backup
++
++    @property
++    def entries(self) -> list[dict[str, Any]]:
++        return [dict(item) for item in self._entries]
++
++    def rollback(self) -> list[str]:
++        restored: list[str] = []
++        for item in reversed(self._entries):
++            target, backup = Path(item["path"]), Path(item["backup"])
++            if item["existed"] and backup.is_file():
++                target.parent.mkdir(parents=True, exist_ok=True)
++                shutil.copy2(backup, target)
++            elif not item["existed"] and target.exists():
++                target.unlink()
++            restored.append(str(target))
++        return restored
++
++
++@dataclass
++class MissionState:
++    mission_id: str
++    goal: str
++    state: str = "queued"
++    current_step: int = 0
++    desired_state: dict[str, Any] = field(default_factory=dict)
++    completed_steps: list[str] = field(default_factory=list)
++    pending_steps: list[str] = field(default_factory=list)
++    artifacts: list[str] = field(default_factory=list)
++    rollback: list[dict[str, Any]] = field(default_factory=list)
++    updated_at: str = field(default_factory=_utcnow)
++
++    def pause(self) -> None:
++        self.state, self.updated_at = "paused", _utcnow()
++
++    def cancel(self) -> None:
++        self.state, self.updated_at = "cancelled", _utcnow()
++
++    def skip(self) -> Optional[str]:
++        if not self.pending_steps:
++            return None
++        skipped = self.pending_steps.pop(0)
++        self.current_step += 1
++        self.updated_at = _utcnow()
++        return skipped
++
++    def explain_current_step(self) -> str:
++        return self.pending_steps[0] if self.pending_steps else "completed"
++
++
++class MissionStateStore:
++    def __init__(self, directory: Path | str) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++
++    def save(self, mission: MissionState) -> Path:
++        path = self.directory / f"{_safe_id(mission.mission_id)}.json"
++        mission.updated_at = _utcnow()
++        tmp = path.with_suffix(".tmp")
++        tmp.write_text(json.dumps(asdict(mission), ensure_ascii=False, indent=2), encoding="utf-8")
++        tmp.replace(path)
++        return path
++
++    def load(self, mission_id: str) -> Optional[MissionState]:
++        path = self.directory / f"{_safe_id(mission_id)}.json"
++        try:
++            return MissionState(**json.loads(path.read_text(encoding="utf-8")))
++        except (OSError, ValueError, TypeError):
++            return None
++
++    def resumable(self) -> list[MissionState]:
++        result = []
++        for path in self.directory.glob("*.json"):
++            item = self.load(path.stem)
++            if item is not None and item.state not in {"completed", "cancelled", "failed"}:
++                result.append(item)
++        return result
++
++
++@dataclass(frozen=True)
++class InterpretedReference:
++    application: str
++    desired_state: dict[str, Any]
++    source_type: str
++
++
++class ReferenceInterpreter:
++    """Converts supplied structured evidence into state, never click replay."""
++
++    def interpret(self, reference: Any) -> InterpretedReference:
++        if isinstance(reference, dict):
++            desired = dict(reference.get("desired_state") or reference.get("settings") or {})
++            return InterpretedReference(
++                application=str(reference.get("application", "")), desired_state=desired,
++                source_type=str(reference.get("type", "structured")),
++            )
++        return InterpretedReference("", {"description": str(reference)}, "text")
++
++
++@dataclass
++class ExecutionStep:
++    id: str
++    tool: str
++    args: dict[str, Any] = field(default_factory=dict)
++    depends_on: list[str] = field(default_factory=list)
++    produces: dict[str, Any] = field(default_factory=dict)
++    verification: list[str] = field(default_factory=list)
++
++
++@dataclass
++class ExecutionPlan:
++    goal: str
++    acquisition: str
++    desired_state: dict[str, Any] = field(default_factory=dict)
++    steps: list[ExecutionStep] = field(default_factory=list)
++    capability_id: Optional[str] = None
++    requirements: list[str] = field(default_factory=list)
++    sources: list[dict[str, str]] = field(default_factory=list)
++    risks: list[str] = field(default_factory=list)
++    confidence: float = 0.7
++    risk_class: str = "low"
++
++    def ordered_steps(self) -> list[ExecutionStep]:
++        """Stable topological ordering; raises on missing deps or cycles."""
++        by_id = {step.id: step for step in self.steps}
++        if len(by_id) != len(self.steps):
++            raise ValueError("duplicate execution step id")
++        emitted: list[ExecutionStep] = []
++        pending = list(self.steps)
++        while pending:
++            ready = [step for step in pending if all(dep in {x.id for x in emitted}
++                                                     for dep in step.depends_on)]
++            if not ready:
++                missing = {dep for step in pending for dep in step.depends_on if dep not in by_id}
++                raise ValueError(f"invalid execution DAG; missing={sorted(missing)}")
++            for step in ready:
++                emitted.append(step)
++                pending.remove(step)
++        return emitted
++
++    def to_dict(self) -> dict[str, Any]:
++        data = asdict(self)
++        return data
++
++
++class CapabilityPlanner:
++    """Search → composition → structured research/acquisition, in that order."""
++
++    def __init__(self, catalog: CapabilityCatalog, registry: ToolRegistry,
++                 acquire: Optional[Callable[[str], Any]] = None) -> None:
++        self.catalog = catalog
++        self.registry = registry
++        self.acquire = acquire
++
++    def plan(self, goal: str, desired_state: Optional[dict[str, Any]] = None) -> ExecutionPlan:
++        learned = self.catalog.find(goal)
++        if (
++            learned is not None
++            and learned.kind is not CapabilityKind.EXPERIMENTAL
++            and bool(learned.tools)
++            and all(self.registry.get(name) is not None for name in learned.tools)
++        ):
++            if learned.procedure_steps:
++                steps = [ExecutionStep(**data) for data in learned.procedure_steps]
++            else:
++                steps = []
++                previous = None
++                for index, tool in enumerate(learned.tools):
++                    step_id = f"learned-{index + 1}"
++                    steps.append(ExecutionStep(step_id, tool,
++                                               depends_on=[previous] if previous else []))
++                    previous = step_id
++            return ExecutionPlan(
++                goal, "learned", desired_state or learned.desired_state, steps, learned.id,
++                confidence=learned.confidence, risk_class=learned.risk_class,
++            )
++
++        composed = self._compose(goal, desired_state or {})
++        if composed is not None:
++            return composed
++
++        acquired = self.acquire(goal) if self.acquire is not None else None
++        if isinstance(acquired, CapabilityDefinition):
++            self.catalog.save(acquired)
++            return ExecutionPlan(
++                goal, "acquired", desired_state or {},
++                [ExecutionStep(f"acquired-{i + 1}", tool,
++                               depends_on=[f"acquired-{i}"] if i else [])
++                 for i, tool in enumerate(acquired.tools)],
++                acquired.id, confidence=acquired.confidence,
++                risk_class=acquired.risk_class,
++            )
++
++        # Research output is a plan artifact, not a verbose user response.
++        return ExecutionPlan(
++            goal=goal, acquisition="research", desired_state=desired_state or {},
++            requirements=["identify official documentation", "identify missing primitives"],
++            sources=[], risks=["unverified execution method"], confidence=0.3,
++        )
++
++    def _compose(self, goal: str, desired: dict[str, Any]) -> Optional[ExecutionPlan]:
++        low = goal.lower()
++        organize = any(word in low for word in ("организ", "сортир", "group", "organize"))
++        files = any(word in low for word in ("файл", "file", "extension", "расширен"))
++        needed = ("list_files", "file_move", "list_files_recursive")
++        if organize and files and all(self.registry.get(name) is not None for name in needed):
++            desired = desired or {"organized_by_extension": True}
++            return ExecutionPlan(
++                goal=goal, acquisition="composed", desired_state=desired,
++                capability_id="organize_files_by_extension",
++                steps=[
++                    ExecutionStep("discover", "list_files"),
++                    ExecutionStep("move", "file_move",
++                                  args={"foreach": "root_files", "group_by": "extension"},
++                                  depends_on=["discover"],
++                                  produces={"files_moved": True}),
++                    ExecutionStep("verify", "list_files_recursive", depends_on=["move"],
++                                  produces={"organized_by_extension": True}),
++                ], confidence=0.9, risk_class="low",
++            )
++        return None
++
++
++@dataclass(frozen=True)
++class StructuredResearchPlan:
++    goal: str
++    requirements: list[str]
++    sources: list[dict[str, Any]]
++    steps: list[str]
++    verification: list[str]
++    risks: list[str]
++
++
++class CapabilityResearch:
++    """Turns research candidates into an execution-oriented, trusted plan."""
++
++    _rank = {"official": 0, "package_manager": 1, "repository": 2,
++             "documentation": 3, "third_party": 9}
++
++    def structure(self, goal: str,
++                  candidates: Iterable[dict[str, Any]]) -> StructuredResearchPlan:
++        verified = [dict(item) for item in candidates if bool(item.get("verified"))]
++        verified.sort(key=lambda item: self._rank.get(str(item.get("kind")), 8))
++        return StructuredResearchPlan(
++            goal=goal,
++            requirements=["determine current state", "derive desired state",
++                          "resolve required capabilities"],
++            sources=verified,
++            steps=["inspect current state", "select highest-reliability execution ladder",
++                   "checkpoint mutable state", "execute minimal delta", "observe result"],
++            verification=["compare observed state with desired state",
++                          "verify artifacts independently from tool return value"],
++            risks=["network acquisition requires confirmation",
++                   "unverified executable sources are excluded"],
++        )
++
++
++@dataclass
++class ExecutionReport:
++    completed: bool
++    state: str
++    results: list[ActionResult]
++    verification: DesiredStateResult
++    repairs: list[str] = field(default_factory=list)
++    action_trace: list[str] = field(default_factory=list)
++    needs_confirmation: bool = False
++    episode: Optional[CapabilityEpisode] = None
++    duration: float = 0.0
++
++
++class CapabilityEngine:
++    """Executes a capability DAG and learns only after observed verification."""
++
++    def __init__(self, catalog: CapabilityCatalog, registry: ToolRegistry,
++                 *, executor: Optional[Callable[[str, dict[str, Any]], ActionResult]] = None,
++                 observer: Optional[Callable[[], dict[str, Any]]] = None,
++                 context: Optional[ToolContext] = None) -> None:
++        self.catalog = catalog
++        self.registry = registry
++        self._executor = executor
++        self._observer = observer or (lambda: {})
++        self._context = context or ToolContext()
++        self.verifier = DesiredStateVerifier()
++        self.policy = RiskConfidencePolicy()
++        self._move_rollback: list[tuple[str, str]] = []
++
++    def execute(self, plan: ExecutionPlan, *, max_repairs: int = 2,
++                cancel: Optional[threading.Event] = None) -> ExecutionReport:
++        started = time.perf_counter()
++        decision = self.policy.decide(confidence=plan.confidence, risk=plan.risk_class)
++        empty_verification = self.verifier.verify(plan.desired_state, {})
++        if plan.acquisition == "research" or not plan.steps:
++            return ExecutionReport(False, "research_required", [], empty_verification,
++                                   action_trace=["missing capability requires structured research"])
++        if decision.action == "confirm":
++            return ExecutionReport(False, "waiting_for_user", [], empty_verification,
++                                   needs_confirmation=True,
++                                   action_trace=[decision.reason])
++
++        results: list[ActionResult] = []
++        trace: list[str] = []
++        for step in plan.ordered_steps():
++            if cancel is not None and cancel.is_set():
++                return ExecutionReport(False, "cancelled", results, empty_verification,
++                                       action_trace=trace, duration=time.perf_counter() - started)
++            result = self._run_step(step)
++            results.append(result)
++            trace.append(f"{step.id}: {step.tool} -> {'ok' if result.ok else 'failed'}")
++            if not result.ok:
++                observed = self._observer()
++                verification = self.verifier.verify(plan.desired_state, observed)
++                return ExecutionReport(False, "failed", results, verification,
++                                       action_trace=trace, duration=time.perf_counter() - started)
++
++        observed = self._observe(plan)
++        verification = self.verifier.verify(plan.desired_state, observed)
++        repairs: list[str] = []
++        attempts = 0
++        while not verification.verified and attempts < max_repairs:
++            failed_keys = set(verification.missing)
++            targets = [step for step in plan.steps if failed_keys & set(step.produces)]
++            if not targets:
++                break
++            for step in targets:
++                if cancel is not None and cancel.is_set():
++                    return ExecutionReport(False, "cancelled", results, verification,
++                                           repairs, trace, duration=time.perf_counter() - started)
++                result = self._run_step(step)
++                results.append(result)
++                repairs.append(step.tool)
++                trace.append(f"repair {step.id}: {step.tool} -> {'ok' if result.ok else 'failed'}")
++            attempts += 1
++            observed = self._observe(plan)
++            verification = self.verifier.verify(plan.desired_state, observed)
++
++        duration = time.perf_counter() - started
++        completed = verification.verified
++        rollback_trace: list[str] = []
++        if not completed:
++            if self._move_rollback:
++                rollback_trace = self._rollback_moves()
++                trace.extend(rollback_trace)
++            self._record_failure(plan, duration)
++        elif completed:
++            self._move_rollback.clear()
++        episode = self._learn(plan, results, repairs, verification, duration) if completed else None
++        return ExecutionReport(completed, "completed" if completed else "verification_failed",
++                               results, verification, repairs, trace, episode=episode,
++                               duration=duration)
++
++    def _run_step(self, step: ExecutionStep) -> ActionResult:
++        if self._executor is not None:
++            return self._executor(step.tool, dict(step.args))
++        if step.tool == "file_move" and step.args.get("foreach") == "root_files":
++            return self._move_root_files_by_extension()
++        return execute_tool(self.registry, step.tool, dict(step.args), self._context,
++                            max_retries=0)
++
++    def _move_root_files_by_extension(self) -> ActionResult:
++        settings = getattr(self._context, "settings", None)
++        if settings is None:
++            return ActionResult("file_move", {}, False, error="settings are required")
++        from core.actions.filesystem import list_files
++        files = list_files("", settings, recursive=False)
++        moved = []
++        for source in files:
++            path = Path(source)
++            extension = path.suffix.lower().lstrip(".") or "no_extension"
++            result = execute_tool(
++                self.registry, "file_move",
++                {"source": source, "destination": str(Path(extension) / path.name)},
++                self._context, max_retries=0,
++            )
++            if not result.ok:
++                self._rollback_moves()
++                return result
++            moved.append(source)
++            self._move_rollback.append((source, str(Path(extension) / path.name)))
++        return ActionResult("file_move", {"count": len(moved)}, True,
++                            f"Moved {len(moved)} files by extension")
++
++    def _observe(self, plan: ExecutionPlan) -> dict[str, Any]:
++        observed = self._observer()
++        if observed:
++            return observed
++        if "organized_by_extension" in plan.desired_state:
++            settings = getattr(self._context, "settings", None)
++            docs = settings.paths.resolved("documents_dir") if settings is not None else None
++            if docs is not None and docs.is_dir():
++                root_files = [path for path in docs.iterdir() if path.is_file()]
++                nested = [path for path in docs.rglob("*") if path.is_file()]
++                organized = not root_files and all(
++                    path.parent.name == (path.suffix.lower().lstrip(".") or "no_extension")
++                    for path in nested if ".capabilities" not in path.parts
++                )
++                return {"organized_by_extension": organized}
++        return observed
++
++    def _learn(self, plan: ExecutionPlan, results: list[ActionResult], repairs: list[str],
++               verification: DesiredStateResult, duration: float) -> CapabilityEpisode:
++        capability_id = plan.capability_id or _safe_id(plan.goal)
++        capability = self.catalog.get(capability_id) or CapabilityDefinition(
++            id=capability_id, description=plan.goal,
++            tools=[step.tool for step in plan.steps], kind=CapabilityKind.LEARNED,
++            success_criteria=[f"{key}={value!r}" for key, value in plan.desired_state.items()],
++            risk_class=plan.risk_class, confidence=plan.confidence,
++            generalized_procedure=["observe current state", "apply minimal delta", "verify desired state"],
++            procedure_steps=[asdict(step) for step in plan.steps],
++            desired_state=dict(plan.desired_state),
++        )
++        capability.record_result(success=True, duration=duration)
++        self.catalog.save(capability)
++        episode = CapabilityEpisode(
++            goal=plan.goal, capability=capability.id,
++            task_class=capability.id,
++            successful_strategy=[step.tool for step in plan.steps],
++            repairs=list(repairs),
++            verification=[f"{key}={value!r}" for key, value in verification.observed.items()],
++            generalized_procedure=list(capability.generalized_procedure),
++            tools_used=[result.tool for result in results],
++            duration=duration, risk_profile=plan.risk_class,
++            confidence=capability.confidence,
++        )
++        self.catalog.record_episode(episode)
++        return episode
++
++    def _rollback_moves(self) -> list[str]:
++        trace = []
++        for source, destination in reversed(self._move_rollback):
++            result = execute_tool(
++                self.registry, "file_move",
++                {"source": destination, "destination": source},
++                self._context, max_retries=0,
++            )
++            trace.append(f"rollback {destination} -> {source}: {'ok' if result.ok else 'failed'}")
++        self._move_rollback.clear()
++        return trace
++
++    def _record_failure(self, plan: ExecutionPlan, duration: float) -> None:
++        if not plan.capability_id:
++            return
++        capability = self.catalog.get(plan.capability_id)
++        if capability is None:
++            return
++        capability.record_result(success=False, duration=duration)
++        self.catalog.save(capability)
++
++
++def _safe_id(value: str) -> str:
++    cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "_", value).strip("._")
++    return cleaned[:100] or "capability"
+--- /dev/null
++++ b/core/platform/__init__.py
+@@ -0,0 +1,13 @@
++"""Replaceable platform providers used by the Capability Engine."""
++from .browser import BrowserAutomationProvider
++from .windows import (
++    NativeWindowsProvider, ProviderChain, ProviderResult, UIAutomationProvider,
++    VisionFallbackProvider, WinAppProvider, WindowsAutomationProvider,
++    WindowsCapabilityLayer,
++)
++
++__all__ = [
++    "BrowserAutomationProvider", "NativeWindowsProvider", "ProviderChain",
++    "ProviderResult", "UIAutomationProvider", "VisionFallbackProvider",
++    "WinAppProvider", "WindowsAutomationProvider", "WindowsCapabilityLayer",
++]
+--- /dev/null
++++ b/core/platform/browser.py
+@@ -0,0 +1,36 @@
++"""DOM-first browser adapter over the existing Playwright engine."""
++from __future__ import annotations
++
++from typing import Any, Optional
++
++from core.actions.browser_automation import BrowserAutomationEngine
++
++
++class BrowserAutomationProvider:
++    """Stable browser capability vocabulary; screenshots are not the default."""
++
++    def __init__(self, engine: Optional[BrowserAutomationEngine] = None) -> None:
++        self.engine = engine or BrowserAutomationEngine(headless=True)
++
++    def open(self, url: str) -> dict[str, Any]: return self.engine.open(url)
++    def navigate(self, url: str) -> dict[str, Any]: return self.engine.open(url)
++    def inspect(self) -> list[dict[str, Any]]: return self.engine.list_elements()
++    def click(self, index: int, *, confirm: bool = False) -> dict[str, Any]:
++        return self.engine.click(index, confirm=confirm)
++    def type(self, index: int, text: str) -> dict[str, Any]:
++        return self.engine.type_text(index, text)
++    def read_page(self) -> dict[str, Any]: return self.engine.read()
++    def find(self, text: str) -> list[dict[str, Any]]:
++        needle = text.lower()
++        return [item for item in self.inspect()
++                if needle in str(item.get("text", "")).lower()]
++    def wait(self, seconds: float) -> dict[str, Any]:
++        if getattr(self.engine, "_page", None) is not None:
++            self.engine._page.wait_for_timeout(max(0, seconds) * 1000)
++        return {"ok": True, "waited": seconds}
++    def extract(self, index: Optional[int] = None) -> dict[str, Any]:
++        return self.engine.read(index=index)
++    def download(self, index: int, *, confirm: bool = False) -> dict[str, Any]:
++        # The existing engine performs DOM element classification and risk gating.
++        return self.engine.click(index, confirm=confirm)
++    def close(self) -> dict[str, Any]: return self.engine.close()
+--- /dev/null
++++ b/core/platform/windows.py
+@@ -0,0 +1,217 @@
++"""Windows capability adapters ordered by reliability, not coordinates."""
++from __future__ import annotations
++
++import shutil
++import subprocess
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++
++@dataclass(frozen=True)
++class ProviderResult:
++    ok: bool
++    value: Any = None
++    error: str | None = None
++    provider: str = ""
++
++
++class WindowsAutomationProvider:
++    name = "provider"
++    ladder_level = 99
++    def supports(self, operation: str) -> bool: return False
++    def invoke(self, operation: str, **kwargs: Any) -> ProviderResult:
++        return ProviderResult(False, error=f"{operation} unsupported", provider=self.name)
++
++
++class ProviderChain:
++    """Native API → CLI → config → UIA → DOM → vision → coordinates."""
++
++    def __init__(self, providers: list[WindowsAutomationProvider]) -> None:
++        self.providers = sorted(providers, key=lambda item: item.ladder_level)
++
++    def invoke(self, operation: str, **kwargs: Any) -> ProviderResult:
++        errors = []
++        for provider in self.providers:
++            if not provider.supports(operation):
++                continue
++            result = provider.invoke(operation, **kwargs)
++            if result.ok:
++                return ProviderResult(True, result.value, provider=provider.name)
++            errors.append(result.error or provider.name)
++        return ProviderResult(False, error="; ".join(errors) or f"no provider for {operation}")
++
++
++class NativeWindowsProvider(WindowsAutomationProvider):
++    """Native/CLI primitives. Mutating calls are still gated by core.safety."""
++
++    name = "native_windows"
++    ladder_level = 1
++    _operations = {
++        "process.list", "process.launch", "process.stop", "window.list", "window.active",
++        "window.inspect", "window.focus", "file.read", "file.write", "file.copy", "file.move",
++        "registry.read", "registry.write", "service.inspect", "shell.run",
++        "installer.detect", "installer.run", "app.discover",
++    }
++
++    def supports(self, operation: str) -> bool: return operation in self._operations
++
++    def invoke(self, operation: str, **kwargs: Any) -> ProviderResult:
++        try:
++            method = getattr(self, operation.replace(".", "_"))
++            return ProviderResult(True, method(**kwargs), provider=self.name)
++        except Exception as exc:
++            return ProviderResult(False, error=f"{type(exc).__name__}: {exc}", provider=self.name)
++
++    @staticmethod
++    def process_list() -> list[dict[str, Any]]:
++        import psutil
++        return [{"pid": item.info["pid"], "name": item.info.get("name", "")}
++                for item in psutil.process_iter(["pid", "name"])]
++
++    @staticmethod
++    def process_launch(command: list[str], cwd: str | None = None) -> dict[str, Any]:
++        proc = subprocess.Popen(command, cwd=cwd, shell=False)
++        return {"pid": proc.pid, "command": command}
++
++    @staticmethod
++    def process_stop(pid: int) -> dict[str, Any]:
++        import psutil
++        psutil.Process(pid).terminate()
++        return {"pid": pid, "stopped": True}
++
++    @staticmethod
++    def window_list() -> list[str]:
++        import pygetwindow
++        return [str(title) for title in pygetwindow.getAllTitles() if title]
++
++    @staticmethod
++    def window_active() -> str:
++        import pygetwindow
++        return str(getattr(pygetwindow.getActiveWindow(), "title", "") or "")
++
++    def window_inspect(self) -> dict[str, Any]: return {"title": self.window_active()}
++
++    @staticmethod
++    def window_focus(title: str) -> dict[str, Any]:
++        import pygetwindow
++        matches = pygetwindow.getWindowsWithTitle(title)
++        if not matches: raise ValueError(f"window not found: {title}")
++        matches[0].activate()
++        return {"focused": title}
++
++    @staticmethod
++    def file_read(path: str) -> str: return Path(path).read_text(encoding="utf-8")
++    @staticmethod
++    def file_write(path: str, content: str) -> str:
++        target = Path(path); target.parent.mkdir(parents=True, exist_ok=True)
++        target.write_text(content, encoding="utf-8"); return str(target)
++    @staticmethod
++    def file_copy(source: str, destination: str) -> str:
++        target = Path(destination); target.parent.mkdir(parents=True, exist_ok=True)
++        return str(shutil.copy2(source, target))
++    @staticmethod
++    def file_move(source: str, destination: str) -> str:
++        target = Path(destination); target.parent.mkdir(parents=True, exist_ok=True)
++        return str(shutil.move(source, target))
++
++    @staticmethod
++    def registry_read(root: str, path: str, name: str) -> Any:
++        import winreg
++        hive = getattr(winreg, root)
++        with winreg.OpenKey(hive, path) as key: return winreg.QueryValueEx(key, name)[0]
++
++    @staticmethod
++    def registry_write(root: str, path: str, name: str, value: Any) -> bool:
++        import winreg
++        hive = getattr(winreg, root)
++        with winreg.CreateKey(hive, path) as key:
++            kind = winreg.REG_DWORD if isinstance(value, int) else winreg.REG_SZ
++            winreg.SetValueEx(key, name, 0, kind, value)
++        return True
++
++    @staticmethod
++    def service_inspect(name: str) -> dict[str, Any]:
++        done = subprocess.run(["sc", "query", name], capture_output=True, text=True,
++                              timeout=10, check=False)
++        return {"exit_code": done.returncode, "output": done.stdout}
++
++    @staticmethod
++    def shell_run(command: list[str], cwd: str | None = None) -> dict[str, Any]:
++        done = subprocess.run(command, cwd=cwd, capture_output=True, text=True,
++                              timeout=60, shell=False, check=False)
++        return {"exit_code": done.returncode, "stdout": done.stdout, "stderr": done.stderr}
++
++    @staticmethod
++    def installer_detect(path: str) -> dict[str, Any]:
++        suffix = Path(path).suffix.lower()
++        return {"path": path, "kind": suffix.lstrip("."), "supported": suffix in {".msi", ".exe"}}
++    def installer_run(self, path: str, arguments: list[str] | None = None) -> dict[str, Any]:
++        return self.process_launch([path, *(arguments or [])])
++    @staticmethod
++    def app_discover(name: str) -> dict[str, Any]:
++        resolved = shutil.which(name)
++        return {"name": name, "path": resolved, "found": bool(resolved)}
++
++
++class WinAppProvider(WindowsAutomationProvider):
++    name, ladder_level = "winapp", 4
++    def supports(self, operation: str) -> bool:
++        return operation.startswith("ui.") and shutil.which("winapp") is not None
++
++
++class UIAutomationProvider(WindowsAutomationProvider):
++    name, ladder_level = "uia", 4
++    def supports(self, operation: str) -> bool:
++        if not operation.startswith("ui."): return False
++        try:
++            import uiautomation  # noqa: F401
++            return True
++        except ImportError: return False
++
++
++class VisionFallbackProvider(WindowsAutomationProvider):
++    name, ladder_level = "vision", 6
++    def __init__(self, capture: Any = None) -> None: self.capture = capture
++    def supports(self, operation: str) -> bool:
++        return operation == "ui.inspect" and self.capture is not None
++    def invoke(self, operation: str, **kwargs: Any) -> ProviderResult:
++        try: return ProviderResult(True, self.capture(**kwargs), provider=self.name)
++        except Exception as exc: return ProviderResult(False, error=str(exc), provider=self.name)
++
++
++class WindowsCapabilityLayer:
++    """Named Sprint 9 primitives backed by the reliability-ordered chain."""
++
++    def __init__(self, chain: ProviderChain | None = None) -> None:
++        self.chain = chain or ProviderChain([
++            NativeWindowsProvider(), WinAppProvider(), UIAutomationProvider(),
++            VisionFallbackProvider(),
++        ])
++
++    def _call(self, operation: str, **kwargs: Any) -> ProviderResult:
++        return self.chain.invoke(operation, **kwargs)
++
++    def process_list(self): return self._call("process.list")
++    def process_launch(self, command, cwd=None): return self._call("process.launch", command=command, cwd=cwd)
++    def process_stop(self, pid): return self._call("process.stop", pid=pid)
++    def window_list(self): return self._call("window.list")
++    def window_active(self): return self._call("window.active")
++    def window_inspect(self): return self._call("window.inspect")
++    def window_focus(self, title): return self._call("window.focus", title=title)
++    def file_read(self, path): return self._call("file.read", path=path)
++    def file_write(self, path, content): return self._call("file.write", path=path, content=content)
++    def file_copy(self, source, destination): return self._call("file.copy", source=source, destination=destination)
++    def file_move(self, source, destination): return self._call("file.move", source=source, destination=destination)
++    def registry_read(self, root, path, name): return self._call("registry.read", root=root, path=path, name=name)
++    def registry_write(self, root, path, name, value): return self._call("registry.write", root=root, path=path, name=name, value=value)
++    def service_inspect(self, name): return self._call("service.inspect", name=name)
++    def shell_run(self, command, cwd=None): return self._call("shell.run", command=command, cwd=cwd)
++    def installer_detect(self, path): return self._call("installer.detect", path=path)
++    def installer_run(self, path, arguments=None): return self._call("installer.run", path=path, arguments=arguments)
++    def app_discover(self, name): return self._call("app.discover", name=name)
++    def ui_inspect(self): return self._call("ui.inspect")
++    def ui_invoke(self, **kwargs): return self._call("ui.invoke", **kwargs)
++    def ui_set_value(self, **kwargs): return self._call("ui.set_value", **kwargs)
++    def ui_select(self, **kwargs): return self._call("ui.select", **kwargs)
++    def ui_wait_for(self, **kwargs): return self._call("ui.wait_for", **kwargs)
+--- /dev/null
++++ b/core/shadow/__init__.py
+@@ -0,0 +1,12 @@
++"""Sprint 8 Shadow Engine public API."""
++from .engine import GeneratedShadowTool, ShadowEngine, ToolPreparation, active_mode_message
++from .backlog import ShadowBacklog, ShadowBacklogItem
++from .generator import ToolGenerator
++from .patterns import Pattern, PatternWatcher
++from .sandbox import CheckResult, SandboxReport, SandboxTester
++
++__all__ = [
++    "CheckResult", "GeneratedShadowTool", "Pattern", "PatternWatcher", "SandboxReport",
++    "SandboxTester", "ShadowBacklog", "ShadowBacklogItem", "ShadowEngine",
++    "ToolGenerator", "ToolPreparation", "active_mode_message",
++]
+--- /dev/null
++++ b/core/shadow/backlog.py
+@@ -0,0 +1,72 @@
++"""Bounded, resource-aware backlog for predictive Shadow rehearsal."""
++from __future__ import annotations
++
++import json
++import threading
++from dataclasses import asdict, dataclass
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any, Optional
++
++
++@dataclass
++class ShadowBacklogItem:
++    id: str
++    priority: float
++    reason: str
++    status: str = "pending"
++    attempts: int = 0
++    updated_at: str = ""
++
++
++class ShadowBacklog:
++    def __init__(self, directory: Path | str, max_items: int = 100) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "backlog.json"
++        self.max_items = max_items
++        self._lock = threading.RLock()
++
++    def add(self, item_id: str, *, priority: float, reason: str) -> ShadowBacklogItem:
++        with self._lock:
++            items = self._load()
++            existing = next((item for item in items if item.id == item_id), None)
++            if existing is None:
++                existing = ShadowBacklogItem(item_id, max(0.0, min(1.0, priority)), reason)
++                items.append(existing)
++            else:
++                existing.priority = max(existing.priority, max(0.0, min(1.0, priority)))
++                existing.reason = reason
++                if existing.status == "completed": existing.status = "pending"
++            existing.updated_at = datetime.now(timezone.utc).isoformat()
++            items.sort(key=lambda item: (-item.priority, item.updated_at))
++            self._save(items[:self.max_items])
++            return existing
++
++    def next(self, *, cpu_percent: float, gpu_percent: float, gaming: bool) -> Optional[ShadowBacklogItem]:
++        if gaming or cpu_percent >= 70 or gpu_percent >= 70:
++            return None
++        return next((item for item in self._load()
++                     if item.status == "pending" and item.attempts < 3), None)
++
++    def mark(self, item_id: str, *, success: bool) -> None:
++        items = self._load()
++        for item in items:
++            if item.id != item_id: continue
++            item.attempts += 1
++            item.status = "completed" if success else ("failed" if item.attempts >= 3 else "pending")
++            item.updated_at = datetime.now(timezone.utc).isoformat()
++        self._save(items)
++
++    def _load(self) -> list[ShadowBacklogItem]:
++        try:
++            raw = json.loads(self.path.read_text(encoding="utf-8"))
++            return [ShadowBacklogItem(**item) for item in raw.get("items", [])]
++        except (OSError, ValueError, TypeError):
++            return []
++
++    def _save(self, items: list[ShadowBacklogItem]) -> None:
++        tmp = self.path.with_suffix(".tmp")
++        tmp.write_text(json.dumps({"items": [asdict(item) for item in items]},
++                                  ensure_ascii=False, indent=2), encoding="utf-8")
++        tmp.replace(self.path)
+--- /dev/null
++++ b/core/shadow/engine.py
+@@ -0,0 +1,294 @@
++"""Quiet background coordinator for patterns, generated tools and registration."""
++from __future__ import annotations
++
++import importlib.util
++import json
++import re
++import threading
++from dataclasses import dataclass
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Any, Optional
++
++from core.actions.base import ActionResult, Tool, ToolContext
++from core.actions.registry import DEFAULT_REGISTRY, ToolRegistry
++from core.safety import assess_risk
++
++from .generator import ToolGenerator
++from .patterns import Pattern, PatternWatcher
++from .sandbox import SandboxReport, SandboxTester
++from .backlog import ShadowBacklog
++
++
++@dataclass(frozen=True)
++class ToolPreparation:
++    name: str
++    status: str  # registered | proposed | rejected
++    confidence: int
++    report: SandboxReport
++    path: Optional[Path] = None
++
++
++class GeneratedShadowTool(Tool):
++    """Adapter that presents a verified generated module as a normal Tool."""
++
++    generated_by_shadow = True
++
++    def __init__(self, name: str, description: str, path: Path) -> None:
++        self._name, self._description, self.path = name, description, path
++
++    @property
++    def name(self) -> str:
++        return self._name
++
++    @property
++    def description(self) -> str:
++        return self._description
++
++    @property
++    def input_schema(self) -> dict[str, Any]:
++        return {"type": "object", "additionalProperties": True}
++
++    def run(self, args: dict[str, Any], context: ToolContext) -> ActionResult:
++        try:
++            spec = importlib.util.spec_from_file_location(f"jarvis_shadow_{self._name}", self.path)
++            if spec is None or spec.loader is None:
++                raise RuntimeError("не удалось загрузить shadow tool")
++            module = importlib.util.module_from_spec(spec)
++            spec.loader.exec_module(module)
++            result = module.run(dict(args))
++            if not isinstance(result, dict) or not isinstance(result.get("success"), bool):
++                raise RuntimeError("tool returned invalid contract")
++            return ActionResult(tool=self.name, args=args, ok=result["success"],
++                                output=result.get("result"), error=result.get("error"))
++        except Exception as exc:  # generated code never escapes the executor
++            return ActionResult(tool=self.name, args=args, ok=False, error=str(exc))
++
++
++class ShadowEngine:
++    """Local-only Shadow Engine. It does no capture and emits no noisy events."""
++
++    def __init__(self, *, data_dir: Path | str, registry: Optional[ToolRegistry] = None,
++                 settings: Any = None, enabled: bool = False,
++                 generator: Optional[ToolGenerator] = None,
++                 tester: Optional[SandboxTester] = None) -> None:
++        self.root = Path(data_dir) / "shadow"
++        self.root.mkdir(parents=True, exist_ok=True)
++        self.tools_dir = Path(data_dir) / "tools" / "shadow"
++        self.tools_dir.mkdir(parents=True, exist_ok=True)
++        self.registry = registry or DEFAULT_REGISTRY
++        self.enabled = enabled
++        self.watcher = PatternWatcher(self.root)
++        self.backlog = ShadowBacklog(self.root)
++        self.generator = generator or ToolGenerator(self.root, settings=settings)
++        self.tester = tester or SandboxTester()
++        self._settings = settings
++        self._stop = threading.Event()
++        self._thread: Optional[threading.Thread] = None
++        self._lock = threading.RLock()
++        self._load_registered_tools()
++
++    def observe_command(self, text: str, *, outcome: str) -> None:
++        if self.enabled:
++            self.watcher.record_command(text, outcome=outcome)
++
++    def observe_manual_workaround(self, text: str) -> None:
++        """Accepts a workaround only when another authorized component links it."""
++        if self.enabled:
++            self.watcher.record_manual_workaround(text)
++
++    def observe_screen(self, *, active_window: str, permission: bool, ocr_summary: str = "") -> bool:
++        if not self.enabled:
++            return False
++        return self.watcher.record_screen_context(active_window=active_window, permission=permission,
++                                                  ocr_summary=ocr_summary)
++
++    def start(self, interval_sec: int = 300) -> None:
++        if not self.enabled or self._thread is not None:
++            return
++        self._thread = threading.Thread(target=self._loop, args=(max(30, interval_sec),),
++                                        daemon=True, name="ShadowEngine")
++        self._thread.start()
++
++    def stop(self, timeout: float = 2.0) -> None:
++        self._stop.set()
++        if self._thread is not None:
++            self._thread.join(timeout=timeout)
++        self._thread = None
++
++    def tick(self) -> list[ToolPreparation]:
++        if not self.enabled or not bool(getattr(getattr(self._settings, "shadow", None), "auto_generate", True)):
++            return []
++        prepared: list[ToolPreparation] = []
++        for pattern in self.watcher.analyze():
++            if pattern.frequency <= 2 or pattern.confidence <= 0.8 or self.registry.get(pattern.suggested_tool):
++                continue
++            try:
++                prepared.append(self._generate_and_prepare(
++                    name=pattern.suggested_tool, description=pattern.description,
++                    confidence=pattern.confidence, params={}, test_params={},
++                ))
++            except Exception:
++                # Shadow mode stays silent. The unfulfilled pattern remains for
++                # a later pass when the local coder model is available.
++                continue
++        return prepared
++
++    def prepare_on_demand(self, goal: str) -> Optional[ToolPreparation]:
++        """Try a new low-risk request immediately, using only the local coder.
++
++        The caller still applies the normal JARVIS risk gate before execution.
++        If Qwen or validation is unavailable this returns ``None`` quietly,
++        leaving Active mode responsive.
++        """
++        if not self.enabled or not (goal or "").strip():
++            return None
++        name = self._safe_name("shadow_" + "_".join(re.findall(r"[a-zA-Z0-9]+", goal)[:4]))
++        if self.registry.get(name) is not None:
++            return None
++        try:
++            return self._generate_and_prepare(
++                name=name, description=goal, confidence=0.81,
++                params={"request": "string"}, test_params={"request": "test"},
++            )
++        except Exception:
++            return None
++
++    def _generate_and_prepare(self, *, name: str, description: str, confidence: float,
++                              params: dict[str, Any], test_params: dict[str, Any]) -> ToolPreparation:
++        """Regenerates at most three times after a functional-only failure."""
++        latest: Optional[ToolPreparation] = None
++        for _ in range(3):
++            source = self.generator.generate(
++                name=name, description=description, confidence=confidence, params=params,
++                expected_output="user-friendly result", examples=self._existing_tool_examples(),
++            )
++            latest = self.prepare_tool(name=name, description=description, source=source,
++                                       test_params=test_params)
++            if latest.status != "rejected" or not latest.report.safety.passed or latest.report.functional.passed:
++                return latest
++        assert latest is not None
++        return latest
++
++    def prepare_tool(self, *, name: str, description: str, source: str,
++                     test_params: dict[str, Any]) -> ToolPreparation:
++        safe_name = self._safe_name(name)
++        if "def run(params: dict)" not in source:
++            source = ToolGenerator.wrap(name=safe_name, description=description,
++                                        confidence=1.0, body=source)
++        report = self.tester.test_source(source, test_params)
++        if report.confidence >= 90:
++            path = self._register(safe_name, description, source)
++            return ToolPreparation(safe_name, "registered", report.confidence, report, path)
++        if report.confidence >= 70:
++            self._save_candidate(safe_name, source, report)
++            return ToolPreparation(safe_name, "proposed", report.confidence, report)
++        self._save_rejected(safe_name, source, report)
++        return ToolPreparation(safe_name, "rejected", report.confidence, report)
++
++    def suggestion_for(self, goal: str, *, now: Optional[datetime] = None) -> Optional[str]:
++        """One quiet, cooldown-protected suggestion for a relevant new tool."""
++        goal_l = (goal or "").lower()
++        for tool in self.registry.list_tools():
++            if not getattr(tool, "generated_by_shadow", False):
++                continue
++            tokens = set(re.findall(r"[\w]+", (tool.name + " " + tool.description).lower()))
++            if tokens and any(token in goal_l for token in tokens if len(token) > 3):
++                if self._cooldown_allows(tool.name, now=now):
++                    return f"Кстати, я подготовил «{tool.name}». Хочешь попробуешь?"
++        return None
++
++    def _loop(self, interval_sec: int) -> None:
++        while not self._stop.wait(interval_sec):
++            self.tick()
++
++    def _register(self, name: str, description: str, source: str) -> Path:
++        path = self.tools_dir / f"{name}.py"
++        tmp = path.with_suffix(".tmp")
++        tmp.write_text(source, encoding="utf-8")
++        tmp.replace(path)
++        if self.registry.get(name) is None:
++            tool = GeneratedShadowTool(name, description, path)
++            self.registry.register(tool)
++            self._register_capability(tool)
++        self._write_metadata(name, description, path)
++        return path
++
++    def _load_registered_tools(self) -> None:
++        for path in self.tools_dir.glob("*.py"):
++            name = self._safe_name(path.stem)
++            if self.registry.get(name) is None:
++                tool = GeneratedShadowTool(name, f"Shadow-generated tool: {name}", path)
++                self.registry.register(tool)
++                self._register_capability(tool)
++
++    @staticmethod
++    def _register_capability(tool: Tool) -> None:
++        try:
++            from core.capabilities import CAPABILITIES, Capability
++            CAPABILITIES.register(Capability.from_tool(tool, tags=tool.name.split("_")))
++        except Exception:
++            pass
++
++    def _existing_tool_examples(self) -> str:
++        examples = []
++        for tool in self.registry.list_tools()[:5]:
++            examples.append(f"{tool.name}: {tool.description}")
++        return "\n".join(examples)
++
++    def _save_candidate(self, name: str, source: str, report: SandboxReport) -> None:
++        path = self.root / "candidates"
++        path.mkdir(exist_ok=True)
++        (path / f"{name}.py").write_text(source, encoding="utf-8")
++        self._write_json(path / f"{name}.json", {"confidence": report.confidence, "status": "proposed"})
++
++    def _save_rejected(self, name: str, source: str, report: SandboxReport) -> None:
++        path = self.root / "rejected"
++        path.mkdir(exist_ok=True)
++        (path / f"{name}.py").write_text(source, encoding="utf-8")
++        self._write_json(path / f"{name}.json", {"confidence": report.confidence, "status": "rejected"})
++        self.backlog.add(name, priority=0.8, reason="generated capability failed validation")
++
++    def _write_metadata(self, name: str, description: str, path: Path) -> None:
++        manifest = self.root / "tools.json"
++        try:
++            data = json.loads(manifest.read_text(encoding="utf-8"))
++        except (OSError, ValueError):
++            data = {"tools": []}
++        tools = [item for item in data.get("tools", []) if item.get("name") != name]
++        tools.append({"name": name, "description": description, "path": str(path),
++                      "generated_by_shadow": True})
++        self._write_json(manifest, {"tools": tools})
++
++    def _cooldown_allows(self, name: str, *, now: Optional[datetime]) -> bool:
++        path = self.root / "notification_cooldowns.json"
++        current = now or datetime.now(timezone.utc)
++        try:
++            data = json.loads(path.read_text(encoding="utf-8"))
++            then = datetime.fromisoformat(data.get(name, ""))
++            if current - then < timedelta(days=7):
++                return False
++        except (OSError, ValueError, TypeError):
++            data = {}
++        data[name] = current.isoformat()
++        self._write_json(path, data)
++        return True
++
++    @staticmethod
++    def _safe_name(name: str) -> str:
++        clean = re.sub(r"[^a-zA-Z0-9_]", "_", name).strip("_").lower()
++        return clean[:64] or "shadow_tool"
++
++    @staticmethod
++    def _write_json(path: Path, payload: dict[str, Any]) -> None:
++        tmp = path.with_suffix(path.suffix + ".tmp")
++        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
++        tmp.replace(path)
++
++
++def active_mode_message(goal: str) -> str:
++    """Fallback wording for a novel request; never frames learning as inability."""
++    risk = assess_risk(goal)
++    if risk.needs_confirmation:
++        return "Сейчас разберусь, сэр. Перед опасной операцией потребуется ваше подтверждение."
++    return "Сейчас разберусь, сэр. Подготовлю безопасный способ и проверю его."
+--- /dev/null
++++ b/scripts/sprint9_smoke.py
+@@ -0,0 +1,58 @@
++"""Safe Sprint 9 live smoke: temp files only, no network or system mutation."""
++from __future__ import annotations
++
++import json
++import sys
++import tempfile
++import time
++from pathlib import Path
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
++from config.settings import Settings
++from core.actions import DEFAULT_REGISTRY, ToolContext
++from core.capability_engine import CapabilityCatalog, CapabilityEngine, CapabilityPlanner
++
++
++def _run(planner, engine, goal: str):
++    started = time.perf_counter()
++    plan = planner.plan(goal)
++    report = engine.execute(plan)
++    return {
++        "latency_ms": round((time.perf_counter() - started) * 1000, 3),
++        "acquisition": plan.acquisition,
++        "llm_calls": 0,
++        "tools_used": [result.tool for result in report.results],
++        "verified": report.verification.verified,
++        "completed": report.completed,
++        "episode_id": report.episode.episode_id if report.episode else None,
++    }
++
++
++def main() -> int:
++    with tempfile.TemporaryDirectory(prefix="jarvis-sprint9-") as raw:
++        root = Path(raw)
++        for name in ("alpha.txt", "beta.md", "gamma.txt"):
++            (root / name).write_text(name, encoding="utf-8")
++        settings = Settings()
++        settings.paths.documents_dir = str(root)
++        catalog = CapabilityCatalog(root / ".capabilities")
++        planner = CapabilityPlanner(catalog, DEFAULT_REGISTRY)
++        engine = CapabilityEngine(catalog, DEFAULT_REGISTRY,
++                                  context=ToolContext(settings=settings))
++        first = _run(planner, engine, "организуй тестовые файлы по расширению")
++
++        for name in ("delta.txt", "epsilon.md"):
++            (root / name).write_text(name, encoding="utf-8")
++        second = _run(CapabilityPlanner(catalog, DEFAULT_REGISTRY), engine,
++                      "снова организуй файлы по расширению")
++        print(json.dumps({"scenario": "safe_file_organization",
++                          "first": first, "second": second},
++                         ensure_ascii=False, indent=2))
++        return 0 if first["completed"] and second["completed"] else 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- /dev/null
++++ b/scripts/rollback_sprint9.ps1
+@@ -0,0 +1,41 @@
++[CmdletBinding(SupportsShouldProcess = $true)]
++param(
++    [Parameter(Mandatory = $false)]
++    [string]$Sprint9Commit
++)
++
++$ErrorActionPreference = "Stop"
++$workspace = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
++Set-Location -LiteralPath $workspace
++
++if ([string]::IsNullOrWhiteSpace($Sprint9Commit)) {
++    Write-Output "Rollback plan: git revert --no-edit <SPRINT9_COMMIT>"
++    Write-Output "The commit argument is required for execution; no files were changed."
++    exit 0
++}
++
++git cat-file -e "$Sprint9Commit`^{commit}" 2>$null
++if ($LASTEXITCODE -ne 0) {
++    throw "Sprint9Commit is not a valid local commit: $Sprint9Commit"
++}
++
++git diff --quiet
++if ($LASTEXITCODE -ne 0) {
++    throw "Working tree has unstaged changes. Preserve or commit them before rollback."
++}
++git diff --cached --quiet
++if ($LASTEXITCODE -ne 0) {
++    throw "Index has staged changes. Preserve or commit them before rollback."
++}
++
++if ($PSCmdlet.ShouldProcess($workspace, "Revert Sprint 9 commit $Sprint9Commit")) {
++    git revert --no-edit $Sprint9Commit
++    if ($LASTEXITCODE -ne 0) {
++        throw "git revert failed; inspect the repository and resolve the revert."
++    }
++
++    python -m pytest -q
++    if ($LASTEXITCODE -ne 0) {
++        throw "Rollback completed, but the regression suite reported failures."
++    }
++}
+--- /dev/null
++++ b/tests/test_local_only_hotfix.py
+@@ -0,0 +1,24 @@
++from config import load_config
++from core.llm.factory import clear_backend_cache, get_llm_backend
++from core.llm.local_qwen import LocalQwenBackend
++from core.model_router import ModelRouter
++
++
++def test_production_config_is_local_only():
++    settings = load_config()
++    assert settings.offline_mode is True
++    assert settings.get_provider("analyst") == "local"
++    assert all(not value for value in settings.api_keys.model_dump().values())
++
++
++def test_offline_router_preserves_role_without_remote_escalation():
++    settings = load_config()
++    decision = ModelRouter(settings).route("проанализируй проект")
++    assert decision.forced_local is True
++    assert decision.tier.value == "analyst"
++    assert decision.fallback_chain == []
++    clear_backend_cache()
++    backend = get_llm_backend(settings, "analyst")
++    assert isinstance(backend, LocalQwenBackend)
++    assert backend.task_role == "analyst"
++    clear_backend_cache()
+--- /dev/null
++++ b/tests/test_sprint9.py
+@@ -0,0 +1,314 @@
++"""Sprint 9 — capability acquisition, verification, learning and continuity."""
++from __future__ import annotations
++
++from pathlib import Path
++
++from config.settings import Settings
++from core.actions.base import ActionResult, Tool, ToolContext
++from core.actions.registry import ToolRegistry
++from core.llm.factory import clear_backend_cache, get_llm_backend
++from core.llm.tiers import Tier
++from core.model_router import ModelRouter
++
++
++def test_offline_coder_keeps_task_role_with_best_local_model(tmp_path):
++    model = tmp_path / "qwen.gguf"
++    model.write_bytes(b"fixture")
++    settings = Settings(offline_mode=True)
++    settings.local_model.gguf_path = str(model)
++    settings.model_tiers.coder = "coder-role"
++    settings.tier_providers.coder = "local"
++    clear_backend_cache()
++    try:
++        decision = ModelRouter(settings).route("напиши Python код и тесты для функции")
++        backend = get_llm_backend(settings, Tier.CODER)
++        assert decision.tier is Tier.CODER
++        assert backend.task_role == "coder"
++        assert backend.gguf_path == model
++    finally:
++        clear_backend_cache()
++
++
++def test_unknown_task_composes_existing_tools_before_generation(tmp_path):
++    from core.capability_engine import CapabilityCatalog, CapabilityPlanner
++
++    registry = ToolRegistry()
++    for name in ("list_files", "file_move", "list_files_recursive"):
++        registry.register(_FakeTool(name))
++    generated = []
++    planner = CapabilityPlanner(
++        CapabilityCatalog(tmp_path / "capabilities"), registry,
++        acquire=lambda goal: generated.append(goal),
++    )
++
++    plan = planner.plan("организуй файлы по расширению")
++
++    assert plan.acquisition == "composed"
++    assert [step.tool for step in plan.steps] == [
++        "list_files", "file_move", "list_files_recursive",
++    ]
++    assert generated == []
++
++
++def test_acquired_capability_is_persisted(tmp_path):
++    from core.capability_engine import CapabilityCatalog, CapabilityDefinition, CapabilityKind
++
++    catalog = CapabilityCatalog(tmp_path)
++    capability = CapabilityDefinition(
++        id="configure_streaming_application", description="Configure streaming software",
++        tools=["app.discover", "file.write"], kind=CapabilityKind.LEARNED,
++        success_criteria=["desired configuration matches"], confidence=0.91,
++    )
++    catalog.save(capability)
++
++    restored = CapabilityCatalog(tmp_path).get(capability.id)
++    assert restored is not None
++    assert restored.kind is CapabilityKind.LEARNED
++    assert restored.tools == capability.tools
++
++
++def test_tool_success_does_not_complete_when_desired_state_is_missing():
++    from core.capability_engine import DesiredStateVerifier
++
++    result = DesiredStateVerifier().verify(
++        {"installed": True, "encoder": "H264"},
++        {"installed": True, "encoder": "default"},
++    )
++    assert result.verified is False
++    assert result.missing == {"encoder": {"expected": "H264", "actual": "default"}}
++
++
++def test_repair_targets_only_failed_desired_state_step(tmp_path):
++    from core.capability_engine import (
++        CapabilityCatalog, CapabilityEngine, ExecutionPlan, ExecutionStep,
++    )
++
++    calls = []
++    plan = ExecutionPlan(
++        goal="configure app", acquisition="composed",
++        desired_state={"installed": True, "configured": True},
++        steps=[
++            ExecutionStep("install", "install", produces={"installed": True}),
++            ExecutionStep("configure", "configure", depends_on=["install"],
++                          produces={"configured": True}),
++        ],
++    )
++    engine = CapabilityEngine(
++        CapabilityCatalog(tmp_path), ToolRegistry(),
++        executor=lambda tool, args: calls.append(tool) or ActionResult(tool, args, True, "ok"),
++        observer=lambda: {"installed": True, "configured": False},
++    )
++
++    report = engine.execute(plan, max_repairs=1)
++    assert report.completed is False
++    assert calls == ["install", "configure", "configure"]
++    assert report.repairs == ["configure"]
++
++
++def test_successful_unknown_task_creates_retrievable_generalized_episode(tmp_path):
++    from core.capability_engine import CapabilityCatalog, CapabilityEpisode
++
++    catalog = CapabilityCatalog(tmp_path)
++    episode = CapabilityEpisode(
++        goal="configure OBS from reference", capability="configure_obs",
++        task_class="configure_streaming_software",
++        successful_strategy=["inspect", "write config", "verify"],
++        verification=["encoder=H264"], generalized_procedure=[
++            "streaming applications expose encoder bitrate resolution fps audio"
++        ], confidence=0.93,
++    )
++    catalog.record_episode(episode)
++
++    matches = CapabilityCatalog(tmp_path).retrieve_episodes(
++        "configure Streamlabs encoder bitrate and fps", limit=3,
++    )
++    assert matches
++    assert matches[0].task_class == "configure_streaming_software"
++
++
++def test_high_confidence_high_risk_still_requires_confirmation():
++    from core.capability_engine import RiskConfidencePolicy
++
++    decision = RiskConfidencePolicy().decide(confidence=0.99, risk="high")
++    assert decision.action == "confirm"
++    assert decision.auto_execute is False
++
++
++def test_failed_file_change_rolls_back(tmp_path):
++    from core.capability_engine import Transaction
++
++    target = tmp_path / "settings.ini"
++    target.write_text("before", encoding="utf-8")
++    tx = Transaction(tmp_path / "checkpoints")
++    tx.checkpoint_file(target)
++    target.write_text("after", encoding="utf-8")
++
++    tx.rollback()
++    assert target.read_text(encoding="utf-8") == "before"
++
++
++def test_persistent_mission_can_cancel_explain_and_restore(tmp_path):
++    from core.capability_engine import MissionState, MissionStateStore
++
++    store = MissionStateStore(tmp_path)
++    mission = MissionState(
++        mission_id="M-1", goal="configure app", state="executing", current_step=1,
++        desired_state={"configured": True}, completed_steps=["discover"],
++        pending_steps=["configure", "verify"], rollback=[{"kind": "file"}],
++    )
++    store.save(mission)
++    restored = MissionStateStore(tmp_path).load("M-1")
++    assert restored is not None
++    assert restored.explain_current_step() == "configure"
++    restored.cancel()
++    store.save(restored)
++    assert MissionStateStore(tmp_path).load("M-1").state == "cancelled"
++
++
++def test_reference_interpreter_extracts_desired_state_not_click_sequence():
++    from core.capability_engine import ReferenceInterpreter
++
++    result = ReferenceInterpreter().interpret({
++        "application": "fixture-app",
++        "settings": {"encoder": "H264", "fps": 60},
++        "clicks": [[10, 20], [30, 40]],
++    })
++    assert result.desired_state == {"encoder": "H264", "fps": 60}
++    assert "clicks" not in result.desired_state
++
++
++def test_windows_execution_ladder_prefers_uia_over_vision():
++    from core.platform.windows import ProviderChain, ProviderResult, WindowsAutomationProvider
++
++    class Provider(WindowsAutomationProvider):
++        def __init__(self, name, level, supported):
++            self.name, self.ladder_level, self.supported = name, level, supported
++        def supports(self, operation): return self.supported
++        def invoke(self, operation, **kwargs): return ProviderResult(True, self.name)
++
++    chain = ProviderChain([
++        Provider("vision", 6, True), Provider("uia", 4, True), Provider("raw", 7, True),
++    ])
++    assert chain.invoke("ui.inspect").value == "uia"
++
++
++def test_browser_provider_uses_dom_engine():
++    from core.platform.browser import BrowserAutomationProvider
++
++    class FakeEngine:
++        def open(self, url): return {"ok": True, "url": url}
++        def read(self, index=None): return {"ok": True, "text": "DOM text"}
++        def list_elements(self): return [{"index": 0, "text": "button"}]
++
++    browser = BrowserAutomationProvider(FakeEngine())
++    assert browser.navigate("https://fixture.invalid")["ok"] is True
++    assert browser.read_page()["text"] == "DOM text"
++    assert browser.inspect()[0]["index"] == 0
++
++
++def test_shadow_backlog_pauses_during_high_load(tmp_path):
++    from core.shadow import ShadowBacklog
++
++    backlog = ShadowBacklog(tmp_path)
++    backlog.add("improve_pdf", priority=0.9, reason="frequent repairs")
++    assert backlog.next(cpu_percent=95, gpu_percent=20, gaming=True) is None
++    assert backlog.next(cpu_percent=10, gpu_percent=10, gaming=False).id == "improve_pdf"
++
++
++def test_safe_unknown_file_organization_executes_verifies_and_learns(tmp_path):
++    from core.actions import DEFAULT_REGISTRY
++    from core.capability_engine import CapabilityCatalog, CapabilityEngine, CapabilityPlanner
++
++    for name, content in (("a.txt", "a"), ("b.md", "b"), ("c.txt", "c")):
++        (tmp_path / name).write_text(content, encoding="utf-8")
++    settings = Settings()
++    settings.paths.documents_dir = str(tmp_path)
++    catalog = CapabilityCatalog(tmp_path / ".capabilities")
++    planner = CapabilityPlanner(catalog, DEFAULT_REGISTRY)
++    plan = planner.plan("организуй файлы по расширению")
++    engine = CapabilityEngine(catalog, DEFAULT_REGISTRY,
++                              context=ToolContext(settings=settings))
++
++    first = engine.execute(plan)
++    second_plan = CapabilityPlanner(catalog, DEFAULT_REGISTRY).plan(
++        "снова организуй файлы по расширению"
++    )
++
++    assert first.completed is True
++    assert (tmp_path / "txt" / "a.txt").is_file()
++    assert (tmp_path / "md" / "b.md").is_file()
++    assert first.episode is not None
++    assert second_plan.acquisition == "learned"
++
++
++def test_agent_unknown_path_uses_capability_composition(tmp_path):
++    from core.agent import Agent, AgentConfig
++
++    for name in ("one.txt", "two.md"):
++        (tmp_path / name).write_text(name, encoding="utf-8")
++    settings = Settings()
++    settings.paths.data_dir = str(tmp_path / "data")
++    settings.paths.documents_dir = str(tmp_path)
++    agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
++
++    outcome = agent._handle_unknown("организуй файлы по расширению", [], None, [], "no direct tool")
++
++    assert outcome.verified is True
++    assert outcome.mode == "capability"
++    assert "Готово" in outcome.text
++    assert (tmp_path / "txt" / "one.txt").is_file()
++
++
++def test_task_runtime_persists_and_restores_mission(tmp_path):
++    from core.task_runtime import TaskRuntime
++
++    runtime = TaskRuntime(persistence_dir=tmp_path)
++    mission = runtime.submit("fixture mission", lambda current, cancel: "done")
++    finished = runtime.wait(mission.task_id, timeout=5)
++    assert finished.status.value == "completed"
++    runtime.shutdown()
++
++    restored_runtime = TaskRuntime(persistence_dir=tmp_path)
++    restored = restored_runtime.get(mission.task_id)
++    assert restored is not None
++    assert restored.result == "done"
++    assert restored.status.value == "completed"
++
++
++def test_task_runtime_pause_skip_and_explain(tmp_path):
++    from core.task_runtime import Mission, MissionStatus, TaskRuntime
++
++    runtime = TaskRuntime(persistence_dir=tmp_path)
++    mission = Mission("M-control", "configure", status=MissionStatus.PAUSED,
++                      plan=[{"description": "install", "status": "completed"},
++                            {"description": "configure", "status": "pending"}])
++    runtime.restore_mission(mission)
++    assert runtime.explain_current_step("M-control") == "configure"
++    assert runtime.skip_step("M-control") is True
++    assert runtime.explain_current_step("M-control") == "completed"
++
++
++def test_unknown_research_prioritizes_official_sources_and_structures_plan():
++    from core.capability_engine import CapabilityResearch
++
++    plan = CapabilityResearch().structure("install fixture app", [
++        {"url": "https://third.invalid/setup.exe", "kind": "third_party", "verified": False},
++        {"url": "https://official.invalid/docs", "kind": "official", "verified": True},
++        {"url": "https://github.invalid/org/repo", "kind": "repository", "verified": True},
++    ])
++    assert plan.sources[0]["kind"] == "official"
++    assert all(source["verified"] for source in plan.sources)
++    assert plan.steps
++    assert plan.verification
++    assert plan.risks
++
++
++class _FakeTool(Tool):
++    def __init__(self, name: str): self._name = name
++    @property
++    def name(self): return self._name
++    @property
++    def description(self): return self._name
++    @property
++    def input_schema(self): return {"type": "object"}
++    def run(self, args, context): return ActionResult(self.name, args, True, "ok")
+--- /dev/null
++++ b/docs/sprints/SPRINT9_CHANGESET.md
+@@ -0,0 +1,55 @@
++# JARVIS Sprint 9 changeset
++
++## Scope
++
++Capability Engine for unknown-task discovery, composition, execution,
++desired-state verification, targeted repair and learning. The existing Tool
++Registry remains the primitive-operation layer.
++
++## Changed files
++
++### Core integration
++
++- `core/agent.py` — routes unknown work through capability search/composition
++  before the Sprint 8 generated-tool fallback; queues failed capabilities.
++- `core/orchestrator.py` — persistent mission runtime and interruption facade.
++- `core/task_runtime.py` — atomic mission persistence, restore, pause, skip and
++  explain-current-step operations.
++- `core/model_router.py` — separates requested task role from model availability.
++- `core/llm/factory.py` — preserves offline CODER/ANALYST roles while selecting
++  the best configured local model.
++- `core/capabilities.py` — adds CRITICAL to the existing risk taxonomy.
++- `core/safety.py` — recognizes critical destructive-system operations.
++- `core/actions/filesystem.py` — adds bounded copy/move/recursive-list primitives.
++
++### New capability layer
++
++- `core/capability_engine.py` — persistent catalog, capability/episode models,
++  planner/DAG, structured research, desired-state verifier, execution/repair,
++  learning, risk-confidence policy and transaction abstraction.
++- `core/platform/windows.py` — Windows provider contract, reliability ladder,
++  native primitives and optional WinApp/UIA/vision adapters.
++- `core/platform/browser.py` — DOM-first adapter over existing Playwright engine.
++- `core/platform/__init__.py` — platform-layer public exports.
++
++### Shadow integration
++
++- `core/shadow/backlog.py` — persistent bounded background backlog and load gate.
++- `core/shadow/engine.py` — queues rejected/unstable work for later rehearsal.
++- `core/shadow/__init__.py` — exports backlog types.
++
++### Tests and verification
++
++- `tests/test_sprint9.py` — 18 unit/integration scenarios.
++- `tests/test_p1_sprint.py` — offline CODER regression expectation.
++- `tests/test_local_only_hotfix.py` — offline ANALYST/local-role regression.
++- `scripts/sprint9_smoke.py` — disposable unknown-task learn/reuse smoke test.
++- `docs/sprints/SPRINT9_VERIFICATION.md` — literal verification record.
++- `scripts/rollback_sprint9.ps1` — guarded commit-level rollback.
++
++## Compatibility
++
++No frontend files, network services, databases or model assets were added.
++Storage uses atomic local JSON under `data/capabilities`, `data/missions` and the
++existing Shadow data directory.
++
+--- /dev/null
++++ b/docs/sprints/SPRINT9_VERIFICATION.md
+@@ -0,0 +1,107 @@
++# JARVIS Sprint 9 verification record
++
++Date: 2026-08-17  
++Workspace: `E:\jarvis-project`
++
++## Baseline
++
++Command:
++
++```powershell
++python -m pytest -q
++```
++
++Collected: 161  
++Result: **158 passed, 1 failed, 2 skipped**  
++Exit status: **1**
++
++The failing regression was
++`test_p1_no_local_heavy_escalation`: offline routing collapsed CODER to FAST.
++
++## Modified build
++
++Commands:
++
++```powershell
++python -m compileall -q core tests\test_sprint9.py
++python -m pytest -q
++```
++
++Collected: 179  
++Result: **177 passed, 0 failed, 2 skipped**  
++Exit statuses: **0, 0**
++
++The two skips are the pre-existing optional model-failure scenarios. The full
++run emitted two pre-existing `websockets` deprecation warnings.
++
++Targeted post-fix command:
++
++```powershell
++python -m pytest -q tests\test_sprint9.py tests\test_p1_sprint.py tests\test_local_only_hotfix.py
++```
++
++Literal result: `................................. [100%]`  
++Tests: **33 passed**, exit status **0**.
++
++Diff validation:
++
++```powershell
++git diff --check -- <Sprint-9 paths>
++```
++
++Result: no whitespace errors, exit status **0**. Git reported only the existing
++LF-to-CRLF checkout notice.
++
++## Safe live smoke
++
++Command:
++
++```powershell
++python scripts\sprint9_smoke.py
++```
++
++Exit status: **0**
++
++```json
++{
++  "scenario": "safe_file_organization",
++  "first": {
++    "latency_ms": 49.726,
++    "acquisition": "composed",
++    "llm_calls": 0,
++    "tools_used": ["list_files", "file_move", "list_files_recursive"],
++    "verified": true,
++    "completed": true,
++    "episode_id": "a2ce9fc16952421a8b5cf51eef627e90"
++  },
++  "second": {
++    "latency_ms": 24.018,
++    "acquisition": "learned",
++    "llm_calls": 0,
++    "tools_used": ["list_files", "file_move", "list_files_recursive"],
++    "verified": true,
++    "completed": true,
++    "episode_id": "1e2ea3662ce14b8f9b7293639ffe5a86"
++  }
++}
++```
++
++The fixture used a temporary directory, performed no network or system mutation,
++and removed itself after verification.
++
++## Delivery and rollback artifacts
++
++- Modified-source archive: `artifacts/sprint9/jarvis-sprint9-source.zip`
++- Workspace-vs-HEAD patch: `artifacts/sprint9/workspace-delivery-vs-HEAD.patch`
++- SHA-256 record: `artifacts/sprint9/SHA256SUMS.txt`
++- Runnable guarded rollback: `scripts/rollback_sprint9.ps1`
++
++The archive was reopened and verified with 22 entries. The patch was parsed by
++`git apply --stat`. The rollback script was executed without a commit argument;
++it printed its dry plan and changed no files.
++
++The workspace already contained uncommitted Sprint 1–8 work when this sprint
++started. Therefore the patch is explicitly a **workspace-vs-HEAD delivery
++snapshot**, not a claim that every hunk belongs only to Sprint 9. Commit-level
++rollback is deliberately required so pre-existing working changes are not
++silently overwritten.

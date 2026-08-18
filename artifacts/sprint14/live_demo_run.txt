@@ -1,0 +1,87 @@
+2026-08-17 19:52:37 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']
+{
+  "scenario": "stale belief -> observe -> contradict -> expect -> misleading success -> surprise -> repair -> verify -> learn -> restart -> avoid failure -> provenance",
+  "stale_value": "1.0",
+  "observed_value": "2.0",
+  "belief_status": "observed",
+  "belief_confidence": 0.99,
+  "contradictions": [
+    "previous:'1.0' (memory)"
+  ],
+  "belief_correction_message": "Раньше было сохранено другое значение. Сейчас система показывает 2.0.",
+  "first_action_calls": [
+    "cached_provider",
+    "atomic_config"
+  ],
+  "misleading_action_reported_success": true,
+  "misleading_action_verified": false,
+  "surprise": {
+    "action_id": "enable-feature",
+    "expected": {
+      "feature_enabled": true
+    },
+    "observed": {
+      "feature_enabled": false
+    },
+    "mismatch": {
+      "feature_enabled": {
+        "expected": true,
+        "actual": false
+      }
+    },
+    "failure_indicators": [
+      "feature_enabled remains false"
+    ],
+    "evidence_refs": [
+      "disk:fixture_app.json:feature_enabled"
+    ],
+    "created_at": "2026-08-17T14:52:37.957025+00:00"
+  },
+  "selected_repair": "atomic_config",
+  "first_response": "Готово. Проверил — работает.",
+  "final_observed": {
+    "feature_enabled": true
+  },
+  "final_verified": true,
+  "failure_episode": {
+    "goal": "enable fixture feature",
+    "task_class": "fixture_config",
+    "strategy": "cached_provider",
+    "failure_category": "expectation_mismatch",
+    "observed_mismatch": {
+      "feature_enabled": {
+        "expected": true,
+        "actual": false
+      }
+    },
+    "environment_fingerprint": "30de49e77249da07f36ebe2b",
+    "confidence": 0.9,
+    "successful_repair": "atomic_config",
+    "evidence_refs": [
+      "disk:fixture_app.json:feature_enabled"
+    ],
+    "episode_id": "cbc64ed477154f82b08bda6edc32f689",
+    "created_at": "2026-08-17T14:52:37.971453+00:00"
+  },
+  "second_run_calls": [
+    "atomic_config"
+  ],
+  "second_run_skipped": [
+    "cached_provider"
+  ],
+  "second_run_verified": true,
+  "second_response": "Готово. Проверил — работает.",
+  "provenance_response": "Я проверил это в локальной системе.",
+  "audit_event_types": [
+    "action",
+    "belief_transition",
+    "expectation",
+    "observation",
+    "provenance",
+    "strategy_change",
+    "surprise",
+    "verification"
+  ],
+  "audit_bundle": "E:\\jarvis-project\\artifacts\\sprint14\\live_demo\\sprint14_audit_bundle.json",
+  "report_path": "E:\\jarvis-project\\artifacts\\sprint14\\live_demo\\live_demo_report.json"
+}

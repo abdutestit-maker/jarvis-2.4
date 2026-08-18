@@ -43,6 +43,12 @@ log = get_logger(__name__)
 #  §21 — Оценка риска
 # --------------------------------------------------------------------------- #
 
+#: CRITICAL is reserved for irreversible system/security modification.
+_CRITICAL_RISK_PATTERNS: List[tuple[str, str]] = [
+    (r"format\s+[a-z]:|форматир\w*\s+(диск|раздел)|bootloader|загрузчик", "необратимое изменение диска"),
+    (r"system32|удал\w*\s+системн\w*\s+файл|disable\w*\s+(uac|defender)", "критическое изменение системы"),
+]
+
 #: Признаки HIGH-risk намерения в тексте цели (рус + англ).
 _HIGH_RISK_PATTERNS: List[tuple[str, str]] = [
     (r"удал|снес|сотри|очист|delete|remove|wipe|format|rmdir|rm\s+-rf", "удаление данных"),
@@ -113,7 +119,8 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
 
     def bump(new: RiskLevel, why: str) -> None:
         nonlocal level
-        order = {RiskLevel.LOW: 0, RiskLevel.MEDIUM: 1, RiskLevel.HIGH: 2}
+        order = {RiskLevel.LOW: 0, RiskLevel.MEDIUM: 1,
+                 RiskLevel.HIGH: 2, RiskLevel.CRITICAL: 3}
         if order[new] > order[level]:
             level = new
         if why and why not in reasons:
@@ -129,6 +136,9 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
 
     # 2) Текст цели.
     text = (goal or "").lower()
+    for pattern, why in _CRITICAL_RISK_PATTERNS:
+        if re.search(pattern, text):
+            bump(RiskLevel.CRITICAL, why)
     for pattern, why in _HIGH_RISK_PATTERNS:
         if re.search(pattern, text):
             bump(RiskLevel.HIGH, why)
@@ -139,6 +149,9 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
     # 3) Аргументы.
     arg_text = " ".join(str(v) for v in (arguments or {}).values()).lower()
     if arg_text:
+        for pattern, why in _CRITICAL_RISK_PATTERNS:
+            if re.search(pattern, arg_text):
+                bump(RiskLevel.CRITICAL, f"{why} (в аргументах)")
         for pattern, why in _HIGH_RISK_PATTERNS:
             if re.search(pattern, arg_text):
                 bump(RiskLevel.HIGH, f"{why} (в аргументах)")

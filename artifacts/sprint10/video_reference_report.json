@@ -1,0 +1,25 @@
+{
+  "source": "C:\\Users\\WwW\\Videos\\NVIDIA\\Desktop\\Desktop 2026.08.17 - 15.10.50.02.mp4",
+  "metadata": {
+    "duration_seconds": 22.032667,
+    "width": 1920,
+    "height": 1080,
+    "fps": 60.002,
+    "codec": "hevc"
+  },
+  "keyframes": [
+    "E:\\jarvis-project\\artifacts\\sprint10\\video_reference\\sample_001.jpg",
+    "E:\\jarvis-project\\artifacts\\sprint10\\video_reference\\sample_002.jpg",
+    "E:\\jarvis-project\\artifacts\\sprint10\\video_reference\\sample_003.jpg",
+    "E:\\jarvis-project\\artifacts\\sprint10\\video_reference\\sample_004.jpg",
+    "E:\\jarvis-project\\artifacts\\sprint10\\video_reference\\sample_005.jpg",
+    "E:\\jarvis-project\\artifacts\\sprint10\\video_reference\\sample_006.jpg"
+  ],
+  "transcript": "",
+  "steps": [],
+  "observed_settings": {},
+  "uncertain_items": [
+    "frame_analysis_unavailable"
+  ],
+  "desired_state": {}
+}

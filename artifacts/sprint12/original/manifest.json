@@ -1,0 +1,34 @@
+[
+  {
+    "path": "core\\agent.py",
+    "sha256": "2c33dd7bffcf1e60fdcf91f3702abcfa921c62da5060e4cb007dc570d4b45490"
+  },
+  {
+    "path": "core\\orchestrator.py",
+    "sha256": "bb175eb26cf53acc3d4539c4a274a74b857204ad677151a0224bbe3d88473561"
+  },
+  {
+    "path": "core\\living\\service.py",
+    "sha256": "8cdbab9c02f65ce914cd4dadfa171f7ab7d18ffa12ff18090cb701bdeabdce8b"
+  },
+  {
+    "path": "core\\living\\__init__.py",
+    "sha256": "a411b125008d03a6cd2b2d7b210dabe7de97f1a259795059ed8828d9ae8fdeec"
+  },
+  {
+    "path": "core\\voice\\greeting.py",
+    "sha256": "270c2cf4ca9344d27575549804e3697c125603a76608af8372f421dcf6486998"
+  },
+  {
+    "path": "persona\\system_prompt.py",
+    "sha256": "bc73f5fb6e2f04ac4981dd2fbb8d10fb6319beb6b672c1928ef6dfd7f4d0b0aa"
+  },
+  {
+    "path": "core\\memory\\__init__.py",
+    "sha256": "e7e94010203ae9f016793b07c8480eb9badea5c7dd8af16bebda5adf83d70eab"
+  },
+  {
+    "path": "core\\ws_server.py",
+    "sha256": "f22c347def19ed3b9de571b3af522594ba362b372a4fc7f91728bf8905603847"
+  }
+]

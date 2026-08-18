@@ -1,0 +1,2 @@
+2026-08-17 21:02:12 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']
+{'executor_results': 24, 'executor_failures': 0, 'tts_stopped': True, 'bounded_records': 32, 'bounded_limit': 32}

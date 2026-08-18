@@ -1,0 +1,1257 @@
+.................................................................ss..... [ 15%]
+........................................................................ [ 30%]
+........................................................................ [ 46%]
+........................................................................ [ 61%]
+........................................................................ [ 76%]
+........................................................................ [ 92%]
+....................................                                     [100%]
+=================================== PASSES ====================================
+_ test_conversation_direct_answer_without_tools[\u041f\u0440\u0438\u0432\u0435\u0442] _
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:06:55 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_ test_conversation_direct_answer_without_tools[\u041e\u0431\u044a\u044f\u0441\u043d\u0438 \u043a\u0432\u0430\u043d\u0442\u043e\u0432\u0443\u044e \u043c\u0435\u0445\u0430\u043d\u0438\u043a\u0443] _
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:06:55 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_ test_conversation_direct_answer_without_tools[\u041c\u043d\u0435 \u0441\u043a\u0443\u0447\u043d\u043e] _
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:06:55 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_ test_action_uses_planner_with_tools[\u041a\u0430\u043a\u0438\u0435 \u0444\u0430\u0439\u043b\u044b \u0435\u0441\u0442\u044c \u0432 documents?] _
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:06:55 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_ test_action_uses_planner_with_tools[\u041e\u0442\u043a\u0440\u043e\u0439 \u0444\u0430\u0439\u043b notes.txt] _
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:06:56 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_____________________ test_web_search_action_goes_planner _____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:06:57 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_____________________ test_conversation_streams_via_sink ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:06:59 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+___________________ test_e2e_text_command_via_orchestrator ____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:06:59 | INFO     | jarvis.core.memory.knowledge_graph | \u0413\u0440\u0430\u0444 \u0437\u043d\u0430\u043d\u0438\u0439 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: E:\\jarvis-project\\data\\graph\\jarvis_graph.db\n2026-08-18 00:06:59 | INFO     | jarvis.core.voice.tts        | PiperTTS \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-18 00:06:59 | INFO     | jarvis.core.orchestrator     | TTS queue \u0437\u0430\u043f\u0443\u0449\u0435\u043d\n2026-08-18 00:06:59 | INFO     | jarvis.core.proactive.proactor | Proactor \u0437\u0430\u043f\u0443\u0449\u0435\u043d (cooldown=30 \u043c\u0438\u043d, interval=60 \u0441\u0435\u043a)\n2026-08-18 00:06:59 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler \u0437\u0430\u043f\u0443\u0449\u0435\u043d (nightly=03:00)\n2026-08-18 00:06:59 | INFO     | jarvis.core.orchestrator     | \u041e\u0440\u043a\u0435\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0437\u0430\u043f\u0443\u0449\u0435\u043d\n2026-08-18 00:06:59 | INFO     | jarvis.core.memory.long_term | \u0414\u043e\u043b\u0433\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d\u0430: E:\\jarvis-project\\data\\memory\n2026-08-18 00:06:59 | INFO     | jarvis.core.memory.document_rag | RAG-\u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d\u044b: C:\\Users\\WwW\\AppData\\Local\\Temp\\pytest-of-WwW\\pytest-302\\test_e2e_text_command_via_orch0\n2026-08-18 00:06:59 | INFO     | jarvis.core.memory.knowledge_graph | \u0413\u0440\u0430\u0444 \u0437\u043d\u0430\u043d\u0438\u0439 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: E:\\jarvis-project\\data\\graph\\jarvis_graph.db\n\U0001f916 \u0421\u044d\u0440, \u0441\u0438\u0441\u0442\u0435\u043c\u044b \u0432 \u043d\u043e\u0440\u043c\u0435. \u0414\u0436\u0430\u0440\u0432\u0438\u0441 \u043a \u0432\u0430\u0448\u0438\u043c \u0443\u0441\u043b\u0443\u0433\u0430\u043c.\n2026-08-18 00:07:00 | INFO     | jarvis.core.voice.notifications | \u0423\u0412\u0415\u0414\u041e\u041c\u041b\u0415\u041d\u0418\u0415: \u0410\u0422\u041b\u0410\u0421 \u2014 \u0421\u044d\u0440, \u0441\u0438\u0441\u0442\u0435\u043c\u044b \u0432 \u043d\u043e\u0440\u043c\u0435. \u0414\u0436\u0430\u0440\u0432\u0438\u0441 \u043a \u0432\u0430\u0448\u0438\u043c \u0443\u0441\u043b\u0443\u0433\u0430\u043c.\n\U0001f514 [\u0410\u0422\u041b\u0410\u0421] \u0421\u044d\u0440, \u0441\u0438\u0441\u0442\u0435\u043c\u044b \u0432 \u043d\u043e\u0440\u043c\u0435. \u0414\u0436\u0430\u0440\u0432\u0438\u0441 \u043a \u0432\u0430\u0448\u0438\u043c \u0443\u0441\u043b\u0443\u0433\u0430\u043c.\n2026-08-18 00:07:00 | INFO     | jarvis.core.proactive.proactor | Proactor \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\n2026-08-18 00:07:00 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\n2026-08-18 00:07:00 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n2026-08-18 00:07:03 | INFO     | jarvis.core.orchestrator     | \u041e\u0440\u043a\u0435\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+INFO     jarvis.core.orchestrator:orchestrator.py:192 TTS queue �������
+INFO     jarvis.core.proactive.proactor:proactor.py:74 Proactor ������� (cooldown=30 ���, interval=60 ���)
+INFO     jarvis.core.proactive.background_tasks:background_tasks.py:64 BackgroundScheduler ������� (nightly=03:00)
+INFO     jarvis.core.orchestrator:orchestrator.py:203 ����������� �������
+INFO     jarvis.core.memory.long_term:long_term.py:117 ������ ������ ����������������: E:\jarvis-project\data\memory
+INFO     jarvis.core.memory.document_rag:document_rag.py:156 RAG-��������� ����������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_e2e_text_command_via_orch0
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.notifications:notifications.py:90 �����������: ����� � ���, ������� � �����. ������� � ����� �������.
+INFO     jarvis.core.proactive.proactor:proactor.py:85 Proactor ����������
+INFO     jarvis.core.proactive.background_tasks:background_tasks.py:75 BackgroundScheduler ����������
+INFO     jarvis.core.voice.tts:tts.py:340 Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0
+INFO     jarvis.core.orchestrator:orchestrator.py:222 ����������� ����������
+__________________________ test_e2e_high_risk_cancel __________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:03 | INFO     | jarvis.core.memory.knowledge_graph | \u0413\u0440\u0430\u0444 \u0437\u043d\u0430\u043d\u0438\u0439 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: E:\\jarvis-project\\data\\graph\\jarvis_graph.db\n2026-08-18 00:07:03 | INFO     | jarvis.core.voice.tts        | PiperTTS \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-18 00:07:03 | INFO     | jarvis.core.orchestrator     | TTS queue \u0437\u0430\u043f\u0443\u0449\u0435\u043d\n2026-08-18 00:07:03 | INFO     | jarvis.core.proactive.proactor | Proactor \u0437\u0430\u043f\u0443\u0449\u0435\u043d (cooldown=30 \u043c\u0438\u043d, interval=60 \u0441\u0435\u043a)\n2026-08-18 00:07:03 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler \u0437\u0430\u043f\u0443\u0449\u0435\u043d (nightly=03:00)\n2026-08-18 00:07:03 | INFO     | jarvis.core.orchestrator     | \u041e\u0440\u043a\u0435\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0437\u0430\u043f\u0443\u0449\u0435\u043d\n\U0001f916 \u0421\u044d\u0440, \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u0432\u0430\u0448\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u0435 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u043e\u043c 'write_file': \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442 'write_file' \u0438\u043c\u0435\u0435\u0442 risk=medium; \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435 \u0434\u0430\u043d\u043d\u044b\u0445. \u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435 \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u0435 (\u0434\u0430 / \u043d\u0435\u0442).\n2026-08-18 00:07:04 | INFO     | jarvis.core.voice.notifications | \u0423\u0412\u0415\u0414\u041e\u041c\u041b\u0415\u041d\u0418\u0415: \u0410\u0422\u041b\u0410\u0421 \u2014 \u0421\u044d\u0440, \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u0432\u0430\u0448\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u0435 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u043e\u043c 'write_file': \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442 'write_file' \u0438\u043c\u0435\u0435\u0442 risk=medi\n\U0001f514 [\u0410\u0422\u041b\u0410\u0421] \u0421\u044d\u0440, \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u0432\u0430\u0448\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u0435 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u043e\u043c 'write_file': \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442 'write_file' \u0438\u043c\u0435\u0435\u0442 risk=medi\n\U0001f916 \u041f\u043e\u043d\u044f\u043b, \u0441\u044d\u0440. \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043e\u0442\u043c\u0435\u043d\u0435\u043d\u043e.\n2026-08-18 00:07:04 | INFO     | jarvis.core.voice.notifications | \u0423\u0412\u0415\u0414\u041e\u041c\u041b\u0415\u041d\u0418\u0415: \u0410\u0422\u041b\u0410\u0421 \u2014 \u041f\u043e\u043d\u044f\u043b, \u0441\u044d\u0440. \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043e\u0442\u043c\u0435\u043d\u0435\u043d\u043e.\n\U0001f514 [\u0410\u0422\u041b\u0410\u0421] \u041f\u043e\u043d\u044f\u043b, \u0441\u044d\u0440. \u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043e\u0442\u043c\u0435\u043d\u0435\u043d\u043e.\n2026-08-18 00:07:04 | INFO     | jarvis.core.proactive.proactor | Proactor \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\n2026-08-18 00:07:04 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\n2026-08-18 00:07:04 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.03\n2026-08-18 00:07:06 | INFO     | jarvis.core.orchestrator     | \u041e\u0440\u043a\u0435\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+INFO     jarvis.core.orchestrator:orchestrator.py:192 TTS queue �������
+INFO     jarvis.core.proactive.proactor:proactor.py:74 Proactor ������� (cooldown=30 ���, interval=60 ���)
+INFO     jarvis.core.proactive.background_tasks:background_tasks.py:64 BackgroundScheduler ������� (nightly=03:00)
+INFO     jarvis.core.orchestrator:orchestrator.py:203 ����������� �������
+INFO     jarvis.core.voice.notifications:notifications.py:90 �����������: ����� � ���, ��������� ���� ������������� ������������ 'write_file': ���������� 'write_file' ����� risk=medi
+INFO     jarvis.core.voice.notifications:notifications.py:90 �����������: ����� � �����, ���. �������� ��������.
+INFO     jarvis.core.proactive.proactor:proactor.py:85 Proactor ����������
+INFO     jarvis.core.proactive.background_tasks:background_tasks.py:75 BackgroundScheduler ����������
+INFO     jarvis.core.voice.tts:tts.py:340 Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.03
+INFO     jarvis.core.orchestrator:orchestrator.py:222 ����������� ����������
+_________________ test_e2e_voice_command_available_and_routed _________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:07 | INFO     | jarvis.core.memory.knowledge_graph | \u0413\u0440\u0430\u0444 \u0437\u043d\u0430\u043d\u0438\u0439 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: E:\\jarvis-project\\data\\graph\\jarvis_graph.db\n2026-08-18 00:07:07 | INFO     | jarvis.core.voice.tts        | PiperTTS \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-18 00:07:07 | INFO     | jarvis.core.orchestrator     | TTS queue \u0437\u0430\u043f\u0443\u0449\u0435\u043d\n2026-08-18 00:07:07 | INFO     | jarvis.core.proactive.proactor | Proactor \u0437\u0430\u043f\u0443\u0449\u0435\u043d (cooldown=30 \u043c\u0438\u043d, interval=60 \u0441\u0435\u043a)\n2026-08-18 00:07:07 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler \u0437\u0430\u043f\u0443\u0449\u0435\u043d (nightly=03:00)\n2026-08-18 00:07:07 | INFO     | jarvis.core.orchestrator     | \u041e\u0440\u043a\u0435\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0437\u0430\u043f\u0443\u0449\u0435\u043d\n2026-08-18 00:07:07 | INFO     | jarvis.core.memory.long_term | \u0414\u043e\u043b\u0433\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d\u0430: E:\\jarvis-project\\data\\memory\n2026-08-18 00:07:07 | INFO     | jarvis.core.memory.document_rag | RAG-\u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d\u044b: C:\\Users\\WwW\\AppData\\Local\\Temp\\pytest-of-WwW\\pytest-302\\test_e2e_voice_command_availab0\n2026-08-18 00:07:07 | INFO     | jarvis.core.memory.knowledge_graph | \u0413\u0440\u0430\u0444 \u0437\u043d\u0430\u043d\u0438\u0439 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: E:\\jarvis-project\\data\\graph\\jarvis_graph.db\n\U0001f916 \u0421\u044d\u0440, \u044f \u0432\u0430\u0441 \u043f\u043e\u043d\u044f\u043b. \u042d\u0442\u043e \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u043e\u0442\u0432\u0435\u0442 \u0414\u0436\u0430\u0440\u0432\u0438\u0441\u0430.\n2026-08-18 00:07:07 | INFO     | jarvis.core.voice.notifications | \u0423\u0412\u0415\u0414\u041e\u041c\u041b\u0415\u041d\u0418\u0415: \u0410\u0422\u041b\u0410\u0421 \u2014 \u0421\u044d\u0440, \u044f \u0432\u0430\u0441 \u043f\u043e\u043d\u044f\u043b. \u042d\u0442\u043e \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u043e\u0442\u0432\u0435\u0442 \u0414\u0436\u0430\u0440\u0432\u0438\u0441\u0430.\n\U0001f514 [\u0410\u0422\u041b\u0410\u0421] \u0421\u044d\u0440, \u044f \u0432\u0430\u0441 \u043f\u043e\u043d\u044f\u043b. \u042d\u0442\u043e \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u043e\u0442\u0432\u0435\u0442 \u0414\u0436\u0430\u0440\u0432\u0438\u0441\u0430.\n2026-08-18 00:07:07 | INFO     | jarvis.core.proactive.proactor | Proactor \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\n2026-08-18 00:07:07 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\n2026-08-18 00:07:08 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n2026-08-18 00:07:11 | INFO     | jarvis.core.orchestrator     | \u041e\u0440\u043a\u0435\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+INFO     jarvis.core.orchestrator:orchestrator.py:192 TTS queue �������
+INFO     jarvis.core.proactive.proactor:proactor.py:74 Proactor ������� (cooldown=30 ���, interval=60 ���)
+INFO     jarvis.core.proactive.background_tasks:background_tasks.py:64 BackgroundScheduler ������� (nightly=03:00)
+INFO     jarvis.core.orchestrator:orchestrator.py:203 ����������� �������
+INFO     jarvis.core.memory.long_term:long_term.py:117 ������ ������ ����������������: E:\jarvis-project\data\memory
+INFO     jarvis.core.memory.document_rag:document_rag.py:156 RAG-��������� ����������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_e2e_voice_command_availab0
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.notifications:notifications.py:90 �����������: ����� � ���, � ��� �����. ��� �������� ����� ��������.
+INFO     jarvis.core.proactive.proactor:proactor.py:85 Proactor ����������
+INFO     jarvis.core.proactive.background_tasks:background_tasks.py:75 BackgroundScheduler ����������
+INFO     jarvis.core.voice.tts:tts.py:340 Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0
+INFO     jarvis.core.orchestrator:orchestrator.py:222 ����������� ����������
+__________________ test_e2e_memory_persists_across_sessions ___________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:11 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:11 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+____________________ test_production_config_is_local_only _____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:12 | INFO     | jarvis.config.settings       | ������������ ���������: E:\jarvis-project\config\settings.json
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:820 ������������ ���������: E:\jarvis-project\config\settings.json
+________ test_offline_router_preserves_role_without_remote_escalation _________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:12 | INFO     | jarvis.config.settings       | ������������ ���������: E:\jarvis-project\config\settings.json
+2026-08-18 00:07:12 | INFO     | jarvis.core.llm.factory      | ��� LLM-�������� ������
+2026-08-18 00:07:12 | INFO     | jarvis.core.llm.factory      | ������ ������ ��� ���� 'analyst': local:local-analyst:Qwen3-1.7B-Q6_K
+2026-08-18 00:07:12 | INFO     | jarvis.core.llm.factory      | ��� LLM-�������� ������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:820 ������������ ���������: E:\jarvis-project\config\settings.json
+INFO     jarvis.core.llm.factory:factory.py:325 ��� LLM-�������� ������
+INFO     jarvis.core.llm.factory:factory.py:174 ������ ������ ��� ���� 'analyst': local:local-analyst:Qwen3-1.7B-Q6_K
+INFO     jarvis.core.llm.factory:factory.py:325 ��� LLM-�������� ������
+__________________ test_model_failure_friendly_text_no_draft __________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:12 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:12 | WARNING  | jarvis.core.agent            | ������ ���������� (fast) � ���������, ������� ������: ��������� anymodel ����������: ��������� 2 �������. ��������� ������: HTTP 408: ������� 7.0 �
+2026-08-18 00:07:12 | WARNING  | jarvis.core.agent            | ������ ���������� ��� ��������� ����: ������ ����������: ��������� anymodel ����������: ��������� 2 �������. ��������� ������: HTTP 408: ������� 7.0 �
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+WARNING  jarvis.core.agent:agent.py:1368 ������ ���������� (fast) � ���������, ������� ������: ��������� anymodel ����������: ��������� 2 �������. ��������� ������: HTTP 408: ������� 7.0 �
+WARNING  jarvis.core.agent:agent.py:1479 ������ ���������� ��� ��������� ����: ������ ����������: ��������� anymodel ����������: ��������� 2 �������. ��������� ������: HTTP 408: ������� 7.0 �
+________________________ test_p0_simple_greeting_sync _________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:12 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_____________________ test_p0_tool_list_files_end_to_end ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:12 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+______________________ test_p0_failure_nonexistent_file _______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:12 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:13 | INFO     | jarvis.core.agent            | Verification �� ������ � ���� � repair loop (read_file)
+2026-08-18 00:07:13 | INFO     | jarvis.core.repair           | Repair [1/3] [-]: read_file({'path': 'does_not_exist_12345.txt'})
+2026-08-18 00:07:13 | INFO     | jarvis.core.repair           | Repair [2/3] [-]: search_files({'query': 'does_not_exist_12345.txt'})
+2026-08-18 00:07:13 | INFO     | jarvis.core.repair           | Repair [3/3] [-]: search_files({'query': 'does_not_exist_12345.txt'})
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.agent:agent.py:1236 Verification �� ������ � ���� � repair loop (read_file)
+INFO     jarvis.core.repair:repair.py:172 Repair [1/3] [-]: read_file({'path': 'does_not_exist_12345.txt'})
+INFO     jarvis.core.repair:repair.py:172 Repair [2/3] [-]: search_files({'query': 'does_not_exist_12345.txt'})
+INFO     jarvis.core.repair:repair.py:172 Repair [3/3] [-]: search_files({'query': 'does_not_exist_12345.txt'})
+_____________________ test_p0_high_risk_confirmation_loop _____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:13 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:14 | INFO     | jarvis.core.actions.filesystem | ���� �������: danger.txt (1 ����)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.actions.filesystem:filesystem.py:152 ���� �������: danger.txt (1 ����)
+______________________ test_p0_model_routing_propagation ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:14 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:14 | INFO     | jarvis.core.agent            | Verification �� ������ � ���� � repair loop (list_files)
+2026-08-18 00:07:14 | INFO     | jarvis.core.repair           | Repair [1/3] [-]: list_files({'path': '.'})
+2026-08-18 00:07:14 | INFO     | jarvis.core.repair           | Repair [2/3] [-]: list_files({'path': '.'})
+2026-08-18 00:07:14 | INFO     | jarvis.core.repair           | Repair [3/3] [-]: list_files({'path': '.'})
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.agent:agent.py:1236 Verification �� ������ � ���� � repair loop (list_files)
+INFO     jarvis.core.repair:repair.py:172 Repair [1/3] [-]: list_files({'path': '.'})
+INFO     jarvis.core.repair:repair.py:172 Repair [2/3] [-]: list_files({'path': '.'})
+INFO     jarvis.core.repair:repair.py:172 Repair [3/3] [-]: list_files({'path': '.'})
+______________________ test_p0_memory_store_retrieve_use ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:14 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+________________________ test_p1_runtime_hard_cap_two _________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:14 | INFO     | jarvis.core.task_runtime     | TaskRuntime: HARD CAP=2 ���������, ������ JARVIS-2026-00003 � �������
+2026-08-18 00:07:14 | INFO     | jarvis.core.task_runtime     | ������ JARVIS-2026-00001 ��������� �� 0.3s
+2026-08-18 00:07:14 | INFO     | jarvis.core.task_runtime     | ������ JARVIS-2026-00002 ��������� �� 0.3s
+2026-08-18 00:07:14 | INFO     | jarvis.core.task_runtime     | ������ JARVIS-2026-00003 ��������� �� 0.0s
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.task_runtime:task_runtime.py:449 TaskRuntime: HARD CAP=2 ���������, ������ JARVIS-2026-00003 � �������
+INFO     jarvis.core.task_runtime:task_runtime.py:512 ������ JARVIS-2026-00001 ��������� �� 0.3s
+INFO     jarvis.core.task_runtime:task_runtime.py:512 ������ JARVIS-2026-00002 ��������� �� 0.3s
+INFO     jarvis.core.task_runtime:task_runtime.py:512 ������ JARVIS-2026-00003 ��������� �� 0.0s
+________________________ test_p1_runtime_cancel_queued ________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:14 | INFO     | jarvis.core.task_runtime     | TaskRuntime: HARD CAP=1 ���������, ������ JARVIS-2026-00005 � �������
+2026-08-18 00:07:14 | INFO     | jarvis.core.task_runtime     | ������ JARVIS-2026-00004 ��������� �� 0.2s
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.task_runtime:task_runtime.py:449 TaskRuntime: HARD CAP=1 ���������, ������ JARVIS-2026-00005 � �������
+INFO     jarvis.core.task_runtime:task_runtime.py:512 ������ JARVIS-2026-00004 ��������� �� 0.2s
+______________________ test_p1_no_local_heavy_escalation ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | INFO     | jarvis.config.settings       | ������������ ���������: E:\jarvis-project\config\settings.json
+2026-08-18 00:07:15 | INFO     | jarvis.core.llm.factory      | ��� LLM-�������� ������
+2026-08-18 00:07:15 | INFO     | jarvis.core.llm.factory      | ������ ������ ��� ���� 'coder': local:local-coder:Qwen3-1.7B-Q6_K
+2026-08-18 00:07:15 | INFO     | jarvis.core.llm.factory      | ������ ������ ��� ���� 'fast': local:local-fast:Qwen3-1.7B-Q6_K
+2026-08-18 00:07:15 | INFO     | jarvis.core.llm.factory      | ��� LLM-�������� ������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:820 ������������ ���������: E:\jarvis-project\config\settings.json
+INFO     jarvis.core.llm.factory:factory.py:325 ��� LLM-�������� ������
+INFO     jarvis.core.llm.factory:factory.py:174 ������ ������ ��� ���� 'coder': local:local-coder:Qwen3-1.7B-Q6_K
+INFO     jarvis.core.llm.factory:factory.py:174 ������ ������ ��� ���� 'fast': local:local-fast:Qwen3-1.7B-Q6_K
+INFO     jarvis.core.llm.factory:factory.py:325 ��� LLM-�������� ������
+_________________ test_p1_acknowledgement_falls_back_offline __________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | INFO     | jarvis.config.settings       | ������������ ���������: E:\jarvis-project\config\settings.json
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:820 ������������ ���������: E:\jarvis-project\config\settings.json
+______________________ test_p1_from_settings_proxy_mode _______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | INFO     | jarvis.config.settings       | ������������ ���������: E:\jarvis-project\config\settings.json
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:820 ������������ ���������: E:\jarvis-project\config\settings.json
+__________________ test_p1_confirmation_timeout_auto_rejects __________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+__________ test_p1_confirmation_answer_before_timeout_cancels_timer ___________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+________________ test_p1_confirmation_timeout_disabled_by_zero ________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_____________ test_wrap_untrusted_encloses_injection_with_markers _____________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | WARNING  | jarvis.core.safety           | ���������� �������� prompt injection � 'test': ['ignore previous instructions']
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.safety:safety.py:251 ���������� �������� prompt injection � 'test': ['ignore previous instructions']
+______________________ test_wrap_untrusted_is_idempotent ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | WARNING  | jarvis.core.safety           | ���������� �������� prompt injection � 'test': ['ignore previous instructions']
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.safety:safety.py:251 ���������� �������� prompt injection � 'test': ['ignore previous instructions']
+___________________ test_read_file_wraps_untrusted_content ____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | WARNING  | jarvis.core.safety           | ���������� �������� prompt injection � 'read_file (note.txt)': ['ignore previous instructions']
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.safety:safety.py:251 ���������� �������� prompt injection � 'read_file (note.txt)': ['ignore previous instructions']
+_______________________ test_web_search_wraps_snippets ________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | WARNING  | jarvis.core.safety           | ���������� �������� prompt injection � 'web_search (https://example.com/a)': ['ignore previous instructions']
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.safety:safety.py:251 ���������� �������� prompt injection � 'web_search (https://example.com/a)': ['ignore previous instructions']
+____________________ test_agent_fast_path_log_redacts_args ____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | INFO     | jarvis.core.agent            | FAST PATH: open_app({'name': 'telegram', 'api_key': '<secret>'})
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.agent:test_security_q04.py:52 FAST PATH: open_app({'name': 'telegram', 'api_key': '<secret>'})
+___________________ test_assert_safe_url_raises_on_blocked ____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | WARNING  | jarvis.core.network_guard    | SSRF-������ ������������� URL: http://169.254.169.254/
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.network_guard:network_guard.py:142 SSRF-������ ������������� URL: http://169.254.169.254/
+______________________ test_web_fetch_blocks_ssrf_target ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:15 | WARNING  | jarvis.core.network_guard    | SSRF-������ ������������� URL: http://169.254.169.254/latest/
+2026-08-18 00:07:15 | ERROR    | jarvis.core.actions.web_fetch | ������ ��������� http://169.254.169.254/latest/: URL ������������ SSRF-�������: http://169.254.169.254/latest/
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.network_guard:network_guard.py:142 SSRF-������ ������������� URL: http://169.254.169.254/latest/
+ERROR    jarvis.core.actions.web_fetch:web_fetch.py:246 ������ ��������� http://169.254.169.254/latest/: URL ������������ SSRF-�������: http://169.254.169.254/latest/
+______________________ test_web_fetch_blocks_file_scheme ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:18 | WARNING  | jarvis.core.network_guard    | SSRF-������ ������������� URL: https://file:///C:/Windows/System32/drivers/etc/hosts
+2026-08-18 00:07:18 | ERROR    | jarvis.core.actions.web_fetch | ������ ��������� file:///C:/Windows/System32/drivers/etc/hosts: URL ������������ SSRF-�������: https://file:///C:/Windows/System32/drivers/etc/hosts
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.network_guard:network_guard.py:142 SSRF-������ ������������� URL: https://file:///C:/Windows/System32/drivers/etc/hosts
+ERROR    jarvis.core.actions.web_fetch:web_fetch.py:246 ������ ��������� file:///C:/Windows/System32/drivers/etc/hosts: URL ������������ SSRF-�������: https://file:///C:/Windows/System32/drivers/etc/hosts
+_______________________ test_computer_mouse_is_dry_run ________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:18 | INFO     | jarvis.core.actions.computer_use | [dry-run] computer-use computer_mouse: {'action': 'click', 'x': 100, 'y': 200}
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.actions.computer_use:computer_use.py:53 [dry-run] computer-use computer_mouse: {'action': 'click', 'x': 100, 'y': 200}
+______________________ test_computer_keyboard_is_dry_run ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:18 | INFO     | jarvis.core.actions.computer_use | [dry-run] computer-use computer_keyboard: {'action': 'type', 'text': 'hello'}
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.actions.computer_use:computer_use.py:53 [dry-run] computer-use computer_keyboard: {'action': 'type', 'text': 'hello'}
+_____________________ test_computer_screenshot_is_dry_run _____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:18 | INFO     | jarvis.core.actions.computer_use | [dry-run] computer-use computer_screenshot: {'path': 'shot.png'}
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.actions.computer_use:computer_use.py:53 [dry-run] computer-use computer_screenshot: {'path': 'shot.png'}
+____________________________ test_intents_recorded ____________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:18 | INFO     | jarvis.core.actions.computer_use | [dry-run] computer-use computer_mouse: {'action': 'move', 'x': 1, 'y': 2}
+2026-08-18 00:07:18 | INFO     | jarvis.core.actions.computer_use | [dry-run] computer-use computer_keyboard: {'action': 'press', 'key': 'enter'}
+2026-08-18 00:07:18 | INFO     | jarvis.core.actions.computer_use | [dry-run] computer-use computer_screenshot: {}
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.actions.computer_use:computer_use.py:53 [dry-run] computer-use computer_mouse: {'action': 'move', 'x': 1, 'y': 2}
+INFO     jarvis.core.actions.computer_use:computer_use.py:53 [dry-run] computer-use computer_keyboard: {'action': 'press', 'key': 'enter'}
+INFO     jarvis.core.actions.computer_use:computer_use.py:53 [dry-run] computer-use computer_screenshot: {}
+_____ test_prepare_mission_retries_temporary_provider_error_and_persists ______
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:20 | INFO     | jarvis.core.task_runtime     | ������ JARVIS-2026-00006 ��������� �� 0.1s
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.task_runtime:task_runtime.py:512 ������ JARVIS-2026-00006 ��������� �� 0.1s
+________ test_busy_proactive_cycle_prepares_without_foreground_message ________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:20 | INFO     | jarvis.core.task_runtime     | ������ JARVIS-2026-00007 ��������� �� 0.0s
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.task_runtime:task_runtime.py:512 ������ JARVIS-2026-00007 ��������� �� 0.0s
+_________ test_throttled_prepare_records_cooperative_resource_budget __________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:21 | INFO     | jarvis.core.task_runtime     | ������ JARVIS-2026-00008 ��������� �� 0.1s
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.task_runtime:task_runtime.py:512 ������ JARVIS-2026-00008 ��������� �� 0.1s
+_________ test_agent_retrieves_relationship_style_before_conversation _________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_retrieves_relations0\graph\jarvis_graph.db
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_retrieves_relations0\profile\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_retrieves_relations0\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_retrieves_relations0\profile\profile.json) � ��������� ��������� ������ �������
+_____________ test_agent_updates_and_persists_explicit_preference _____________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_updates_and_persist0\graph\jarvis_graph.db
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_updates_and_persist0\profile\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_updates_and_persist0\profile\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_updates_and_persist0\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_updates_and_persist0\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_updates_and_persist0\profile\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_updates_and_persist0\profile\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_agent_updates_and_persist0\graph\jarvis_graph.db
+___________ test_busy_living_context_reaches_communication_adapter ____________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_busy_living_context_reach0\graph\jarvis_graph.db
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_busy_living_context_reach0\profile\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_busy_living_context_reach0\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_busy_living_context_reach0\profile\profile.json) � ��������� ��������� ������ �������
+___ test_adaptive_detailed_style_is_not_overridden_by_legacy_fixed_brevity ____
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_adaptive_detailed_style_i0\graph\jarvis_graph.db
+2026-08-18 00:07:21 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_adaptive_detailed_style_i0\profile\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_adaptive_detailed_style_i0\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_adaptive_detailed_style_i0\profile\profile.json) � ��������� ��������� ������ �������
+__________________ test_repair_loop_stops_after_max_attempts __________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:27 | INFO     | jarvis.core.repair           | Repair [1/3] [-]: counting_tool({})
+2026-08-18 00:07:27 | INFO     | jarvis.core.repair           | Repair [2/3] [-]: counting_tool({})
+2026-08-18 00:07:27 | INFO     | jarvis.core.repair           | Repair [3/3] [-]: counting_tool({})
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.repair:repair.py:172 Repair [1/3] [-]: counting_tool({})
+INFO     jarvis.core.repair:repair.py:172 Repair [2/3] [-]: counting_tool({})
+INFO     jarvis.core.repair:repair.py:172 Repair [3/3] [-]: counting_tool({})
+______________ test_repair_loop_risk_gate_blocks_high_risk_retry ______________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:27 | WARNING  | jarvis.core.repair           | Repair [-] ������� 1/3 ������������� ����-������: ���������� 'delete_file' ��� �������� ������������; ����������� ��������� �������; �������� ������; ����������� ��������� ������� (� ����������)
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.repair:repair.py:155 Repair [-] ������� 1/3 ������������� ����-������: ���������� 'delete_file' ��� �������� ������������; ����������� ��������� �������; �������� ������; ����������� ��������� ������� (� ����������)
+___________________ test_repair_loop_allows_low_risk_retry ____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:27 | INFO     | jarvis.core.repair           | Repair [1/2] [-]: counting_tool({})
+2026-08-18 00:07:27 | INFO     | jarvis.core.repair           | Repair [2/2] [-]: counting_tool({})
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.repair:repair.py:172 Repair [1/2] [-]: counting_tool({})
+INFO     jarvis.core.repair:repair.py:172 Repair [2/2] [-]: counting_tool({})
+_________________ test_repair_loop_reasoner_patch_also_gated __________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:27 | INFO     | jarvis.core.repair           | Repair [1/3] [-]: read_file({'path': 'notes.txt'})
+2026-08-18 00:07:27 | WARNING  | jarvis.core.repair           | Repair [-] ������� 2/3 ������������� ����-������: ���������� 'read_file' ����� risk=low; �������� ������ (� ����������)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.repair:repair.py:172 Repair [1/3] [-]: read_file({'path': 'notes.txt'})
+WARNING  jarvis.core.repair:repair.py:155 Repair [-] ������� 2/3 ������������� ����-������: ���������� 'read_file' ����� risk=low; �������� ������ (� ����������)
+____________ test_circuit_breaker_opens_after_consecutive_failures ____________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:27 | WARNING  | jarvis.core.llm.breaker      | Circuit breaker test-provider: ��������� �� 60 � (3 ������ ������)
+2026-08-18 00:07:27 | INFO     | jarvis.core.llm.breaker      | Circuit breaker test-provider: ����� ������ �������� (�������� �����)
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.llm.breaker:breaker.py:106 Circuit breaker test-provider: ��������� �� 60 � (3 ������ ������)
+INFO     jarvis.core.llm.breaker:breaker.py:91 Circuit breaker test-provider: ����� ������ �������� (�������� �����)
+______________________ test_circuit_breaker_model_scoped ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:27 | WARNING  | jarvis.core.llm.breaker      | Circuit breaker anymodel:am/free: ��������� �� 60 � (3 ������ ������)
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.llm.breaker:breaker.py:106 Circuit breaker anymodel:am/free: ��������� �� 60 � (3 ������ ������)
+_____________________ test_agent_skips_open_breaker_tier ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:27 | WARNING  | jarvis.core.llm.breaker      | Circuit breaker broken-provider:qwen-4b-local: ��������� �� 60 � (3 ������ ������)
+2026-08-18 00:07:27 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:27 | INFO     | jarvis.core.agent            | Circuit breaker: ���� fast ��������� (�������� ���� �����������)
+2026-08-18 00:07:27 | WARNING  | jarvis.core.agent            | ��������� ������ ����������: ������-������ ����������: ���� GGUF �� ������ (E:\jarvis-project\data\models\qwen3-4b-instruct-q4_k_m.gguf; settings.json -> local_model.gguf_path)
+------------------------------ Captured log call ------------------------------
+WARNING  jarvis.core.llm.breaker:breaker.py:106 Circuit breaker broken-provider:qwen-4b-local: ��������� �� 60 � (3 ������ ������)
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.agent:agent.py:770 Circuit breaker: ���� fast ��������� (�������� ���� �����������)
+WARNING  jarvis.core.agent:agent.py:777 ��������� ������ ����������: ������-������ ����������: ���� GGUF �� ������ (E:\jarvis-project\data\models\qwen3-4b-instruct-q4_k_m.gguf; settings.json -> local_model.gguf_path)
+_____________________ test_conversation_fallback_degraded _____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | WARNING  | jarvis.core.agent            | ������ ���������� (fast) � ���������, ������� ������: ��������� ����: HTTP 408
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+WARNING  jarvis.core.agent:agent.py:1368 ������ ���������� (fast) � ���������, ������� ������: ��������� ����: HTTP 408
+________________ test_conversation_all_models_dead_model_error ________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | WARNING  | jarvis.core.agent            | ������ ���������� (fast) � ���������, ������� ������: ��������� ����: HTTP 408
+2026-08-18 00:07:31 | WARNING  | jarvis.core.agent            | ������ ���������� ��� ��������� ����: ������ ����������: ��������� ����: HTTP 408
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+WARNING  jarvis.core.agent:agent.py:1368 ������ ���������� (fast) � ���������, ������� ������: ��������� ����: HTTP 408
+WARNING  jarvis.core.agent:agent.py:1479 ������ ���������� ��� ��������� ����: ������ ����������: ��������� ����: HTTP 408
+______________________ test_session_memory_bounded_fifo _______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_memory_bounded_fi0\profile.json) � ��������� ��������� ������ �������
+_______________ test_session_history_injected_into_conversation _______________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_history_injected_0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_history_injected_0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_history_injected_0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_history_injected_0\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_history_injected_0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_history_injected_0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_history_injected_0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_session_history_injected_0\profile.json) � ��������� ��������� ������ �������
+________________________ test_tool_prompts_stay_clean _________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_tool_prompts_stay_clean0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ������� ��������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_tool_prompts_stay_clean0\profile.json
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.facts     | �� ��������� ��������� �����: [('name', '����')]
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_tool_prompts_stay_clean0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:117 ������� ��������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_tool_prompts_stay_clean0\profile.json
+INFO     jarvis.core.memory.facts:facts.py:129 �� ��������� ��������� �����: [('name', '����')]
+_________________________ test_fact_survives_restart __________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_fact_survives_restart0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ������� ��������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_fact_survives_restart0\profile.json
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.facts     | �� ��������� ��������� �����: [('name', '����')]
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_fact_survives_restart0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:117 ������� ��������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_fact_survives_restart0\profile.json
+INFO     jarvis.core.memory.facts:facts.py:129 �� ��������� ��������� �����: [('name', '����')]
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+__________________________ test_name_not_overwritten __________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_name_not_overwritten0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ������� ��������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_name_not_overwritten0\profile.json
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.facts     | �� ��������� ��������� �����: [('name', '����')]
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_name_not_overwritten0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:117 ������� ��������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_name_not_overwritten0\profile.json
+INFO     jarvis.core.memory.facts:facts.py:129 �� ��������� ��������� �����: [('name', '����')]
+___________________________ test_learn_facts_dedup ____________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_learn_facts_dedup0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ������� ��������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_learn_facts_dedup0\profile.json
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.facts     | �� ��������� ��������� �����: [('interests', '�����')]
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_learn_facts_dedup0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:117 ������� ��������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_learn_facts_dedup0\profile.json
+INFO     jarvis.core.memory.facts:facts.py:129 �� ��������� ��������� �����: [('interests', '�����')]
+_______________ test_persona_injected_into_conversation_prompt ________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_persona_injected_into_con0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_persona_injected_into_con0\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_persona_injected_into_con0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_persona_injected_into_con0\profile.json) � ��������� ��������� ������ �������
+_________________________ test_persona_planner_focus __________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_persona_planner_focus0\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_persona_planner_focus0\profile.json) � ��������� ��������� ������ �������
+_______________________ test_tone_adaptation_in_prompt ________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_tone_adaptation_in_prompt0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_tone_adaptation_in_prompt0\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_tone_adaptation_in_prompt0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_tone_adaptation_in_prompt0\profile.json) � ��������� ��������� ������ �������
+____________________ test_first_contact_hint_without_name _____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_first_contact_hint_withou0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_first_contact_hint_withou0\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_first_contact_hint_withou0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_first_contact_hint_withou0\profile.json) � ��������� ��������� ������ �������
+________________________ test_time_of_day_hint_present ________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_time_of_day_hint_present0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_time_of_day_hint_present0\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_time_of_day_hint_present0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_time_of_day_hint_present0\profile.json) � ��������� ��������� ������ �������
+__________________ test_regression_conversation_action_split __________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_regression_conversation_a0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_regression_conversation_a0\profile.json) � ��������� ��������� ������ �������
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.profile   | ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_regression_conversation_a0\profile.json) � ��������� ��������� ������ �������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_regression_conversation_a0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_regression_conversation_a0\profile.json) � ��������� ��������� ������ �������
+INFO     jarvis.core.memory.profile:profile.py:67 ���� ������� �� ������ (C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_regression_conversation_a0\profile.json) � ��������� ��������� ������ �������
+_________ test_agent_unknown_path_says_it_will_investigate_not_cannot _________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+__________ test_offline_coder_keeps_task_role_with_best_local_model ___________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:31 | INFO     | jarvis.core.llm.factory      | ��� LLM-�������� ������
+2026-08-18 00:07:31 | INFO     | jarvis.core.llm.factory      | ������ ������ ��� ���� 'coder': local:local-coder:qwen
+2026-08-18 00:07:31 | INFO     | jarvis.core.llm.factory      | ��� LLM-�������� ������
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.llm.factory:factory.py:325 ��� LLM-�������� ������
+INFO     jarvis.core.llm.factory:factory.py:174 ������ ������ ��� ���� 'coder': local:local-coder:qwen
+INFO     jarvis.core.llm.factory:factory.py:325 ��� LLM-�������� ������
+_____________ test_agent_unknown_path_uses_capability_composition _____________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+_______________ test_task_runtime_persists_and_restores_mission _______________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.task_runtime     | ������ JARVIS-2026-00009 ��������� �� 0.0s
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.task_runtime:task_runtime.py:512 ������ JARVIS-2026-00009 ��������� �� 0.0s
+_____________________ test_stt_disabled_is_not_available ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+____________________ test_stt_disabled_raises_clear_error _____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+______________________ test_unified_model_router_shared _______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.tts        | PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+_________________ test_council_uses_model_router_for_routing __________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.tts        | PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+_____________________ test_both_entries_use_handle_input ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.tts        | PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+___ test_runtime_config_selects_local_russian_piper_and_no_english_fallback ___
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.config.settings       | ������������ ���������: E:\jarvis-project\config\settings.json
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.tts        | PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:820 ������������ ���������: E:\jarvis-project\config\settings.json
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+_____________ test_piper_subprocess_forces_utf8_stdin_on_windows ______________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.voice.tts:tts.py:340 Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0
+_________________ test_ws_command_roundtrip_and_confirmation __________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+2026-08-18 00:07:32 | INFO     | jarvis.core.ws_server        | WS-������ �������� �� ws://127.0.0.1:8799
+2026-08-18 00:07:32 | INFO     | jarvis.core.ws_server        | WS-������ ������� ws://127.0.0.1:8799
+2026-08-18 00:07:32 | INFO     | jarvis.core.ws_server        | WS ������ ���������: ('127.0.0.1', 50513)
+2026-08-18 00:07:32 | INFO     | jarvis.core.ws_server        | ����������� ������: ������, �� ����� �����? �����, � � �����.
+2026-08-18 00:07:32 | INFO     | jarvis.core.ws_server        | WS ������ ��������: ('127.0.0.1', 50513)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+INFO     jarvis.core.ws_server:ws_server.py:982 WS-������ �������� �� ws://127.0.0.1:8799
+INFO     jarvis.core.ws_server:ws_server.py:993 WS-������ ������� ws://127.0.0.1:8799
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 50513)
+INFO     jarvis.core.ws_server:ws_server.py:284 ����������� ������: ������, �� ����� �����? �����, � � �����.
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 50513)
+__________ test_ws_cloud_settings_are_masked_persisted_and_preserved __________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:32 | INFO     | jarvis.config.settings       | ������������ ���������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_ws_cloud_settings_are_mas0\settings.json
+2026-08-18 00:07:32 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+2026-08-18 00:07:32 | INFO     | jarvis.core.ws_server        | WS-������ �������� �� ws://127.0.0.1:8800
+2026-08-18 00:07:32 | INFO     | jarvis.core.ws_server        | WS-������ ������� ws://127.0.0.1:8800
+2026-08-18 00:07:33 | INFO     | jarvis.core.ws_server        | WS ������ ���������: ('127.0.0.1', 50520)
+2026-08-18 00:07:33 | INFO     | jarvis.config.settings       | ������������ ���������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_ws_cloud_settings_are_mas0\settings.json
+2026-08-18 00:07:33 | INFO     | jarvis.core.llm.factory      | ��� LLM-�������� ������
+2026-08-18 00:07:33 | INFO     | jarvis.config.settings       | ������������ ���������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_ws_cloud_settings_are_mas0\settings.json
+2026-08-18 00:07:33 | INFO     | jarvis.core.llm.factory      | ��� LLM-�������� ������
+2026-08-18 00:07:33 | INFO     | jarvis.core.ws_server        | WS ������ ��������: ('127.0.0.1', 50520)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:797 ������������ ���������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_ws_cloud_settings_are_mas0\settings.json
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+INFO     jarvis.core.ws_server:ws_server.py:982 WS-������ �������� �� ws://127.0.0.1:8800
+INFO     jarvis.core.ws_server:ws_server.py:993 WS-������ ������� ws://127.0.0.1:8800
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 50520)
+INFO     jarvis.config.settings:settings.py:797 ������������ ���������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_ws_cloud_settings_are_mas0\settings.json
+INFO     jarvis.core.llm.factory:factory.py:325 ��� LLM-�������� ������
+INFO     jarvis.config.settings:settings.py:797 ������������ ���������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_ws_cloud_settings_are_mas0\settings.json
+INFO     jarvis.core.llm.factory:factory.py:325 ��� LLM-�������� ������
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 50520)
+_______ test_ws_cloud_settings_reject_invalid_provider_without_writing ________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:33 | INFO     | jarvis.config.settings       | ������������ ���������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_ws_cloud_settings_reject_0\settings.json
+2026-08-18 00:07:33 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+2026-08-18 00:07:33 | INFO     | jarvis.core.ws_server        | WS-������ �������� �� ws://127.0.0.1:8801
+2026-08-18 00:07:33 | INFO     | jarvis.core.ws_server        | WS-������ ������� ws://127.0.0.1:8801
+2026-08-18 00:07:34 | INFO     | jarvis.core.ws_server        | WS ������ ���������: ('127.0.0.1', 50525)
+2026-08-18 00:07:35 | WARNING  | jarvis.core.ws_server        | ��������� ���������� cloud-��������: provider ������ ��������� ��������� �����, �����, '_' ��� '-'
+2026-08-18 00:07:35 | INFO     | jarvis.core.ws_server        | WS ������ ��������: ('127.0.0.1', 50525)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.config.settings:settings.py:797 ������������ ���������: C:\Users\WwW\AppData\Local\Temp\pytest-of-WwW\pytest-302\test_ws_cloud_settings_reject_0\settings.json
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+INFO     jarvis.core.ws_server:ws_server.py:982 WS-������ �������� �� ws://127.0.0.1:8801
+INFO     jarvis.core.ws_server:ws_server.py:993 WS-������ ������� ws://127.0.0.1:8801
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 50525)
+WARNING  jarvis.core.ws_server:ws_server.py:615 ��������� ���������� cloud-��������: provider ������ ��������� ��������� �����, �����, '_' ��� '-'
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 50525)
+_____________________ test_orchestrator_sink_passthrough ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:35 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:35 | INFO     | jarvis.core.voice.tts        | PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+_______________________ test_sync_pair_single_stable_id _______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:35 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+2026-08-18 00:07:35 | INFO     | jarvis.core.ws_server        | WS-������ �������� �� ws://127.0.0.1:8805
+2026-08-18 00:07:35 | INFO     | jarvis.core.ws_server        | WS-������ ������� ws://127.0.0.1:8805
+2026-08-18 00:07:35 | INFO     | jarvis.core.ws_server        | WS ������ ���������: ('127.0.0.1', 50532)
+2026-08-18 00:07:36 | INFO     | jarvis.core.ws_server        | WS ������ ��������: ('127.0.0.1', 50532)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+INFO     jarvis.core.ws_server:ws_server.py:982 WS-������ �������� �� ws://127.0.0.1:8805
+INFO     jarvis.core.ws_server:ws_server.py:993 WS-������ ������� ws://127.0.0.1:8805
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 50532)
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 50532)
+______________________ test_parallel_commands_do_not_mix ______________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:36 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+2026-08-18 00:07:36 | INFO     | jarvis.core.ws_server        | WS-������ �������� �� ws://127.0.0.1:8806
+2026-08-18 00:07:36 | INFO     | jarvis.core.ws_server        | WS-������ ������� ws://127.0.0.1:8806
+2026-08-18 00:07:36 | INFO     | jarvis.core.ws_server        | WS ������ ���������: ('127.0.0.1', 50537)
+2026-08-18 00:07:36 | INFO     | jarvis.core.ws_server        | WS ������ ���������: ('127.0.0.1', 62547)
+2026-08-18 00:07:37 | INFO     | jarvis.core.ws_server        | WS ������ ��������: ('127.0.0.1', 62547)
+2026-08-18 00:07:37 | INFO     | jarvis.core.ws_server        | WS ������ ��������: ('127.0.0.1', 50537)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+INFO     jarvis.core.ws_server:ws_server.py:982 WS-������ �������� �� ws://127.0.0.1:8806
+INFO     jarvis.core.ws_server:ws_server.py:993 WS-������ ������� ws://127.0.0.1:8806
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 50537)
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 62547)
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 62547)
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 50537)
+_________________________ test_ws_streaming_sequence __________________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:37 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:37 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+2026-08-18 00:07:37 | INFO     | jarvis.core.ws_server        | WS-������ �������� �� ws://127.0.0.1:8807
+2026-08-18 00:07:37 | INFO     | jarvis.core.ws_server        | WS-������ ������� ws://127.0.0.1:8807
+2026-08-18 00:07:37 | INFO     | jarvis.core.ws_server        | WS ������ ���������: ('127.0.0.1', 56573)
+2026-08-18 00:07:38 | INFO     | jarvis.core.ws_server        | WS ������ ��������: ('127.0.0.1', 56573)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+INFO     jarvis.core.ws_server:ws_server.py:982 WS-������ �������� �� ws://127.0.0.1:8807
+INFO     jarvis.core.ws_server:ws_server.py:993 WS-������ ������� ws://127.0.0.1:8807
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 56573)
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 56573)
+___________________ test_mission_streaming_via_task_events ____________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:38 | INFO     | jarvis.core.memory.knowledge_graph | \u0413\u0440\u0430\u0444 \u0437\u043d\u0430\u043d\u0438\u0439 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: E:\\jarvis-project\\data\\graph\\jarvis_graph.db\n2026-08-18 00:07:38 | INFO     | jarvis.core.voice.tts        | PiperTTS \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-18 00:07:38 | INFO     | jarvis.core.voice.stt        | STT \u043e\u0442\u043a\u043b\u044e\u0447\u0451\u043d (settings.voice.stt_enabled=False)\n2026-08-18 00:07:38 | INFO     | jarvis.core.orchestrator     | TTS queue \u0437\u0430\u043f\u0443\u0449\u0435\u043d\n2026-08-18 00:07:38 | INFO     | jarvis.core.proactive.proactor | Proactor \u0437\u0430\u043f\u0443\u0449\u0435\u043d (cooldown=30 \u043c\u0438\u043d, interval=60 \u0441\u0435\u043a)\n2026-08-18 00:07:38 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler \u0437\u0430\u043f\u0443\u0449\u0435\u043d (nightly=03:00)\n2026-08-18 00:07:38 | INFO     | jarvis.core.orchestrator     | \u041e\u0440\u043a\u0435\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u0437\u0430\u043f\u0443\u0449\u0435\u043d\n2026-08-18 00:07:38 | INFO     | jarvis.core.ws_server        | WS-\u0441\u0435\u0440\u0432\u0435\u0440 \u0441\u0442\u0430\u0440\u0442\u0443\u0435\u0442 \u043d\u0430 ws://127.0.0.1:8809\n2026-08-18 00:07:38 | INFO     | jarvis.core.ws_server        | WS-\u0441\u0435\u0440\u0432\u0435\u0440 \u0441\u043b\u0443\u0448\u0430\u0435\u0442 ws://127.0.0.1:8809\n2026-08-18 00:07:38 | INFO     | jarvis.core.ws_server        | WS \u043a\u043b\u0438\u0435\u043d\u0442 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0451\u043d: ('127.0.0.1', 56578)\n2026-08-18 00:07:38 | INFO     | jarvis.core.memory.long_term | \u0414\u043e\u043b\u0433\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d\u0430: E:\\jarvis-project\\data\\memory\n2026-08-18 00:07:38 | INFO     | jarvis.core.memory.document_rag | RAG-\u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d\u044b: E:\\jarvis-project\\data\\documents\n2026-08-18 00:07:38 | INFO     | jarvis.core.memory.knowledge_graph | \u0413\u0440\u0430\u0444 \u0437\u043d\u0430\u043d\u0438\u0439 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d: E:\\jarvis-project\\data\\graph\\jarvis_graph.db\n\U0001f916 \u0421\u044d\u0440, \u044f \u0432\u0430\u0441 \u043f\u043e\u043d\u044f\u043b. \u042d\u0442\u043e \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u043e\u0442\u0432\u0435\u0442 \u0414\u0436\u0430\u0440\u0432\u0438\u0441\u0430.\n2026-08-18 00:07:39 | INFO     | jarvis.core.voice.notifications | \u0423\u0412\u0415\u0414\u041e\u041c\u041b\u0415\u041d\u0418\u0415: \u0410\u0422\u041b\u0410\u0421 \u2014 \u0421\u044d\u0440, \u044f \u0432\u0430\u0441 \u043f\u043e\u043d\u044f\u043b. \u042d\u0442\u043e \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u043e\u0442\u0432\u0435\u0442 \u0414\u0436\u0430\u0440\u0432\u0438\u0441\u0430.\n\U0001f514 [\u0410\u0422\u041b\u0410\u0421] \u0421\u044d\u0440, \u044f \u0432\u0430\u0441 \u043f\u043e\u043d\u044f\u043b. \u042d\u0442\u043e \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u043e\u0442\u0432\u0435\u0442 \u0414\u0436\u0430\u0440\u0432\u0438\u0441\u0430.\n2026-08-18 00:07:39 | INFO     | jarvis.core.proactive.proactor | Proactor \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\n2026-08-18 00:07:39 | INFO     | jarvis.core.ws_server        | WS \u043a\u043b\u0438\u0435\u043d\u0442 \u043e\u0442\u043a\u043b\u044e\u0447\u0451\u043d: ('127.0.0.1', 56578)\n2026-08-18 00:07:39 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\n2026-08-18 00:07:39 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n2026-08-18 00:07:42 | INFO     | jarvis.core.orchestrator     | \u041e\u0440\u043a\u0435\u0441\u0442\u0440\u0430\u0442\u043e\u0440 \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.tts:tts.py:82 PiperTTS ���������������: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+INFO     jarvis.core.orchestrator:orchestrator.py:192 TTS queue �������
+INFO     jarvis.core.proactive.proactor:proactor.py:74 Proactor ������� (cooldown=30 ���, interval=60 ���)
+INFO     jarvis.core.proactive.background_tasks:background_tasks.py:64 BackgroundScheduler ������� (nightly=03:00)
+INFO     jarvis.core.orchestrator:orchestrator.py:203 ����������� �������
+INFO     jarvis.core.ws_server:ws_server.py:982 WS-������ �������� �� ws://127.0.0.1:8809
+INFO     jarvis.core.ws_server:ws_server.py:993 WS-������ ������� ws://127.0.0.1:8809
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 56578)
+INFO     jarvis.core.memory.long_term:long_term.py:117 ������ ������ ����������������: E:\jarvis-project\data\memory
+INFO     jarvis.core.memory.document_rag:document_rag.py:156 RAG-��������� ����������������: E:\jarvis-project\data\documents
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.notifications:notifications.py:90 �����������: ����� � ���, � ��� �����. ��� �������� ����� ��������.
+INFO     jarvis.core.proactive.proactor:proactor.py:85 Proactor ����������
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 56578)
+INFO     jarvis.core.proactive.background_tasks:background_tasks.py:75 BackgroundScheduler ����������
+INFO     jarvis.core.voice.tts:tts.py:340 Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0
+INFO     jarvis.core.orchestrator:orchestrator.py:222 ����������� ����������
+___________________ test_provider_failure_friendly_and_fast ___________________
+---------------------------- Captured stdout call -----------------------------
+2026-08-18 00:07:42 | INFO     | jarvis.core.memory.knowledge_graph | ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+2026-08-18 00:07:42 | INFO     | jarvis.core.voice.stt        | STT �������� (settings.voice.stt_enabled=False)
+2026-08-18 00:07:42 | INFO     | jarvis.core.ws_server        | WS-������ �������� �� ws://127.0.0.1:8808
+2026-08-18 00:07:42 | INFO     | jarvis.core.ws_server        | WS-������ ������� ws://127.0.0.1:8808
+2026-08-18 00:07:42 | INFO     | jarvis.core.ws_server        | WS ������ ���������: ('127.0.0.1', 56588)
+2026-08-18 00:07:43 | WARNING  | jarvis.core.agent            | ������ ���������� (fast) � ���������, ������� ������: ��������� anymodel ����������: HTTP 408: ������� 7.0 �
+2026-08-18 00:07:43 | WARNING  | jarvis.core.agent            | ������ ���������� ��� ��������� ����: ������ ����������: ��������� anymodel ����������: HTTP 408: ������� 7.0 �
+2026-08-18 00:07:43 | INFO     | jarvis.core.ws_server        | WS ������ ��������: ('127.0.0.1', 56588)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.memory.knowledge_graph:knowledge_graph.py:44 ���� ������ ���������������: E:\jarvis-project\data\graph\jarvis_graph.db
+INFO     jarvis.core.voice.stt:stt.py:61 STT �������� (settings.voice.stt_enabled=False)
+INFO     jarvis.core.ws_server:ws_server.py:982 WS-������ �������� �� ws://127.0.0.1:8808
+INFO     jarvis.core.ws_server:ws_server.py:993 WS-������ ������� ws://127.0.0.1:8808
+INFO     jarvis.core.ws_server:ws_server.py:310 WS ������ ���������: ('127.0.0.1', 56588)
+WARNING  jarvis.core.agent:agent.py:1368 ������ ���������� (fast) � ���������, ������� ������: ��������� anymodel ����������: HTTP 408: ������� 7.0 �
+WARNING  jarvis.core.agent:agent.py:1479 ������ ���������� ��� ��������� ����: ������ ����������: ��������� anymodel ����������: HTTP 408: ������� 7.0 �
+INFO     jarvis.core.ws_server:ws_server.py:349 WS ������ ��������: ('127.0.0.1', 56588)
+=========================== short test summary info ===========================
+PASSED tests/test_browser_automation.py::test_open_and_list_elements
+PASSED tests/test_browser_automation.py::test_normal_click_no_confirmation
+PASSED tests/test_browser_automation.py::test_submit_click_requires_confirmation
+PASSED tests/test_browser_automation.py::test_type_text_changes_value
+PASSED tests/test_browser_automation.py::test_invalid_index_graceful
+PASSED tests/test_browser_automation.py::test_close_then_reopen
+PASSED tests/test_browser_automation.py::test_engine_requires_open_before_action
+PASSED tests/test_browser_automation.py::test_tool_registered_and_end_to_end
+PASSED tests/test_browser_bridge.py::test_selector_fingerprint_is_canonical_and_versioned
+PASSED tests/test_browser_bridge.py::test_find_result_contains_confidence_summary_hash_and_alternatives
+PASSED tests/test_browser_bridge.py::test_stale_dom_blocks_mutation_until_reresolve
+PASSED tests/test_browser_bridge.py::test_confirmation_grant_is_bound_to_action_session_selector_and_expiry
+PASSED tests/test_browser_bridge.py::test_type_requires_verified_value_readback_without_returning_text
+PASSED tests/test_browser_bridge.py::test_secret_metadata_is_redacted_from_observation_and_find_result
+PASSED tests/test_classify_budget.py::test_simple_command_stays_local
+PASSED tests/test_classify_budget.py::test_classify_budget_is_realistic
+PASSED tests/test_classify_budget.py::test_complexity_ignores_latency
+PASSED tests/test_command_library_q07.py::test_parses_over_1000_commands
+PASSED tests/test_command_library_q07.py::test_first_entry_parsed
+PASSED tests/test_command_library_q07.py::test_coverage_stats_returns_sane_dict
+PASSED tests/test_command_library_q07.py::test_dynamic_registry_index_used
+PASSED tests/test_conversation_gate.py::test_classifier_conversation[\u041f\u0440\u0438\u0432\u0435\u0442]
+PASSED tests/test_conversation_gate.py::test_classifier_conversation[\u0420\u0430\u0441\u0441\u043a\u0430\u0436\u0438 \u0430\u043d\u0435\u043a\u0434\u043e\u0442]
+PASSED tests/test_conversation_gate.py::test_classifier_conversation[\u041e\u0431\u044a\u044f\u0441\u043d\u0438 \u043a\u0432\u0430\u043d\u0442\u043e\u0432\u0443\u044e \u043c\u0435\u0445\u0430\u043d\u0438\u043a\u0443]
+PASSED tests/test_conversation_gate.py::test_classifier_conversation[\u041f\u043e\u0447\u0435\u043c\u0443 \u043d\u0435\u0431\u043e \u0433\u043e\u043b\u0443\u0431\u043e\u0435?]
+PASSED tests/test_conversation_gate.py::test_classifier_conversation[\u0420\u0430\u0441\u0441\u043a\u0430\u0436\u0438 \u043a\u043e\u0440\u043e\u0442\u043a\u0443\u044e \u0438\u0441\u0442\u043e\u0440\u0438\u044e]
+PASSED tests/test_conversation_gate.py::test_classifier_conversation[\u041c\u043d\u0435 \u0441\u043a\u0443\u0447\u043d\u043e, \u043f\u043e\u0433\u043e\u0432\u043e\u0440\u0438 \u0441\u043e \u043c\u043d\u043e\u0439]
+PASSED tests/test_conversation_gate.py::test_classifier_conversation[\u043d\u0430\u043f\u0438\u0448\u0438 \u0441\u043a\u0430\u0437\u043a\u0443 \u043f\u0440\u043e \u0451\u0436\u0438\u043a\u0430]
+PASSED tests/test_conversation_gate.py::test_classifier_action[\u041a\u0430\u043a\u0438\u0435 \u0444\u0430\u0439\u043b\u044b \u0435\u0441\u0442\u044c \u0432 documents?]
+PASSED tests/test_conversation_gate.py::test_classifier_action[\u041e\u0442\u043a\u0440\u043e\u0439 \u0444\u0430\u0439\u043b \u043e\u0442\u0447\u0451\u0442.pdf]
+PASSED tests/test_conversation_gate.py::test_classifier_action[\u041d\u0430\u0439\u0434\u0438 \u0432 \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442\u0435 \u0438\u043d\u0444\u043e\u0440\u043c\u0430\u0446\u0438\u044e \u043e \u043c\u0430\u0440\u0441\u0430\u0445]
+PASSED tests/test_conversation_gate.py::test_classifier_action[\u043f\u043e\u0433\u043e\u0434\u0430 \u0441\u0435\u0433\u043e\u0434\u043d\u044f]
+PASSED tests/test_conversation_gate.py::test_classifier_action[\u043f\u043e\u0441\u0442\u0430\u0432\u044c \u043c\u0443\u0437\u044b\u043a\u0443]
+PASSED tests/test_conversation_gate.py::test_classifier_action[\u043d\u0430\u043f\u043e\u043c\u043d\u0438 \u0447\u0435\u0440\u0435\u0437 5 \u043c\u0438\u043d\u0443\u0442 \u0432\u044b\u043f\u0438\u0442\u044c \u0432\u043e\u0434\u0443]
+PASSED tests/test_conversation_gate.py::test_classifier_action[\u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u044c \u0442\u0438\u0448\u0435]
+PASSED tests/test_conversation_gate.py::test_classifier_verb_beats_hint
+PASSED tests/test_conversation_gate.py::test_conversation_direct_answer_without_tools[\u041f\u0440\u0438\u0432\u0435\u0442]
+PASSED tests/test_conversation_gate.py::test_conversation_direct_answer_without_tools[\u041e\u0431\u044a\u044f\u0441\u043d\u0438 \u043a\u0432\u0430\u043d\u0442\u043e\u0432\u0443\u044e \u043c\u0435\u0445\u0430\u043d\u0438\u043a\u0443]
+PASSED tests/test_conversation_gate.py::test_conversation_direct_answer_without_tools[\u041c\u043d\u0435 \u0441\u043a\u0443\u0447\u043d\u043e]
+PASSED tests/test_conversation_gate.py::test_action_uses_planner_with_tools[\u041a\u0430\u043a\u0438\u0435 \u0444\u0430\u0439\u043b\u044b \u0435\u0441\u0442\u044c \u0432 documents?]
+PASSED tests/test_conversation_gate.py::test_action_uses_planner_with_tools[\u041e\u0442\u043a\u0440\u043e\u0439 \u0444\u0430\u0439\u043b notes.txt]
+PASSED tests/test_conversation_gate.py::test_web_search_action_goes_planner
+PASSED tests/test_conversation_gate.py::test_conversation_streams_via_sink
+PASSED tests/test_e2e_selfchecks.py::test_e2e_text_command_via_orchestrator
+PASSED tests/test_e2e_selfchecks.py::test_e2e_high_risk_cancel
+PASSED tests/test_e2e_selfchecks.py::test_e2e_voice_command_available_and_routed
+PASSED tests/test_e2e_selfchecks.py::test_e2e_memory_persists_across_sessions
+PASSED tests/test_hardening_executor.py::test_timeout_terminates_process_and_stops_post_timeout_writes
+PASSED tests/test_hardening_executor.py::test_executor_semaphore_is_instance_scoped
+PASSED tests/test_hardening_network_ws.py::test_network_guard_blocks_loopback_private_link_local_ipv6_and_encoded_hosts
+PASSED tests/test_hardening_persistence.py::test_atomic_json_write_roundtrip_and_no_temp_left
+PASSED tests/test_hardening_persistence.py::test_bounded_store_keeps_recent_and_important_records
+PASSED tests/test_hardening_redaction.py::test_canonical_redaction_masks_all_common_secret_forms
+PASSED tests/test_hardening_redaction.py::test_redaction_is_recursive_and_idempotent
+PASSED tests/test_hardening_shadow.py::test_shadow_security_decision_is_not_quality_score
+PASSED tests/test_hardening_shadow.py::test_shadow_blocks_reflection_process_socket_and_environment_escape
+PASSED tests/test_hardening_shadow.py::test_generated_shadow_tool_executes_only_through_isolated_evaluator
+PASSED tests/test_hardening_trust.py::test_provider_self_certification_is_not_independent_verification
+PASSED tests/test_hardening_trust.py::test_independent_observer_can_verify_expected_state
+PASSED tests/test_hardening_tts.py::test_tts_queue_fifo_pause_resume_and_clean_shutdown
+PASSED tests/test_hardening_tts.py::test_tts_interrupt_clears_pending_without_deadlock
+PASSED tests/test_local_only_hotfix.py::test_production_config_is_local_only
+PASSED tests/test_local_only_hotfix.py::test_offline_router_preserves_role_without_remote_escalation
+PASSED tests/test_model_failure.py::test_model_failure_friendly_text_no_draft
+PASSED tests/test_model_failure.py::test_model_failure_text_safe_for_tts
+PASSED tests/test_p0_sprint.py::test_p0_simple_greeting_sync
+PASSED tests/test_p0_sprint.py::test_p0_tool_list_files_end_to_end
+PASSED tests/test_p0_sprint.py::test_p0_failure_nonexistent_file
+PASSED tests/test_p0_sprint.py::test_p0_high_risk_confirmation_loop
+PASSED tests/test_p0_sprint.py::test_p0_model_routing_propagation
+PASSED tests/test_p0_sprint.py::test_p0_memory_store_retrieve_use
+PASSED tests/test_p0_sprint.py::test_p0_complex_background_mission
+PASSED tests/test_p1_sprint.py::test_p1_runtime_hard_cap_two
+PASSED tests/test_p1_sprint.py::test_p1_runtime_cancel_queued
+PASSED tests/test_p1_sprint.py::test_p1_no_local_heavy_escalation
+PASSED tests/test_p1_sprint.py::test_p1_council_escalate_no_local_heavy
+PASSED tests/test_p1_sprint.py::test_p1_tts_sanitizer_blocks_raw_errors_and_secrets
+PASSED tests/test_p1_sprint.py::test_p1_tts_sanitizer_blocks_provider_http_errors
+PASSED tests/test_p1_sprint.py::test_p1_tts_queue_interrupt_clears_pending
+PASSED tests/test_p1_sprint.py::test_p1_acknowledgement_falls_back_offline
+PASSED tests/test_p1_sprint.py::test_p1_acknowledgement_enriches_when_model_available
+PASSED tests/test_p1_sprint.py::test_p1_secret_filter_masks_keys_and_raw
+PASSED tests/test_p1_sprint.py::test_p1_memory_does_not_store_secrets
+PASSED tests/test_p1_sprint.py::test_p1_proxy_client_does_not_embed_author_key
+PASSED tests/test_p1_sprint.py::test_p1_from_settings_proxy_mode
+PASSED tests/test_p1_sprint_d1.py::test_p1_confirmation_timeout_auto_rejects
+PASSED tests/test_p1_sprint_d1.py::test_p1_confirmation_answer_before_timeout_cancels_timer
+PASSED tests/test_p1_sprint_d1.py::test_p1_confirmation_timeout_disabled_by_zero
+PASSED tests/test_security_q03.py::test_wrap_untrusted_encloses_injection_with_markers
+PASSED tests/test_security_q03.py::test_wrap_untrusted_is_idempotent
+PASSED tests/test_security_q03.py::test_read_file_wraps_untrusted_content
+PASSED tests/test_security_q03.py::test_web_search_wraps_snippets
+PASSED tests/test_security_q04.py::test_redact_secrets_masks_api_key
+PASSED tests/test_security_q04.py::test_redact_args_recursive_nested
+PASSED tests/test_security_q04.py::test_redact_args_idempotent
+PASSED tests/test_security_q04.py::test_agent_fast_path_log_redacts_args
+PASSED tests/test_security_q05.py::test_ssrf_blocks_internal_and_metadata
+PASSED tests/test_security_q05.py::test_ssrf_allows_public
+PASSED tests/test_security_q05.py::test_assert_safe_url_raises_on_blocked
+PASSED tests/test_security_q05.py::test_web_fetch_blocks_ssrf_target
+PASSED tests/test_security_q05.py::test_web_fetch_blocks_file_scheme
+PASSED tests/test_security_q06.py::test_computer_use_tools_registered
+PASSED tests/test_security_q06.py::test_computer_mouse_is_dry_run
+PASSED tests/test_security_q06.py::test_computer_keyboard_is_dry_run
+PASSED tests/test_security_q06.py::test_computer_screenshot_is_dry_run
+PASSED tests/test_security_q06.py::test_intents_recorded
+PASSED tests/test_security_q06.py::test_no_real_input_libraries_imported
+PASSED tests/test_sprint10_adapters.py::test_xml_adapter_observes_applies_and_rolls_back_minimal_fields
+PASSED tests/test_sprint10_adapters.py::test_xml_adapter_unknown_path_is_failed_action_result
+PASSED tests/test_sprint10_adapters.py::test_xml_adapter_materializes_first_run_config_by_clean_close
+PASSED tests/test_sprint10_browser.py::test_browser_provider_uses_semantic_dom_selectors_and_extracts_state
+PASSED tests/test_sprint10_browser.py::test_browser_download_waits_for_real_dom_download
+PASSED tests/test_sprint10_browser.py::test_browser_provider_blocks_semantic_submit_without_confirmation
+PASSED tests/test_sprint10_mission.py::test_operator_mission_observes_repairs_only_mismatch_then_learns
+PASSED tests/test_sprint10_mission.py::test_action_result_ok_never_completes_mission_without_observed_state
+PASSED tests/test_sprint10_mission.py::test_second_run_reuses_app_knowledge_and_capability_episode
+PASSED tests/test_sprint10_mission.py::test_mission_rejects_secret_settings_before_persistence
+PASSED tests/test_sprint10_mission.py::test_mission_control_handles_pause_resume_cancel_and_protected_paths
+PASSED tests/test_sprint10_reference.py::test_reference_interpreter_extracts_state_and_never_replays_clicks
+PASSED tests/test_sprint10_reference.py::test_text_reference_extracts_typed_key_value_desired_state
+PASSED tests/test_sprint10_reference.py::test_image_reference_uses_bounded_analyzer_and_returns_desired_state
+PASSED tests/test_sprint10_reference.py::test_https_reference_uses_web_loader_as_data
+PASSED tests/test_sprint10_reference.py::test_current_to_desired_diff_contains_only_changed_nested_values
+PASSED tests/test_sprint10_reference.py::test_video_provider_extracts_real_metadata_keyframes_and_analyzed_state
+PASSED tests/test_sprint10_reference.py::test_foreground_session_restores_previous_user_window
+PASSED tests/test_sprint10_software.py::test_software_resolver_ranks_trusted_sources_and_excludes_random_downloads
+PASSED tests/test_sprint10_software.py::test_winget_subprocess_forces_utf8_decoding
+PASSED tests/test_sprint10_software.py::test_winget_parser_understands_localized_russian_metadata
+PASSED tests/test_sprint10_software.py::test_winget_candidate_infers_architecture_and_preserves_hash
+PASSED tests/test_sprint10_software.py::test_installer_detection_supports_winget_msi_exe_and_portable_zip
+PASSED tests/test_sprint10_software.py::test_installer_exit_zero_is_not_verified_without_installed_artifacts
+PASSED tests/test_sprint10_software.py::test_installer_verification_requires_version_executable_launch_and_window
+PASSED tests/test_sprint10_software.py::test_file_checkpoint_restores_previous_bytes
+PASSED tests/test_sprint10_windows.py::test_semantic_lookup_prefers_automation_id_and_falls_back_to_role_name
+PASSED tests/test_sprint10_windows.py::test_app_explorer_builds_structured_map_from_accessibility_tree
+PASSED tests/test_sprint10_windows.py::test_app_knowledge_persists_semantic_selectors_but_filters_secrets
+PASSED tests/test_sprint10_windows.py::test_real_uia_provider_contract_uses_semantic_controls_without_coordinates
+PASSED tests/test_sprint11_context.py::test_living_context_updates_structured_state_without_pixels_or_keystrokes
+PASSED tests/test_sprint11_context.py::test_sensitive_window_is_reduced_to_category_and_private_values_are_removed
+PASSED tests/test_sprint11_context.py::test_activity_episode_segmentation_uses_gap_and_meaningful_context_boundary
+PASSED tests/test_sprint11_context.py::test_goal_inference_requires_multiple_evidence_sources_and_reports_confidence
+PASSED tests/test_sprint11_context.py::test_low_evidence_goal_does_not_claim_certainty
+PASSED tests/test_sprint11_context.py::test_friction_detector_uses_repeated_failures_and_workaround_not_emotion
+PASSED tests/test_sprint11_context.py::test_session_summary_and_return_context_are_evidence_based
+PASSED tests/test_sprint11_context.py::test_natural_context_questions_never_invent_missing_activity
+PASSED tests/test_sprint11_context.py::test_context_monitor_collects_native_metadata_without_screen_content
+PASSED tests/test_sprint11_context.py::test_learned_workflow_and_background_questions_use_structured_traces
+PASSED tests/test_sprint11_context.py::test_session_summary_contains_learned_workflows
+PASSED tests/test_sprint11_context.py::test_context_redacts_secret_values_and_rejects_unstructured_metadata
+PASSED tests/test_sprint11_proactive.py::test_proactive_without_structured_evidence_is_silent
+PASSED tests/test_sprint11_proactive.py::test_busy_user_causes_silent_prepare_not_interruption
+PASSED tests/test_sprint11_proactive.py::test_default_assistant_suggests_but_does_not_act
+PASSED tests/test_sprint11_proactive.py::test_partner_can_act_only_for_low_risk_reversible_clear_action
+PASSED tests/test_sprint11_proactive.py::test_missing_information_produces_one_specific_question
+PASSED tests/test_sprint11_proactive.py::test_warn_requires_real_danger_evidence
+PASSED tests/test_sprint11_proactive.py::test_attention_manager_suppresses_fullscreen_then_releases_after_exit
+PASSED tests/test_sprint11_proactive.py::test_ignore_and_rejection_learning_create_adaptive_cooldown
+PASSED tests/test_sprint11_proactive.py::test_computer_assistance_profile_is_not_user_intelligence
+PASSED tests/test_sprint11_proactive.py::test_beginner_assistance_delegates_safe_parts_and_keeps_message_short
+PASSED tests/test_sprint11_proactive.py::test_developer_profile_receives_provider_trace
+PASSED tests/test_sprint11_proactive.py::test_credentials_ask_one_question_but_never_prepare_when_risk_is_high
+PASSED tests/test_sprint11_proactive.py::test_typing_or_active_mission_defers_suggestion_to_background_prepare
+PASSED tests/test_sprint11_resources.py::test_background_budget_runs_when_idle_and_pauses_under_user_load
+PASSED tests/test_sprint11_resources.py::test_shadow_priority_balances_pain_reuse_risk_and_learning_cost
+PASSED tests/test_sprint11_resources.py::test_shadow_backlog_add_ranked_returns_highest_value_work
+PASSED tests/test_sprint11_resources.py::test_quality_loop_enqueues_optimization_for_repairs_fallbacks_and_slow_runs
+PASSED tests/test_sprint11_resources.py::test_background_budget_respects_battery_and_active_user_mission
+PASSED tests/test_sprint11_resources.py::test_local_resource_sampler_collects_coarse_metrics_only
+PASSED tests/test_sprint11_service.py::test_prepare_mission_retries_temporary_provider_error_and_persists
+PASSED tests/test_sprint11_service.py::test_shadow_prepare_is_queued_when_background_budget_is_paused
+PASSED tests/test_sprint11_service.py::test_busy_proactive_cycle_prepares_without_foreground_message
+PASSED tests/test_sprint11_service.py::test_proactive_act_uses_checkpoint_observation_and_rollback
+PASSED tests/test_sprint11_service.py::test_beginner_help_calls_existing_operator_capability
+PASSED tests/test_sprint11_service.py::test_shadow_quality_feedback_enters_ranked_backlog
+PASSED tests/test_sprint11_service.py::test_shadow_engine_keeps_explicit_empty_registry
+PASSED tests/test_sprint11_service.py::test_clipboard_metadata_requires_permission_and_drops_values
+PASSED tests/test_sprint11_service.py::test_service_answers_all_declared_context_questions_without_invention
+PASSED tests/test_sprint11_service.py::test_service_derives_proactive_candidate_from_verified_workflow
+PASSED tests/test_sprint11_service.py::test_proactive_execution_rolls_back_when_executor_raises
+PASSED tests/test_sprint11_service.py::test_mission_event_feeds_structured_goal_and_active_state
+PASSED tests/test_sprint11_service.py::test_throttled_prepare_records_cooperative_resource_budget
+PASSED tests/test_sprint11_workflow.py::test_workflow_discovery_generalizes_similar_semantic_sequences
+PASSED tests/test_sprint11_workflow.py::test_workflow_learning_rejects_coordinate_macros
+PASSED tests/test_sprint11_workflow.py::test_unreliable_workflow_stays_below_learning_threshold
+PASSED tests/test_sprint11_workflow.py::test_workflow_becomes_capability_only_after_verified_rehearsal
+PASSED tests/test_sprint11_workflow.py::test_workflow_executor_observes_desired_state_instead_of_trusting_calls
+PASSED tests/test_sprint11_workflow.py::test_workflow_runs_reload_for_second_process_reuse
+PASSED tests/test_sprint11_workflow.py::test_workflow_executor_requires_accepted_actions_even_if_state_already_matches
+PASSED tests/test_sprint11_workflow.py::test_workflow_executor_contains_provider_exception_and_does_not_verify
+PASSED tests/test_sprint12_integration.py::test_agent_retrieves_relationship_style_before_conversation
+PASSED tests/test_sprint12_integration.py::test_agent_updates_and_persists_explicit_preference
+PASSED tests/test_sprint12_integration.py::test_busy_living_context_reaches_communication_adapter
+PASSED tests/test_sprint12_integration.py::test_adaptive_detailed_style_is_not_overridden_by_legacy_fixed_brevity
+PASSED tests/test_sprint12_integration.py::test_sprint11_feedback_updates_both_proactive_and_relationship_memory
+PASSED tests/test_sprint12_integration.py::test_contextual_greeting_uses_unfinished_task_only_when_confident
+PASSED tests/test_sprint12_integration.py::test_contextual_greeting_understands_sprint11_return_context_shape
+PASSED tests/test_sprint12_integration.py::test_personality_output_remains_voice_safe_and_not_theatrical
+PASSED tests/test_sprint12_personality.py::test_identity_and_personality_are_structured_and_loadable
+PASSED tests/test_sprint12_personality.py::test_communication_adapter_shortens_for_busy_user
+PASSED tests/test_sprint12_personality.py::test_communication_adapter_is_detailed_for_learning_and_structured_for_report
+PASSED tests/test_sprint12_personality.py::test_explicit_user_style_overrides_adaptive_context
+PASSED tests/test_sprint12_personality.py::test_action_and_technical_preferences_change_explanation_strategy
+PASSED tests/test_sprint12_personality.py::test_humor_policy_is_zero_for_danger_and_errors
+PASSED tests/test_sprint12_personality.py::test_natural_completion_requires_verified_success
+PASSED tests/test_sprint12_personality.py::test_prompt_fragment_is_compact_and_contains_structured_policy
+PASSED tests/test_sprint12_personality.py::test_short_style_bounds_natural_conversation_without_cutting_reports
+PASSED tests/test_sprint12_relationship.py::test_relationship_memory_creation_persists_quality_fields
+PASSED tests/test_sprint12_relationship.py::test_reconfirming_memory_increases_confidence_without_duplicates
+PASSED tests/test_sprint12_relationship.py::test_expired_memories_are_pruned_and_not_retrieved
+PASSED tests/test_sprint12_relationship.py::test_privacy_filter_does_not_store_secrets_or_sensitive_profile_data
+PASSED tests/test_sprint12_relationship.py::test_privacy_filter_discards_direct_identifiers
+PASSED tests/test_sprint12_relationship.py::test_retrieval_returns_only_relevant_bounded_memories
+PASSED tests/test_sprint12_relationship.py::test_explicit_preference_learning_updates_user_profile
+PASSED tests/test_sprint12_relationship.py::test_explicit_technical_level_is_a_style_preference_not_freeform_profile
+PASSED tests/test_sprint12_relationship.py::test_new_explicit_preference_supersedes_old_preference
+PASSED tests/test_sprint12_relationship.py::test_acceptance_and_rejection_learning_adjust_delegation_confidence
+PASSED tests/test_sprint12_relationship.py::test_repeated_rejections_prevent_proactive_offer
+PASSED tests/test_sprint12_relationship.py::test_suggestion_topic_never_persists_embedded_secret
+PASSED tests/test_sprint12_relationship.py::test_memory_hierarchy_keeps_layers_separate_and_context_bounded
+PASSED tests/test_sprint12_relationship.py::test_malformed_persisted_profile_falls_back_to_bounded_defaults
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_capability_self_model_is_generated_from_real_registries
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_self_model_does_not_invent_unavailable_installer
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_self_knowledge_current_task_comes_from_mind_state
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_contextual_followup_uses_last_verified_result
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_risk_explanation_is_derived_from_policy
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_unknown_task_enters_research_pipeline_without_fake_success
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_retrieves_only_relevant_bounded_relationship_memory
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_verification_is_required_before_success_wording
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_interruption_and_resume_restore_the_suspended_goal
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_speech_boundary_hides_raw_internal_details
+PASSED tests/test_sprint13_cognitive_orchestrator.py::test_medium_risk_plan_waits_for_confirmation
+PASSED tests/test_sprint13_identity_addressing.py::test_atlas_is_canonical_runtime_identity_with_legacy_aliases
+PASSED tests/test_sprint13_identity_addressing.py::test_personality_defaults_load_canonical_atlas_identity
+PASSED tests/test_sprint13_identity_addressing.py::test_contextual_fuzzy_address_variants_activate[\u0410\u0442\u043b\u0430\u0441, \u043e\u0442\u043a\u0440\u043e\u0439 \u043f\u0440\u043e\u0435\u043a\u0442]
+PASSED tests/test_sprint13_identity_addressing.py::test_contextual_fuzzy_address_variants_activate[\u0410\u0442\u043b\u0430, \u043e\u0442\u043a\u0440\u043e\u0439 \u043f\u0440\u043e\u0435\u043a\u0442]
+PASSED tests/test_sprint13_identity_addressing.py::test_contextual_fuzzy_address_variants_activate[\u0410\u0442\u043b\u0430\u0441\u0438\u043a, \u0442\u044b \u0442\u0443\u0442?]
+PASSED tests/test_sprint13_identity_addressing.py::test_contextual_fuzzy_address_variants_activate[\u0410\u0442\u043b\u0430\u0441\u0448\u043e, \u0433\u043b\u044f\u043d\u044c \u0441\u044e\u0434\u0430]
+PASSED tests/test_sprint13_identity_addressing.py::test_contextual_fuzzy_address_variants_activate[\u044d\u0439 \u0410\u0442\u043b\u0430\u0441]
+PASSED tests/test_sprint13_identity_addressing.py::test_contextual_fuzzy_address_variants_activate[\u0441\u043b\u0443\u0448\u0430\u0439 \u0410\u0442\u043b\u0430\u0441]
+PASSED tests/test_sprint13_identity_addressing.py::test_contextual_fuzzy_address_variants_activate[\u0410\u0442\u043b\u0430\u0441?]
+PASSED tests/test_sprint13_identity_addressing.py::test_similar_random_words_do_not_false_wake[\u043e\u0442\u043a\u0440\u043e\u0439 \u0430\u0442\u043b\u0430\u0441 \u043c\u0438\u0440\u0430 \u043d\u0430 \u043d\u0443\u0436\u043d\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435]
+PASSED tests/test_sprint13_identity_addressing.py::test_similar_random_words_do_not_false_wake[\u043c\u043d\u0435 \u043d\u0440\u0430\u0432\u0438\u0442\u0441\u044f \u0430\u0442\u043b\u0430\u0441\u043d\u044b\u0439 \u043f\u0435\u0440\u0435\u043f\u043b\u0451\u0442]
+PASSED tests/test_sprint13_identity_addressing.py::test_similar_random_words_do_not_false_wake[\u044d\u0442\u043e\u0442 \u0433\u0435\u043e\u0433\u0440\u0430\u0444\u0438\u0447\u0435\u0441\u043a\u0438\u0439 \u0430\u0442\u043b\u0430\u0441 \u0434\u043e\u0440\u043e\u0433]
+PASSED tests/test_sprint13_identity_addressing.py::test_similar_random_words_do_not_false_wake[\u043a\u043b\u0430\u0441\u0441\u043d\u044b\u0439 \u043f\u0440\u043e\u0435\u043a\u0442 \u043f\u043e\u043b\u0443\u0447\u0438\u043b\u0441\u044f]
+PASSED tests/test_sprint13_identity_addressing.py::test_similar_random_words_do_not_false_wake[\u0430\u0442\u043b\u0430\u0441\u043d\u0430\u044f \u0442\u043a\u0430\u043d\u044c \u043b\u0435\u0436\u0438\u0442 \u043d\u0430 \u0441\u0442\u043e\u043b\u0435]
+PASSED tests/test_sprint13_identity_addressing.py::test_similar_random_words_do_not_false_wake[\u043f\u043e\u043a\u0430\u0436\u0438 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0443 \u043a\u043b\u0430\u0441\u0441\u0430]
+PASSED tests/test_sprint13_identity_addressing.py::test_legacy_jarvis_address_still_routes_to_atlas
+PASSED tests/test_sprint13_identity_addressing.py::test_recent_confirmed_address_supports_continuing_command
+PASSED tests/test_sprint13_identity_addressing.py::test_recurring_custom_form_is_learned_only_after_three_confirmations
+PASSED tests/test_sprint13_identity_addressing.py::test_unconfirmed_accidental_word_is_never_persisted
+PASSED tests/test_sprint13_live_demo.py::test_safe_real_files_live_demo
+PASSED tests/test_sprint13_mind_state.py::test_current_mind_state_is_structured_and_contains_no_reasoning_fields
+PASSED tests/test_sprint13_mind_state.py::test_mind_state_persists_only_continuity_fields
+PASSED tests/test_sprint13_mind_state.py::test_mind_state_privacy_filter_removes_secret_values
+PASSED tests/test_sprint13_mind_state.py::test_public_mind_state_view_redacts_secret_values
+PASSED tests/test_sprint13_mind_state.py::test_goal_stack_is_bounded_and_prunes_stale_goals
+PASSED tests/test_sprint13_mind_state.py::test_unique_continuation_resumes_suspended_goal
+PASSED tests/test_sprint13_mind_state.py::test_ambiguous_continuation_asks_one_concise_question
+PASSED tests/test_sprint13_mind_state.py::test_specific_continuation_selects_matching_goal
+PASSED tests/test_sprint13_mind_state.py::test_restart_reconstructs_useful_state_from_mission_and_living_context
+PASSED tests/test_sprint13_mind_state.py::test_restart_uses_high_confidence_living_goal_when_no_mission
+PASSED tests/test_sprint13_mind_state.py::test_only_verified_result_becomes_last_verified_result
+PASSED tests/test_sprint14_adversarial.py::test_adversarial_same_false_claim_repeated_cannot_become_fact
+PASSED tests/test_sprint14_adversarial.py::test_adversarial_two_providers_copying_one_source_count_once
+PASSED tests/test_sprint14_adversarial.py::test_adversarial_stale_memory_loses_to_disk_observation
+PASSED tests/test_sprint14_adversarial.py::test_adversarial_provider_ok_with_unchanged_state_never_reports_success
+PASSED tests/test_sprint14_adversarial.py::test_adversarial_contextual_failure_overrides_prior_success_label
+PASSED tests/test_sprint14_adversarial.py::test_adversarial_leading_question_does_not_seed_claim
+PASSED tests/test_sprint14_adversarial.py::test_confidence_decays_with_freshness_and_provider_uncertainty
+PASSED tests/test_sprint14_adversarial.py::test_resolution_order_uses_capability_before_research_and_user
+PASSED tests/test_sprint14_correction.py::test_expectation_mismatch_creates_structured_surprise
+PASSED tests/test_sprint14_correction.py::test_reported_success_without_effect_triggers_different_strategy
+PASSED tests/test_sprint14_correction.py::test_repeated_identical_failed_strategy_is_not_retried
+PASSED tests/test_sprint14_correction.py::test_failure_episode_is_contextual_not_global_blacklist
+PASSED tests/test_sprint14_correction.py::test_restart_avoids_previously_failed_strategy_in_matching_context
+PASSED tests/test_sprint14_correction.py::test_self_correction_respects_risk_gate
+PASSED tests/test_sprint14_correction.py::test_failure_store_filters_secrets_and_raw_traceback
+PASSED tests/test_sprint14_correction.py::test_audit_bundle_is_machine_readable_and_contains_no_private_reasoning
+PASSED tests/test_sprint14_epistemic.py::test_epistemic_belief_has_only_safe_structured_fields
+PASSED tests/test_sprint14_epistemic.py::test_direct_verified_observation_calibrates_as_high_confidence
+PASSED tests/test_sprint14_epistemic.py::test_inferred_memory_is_not_promoted_to_fact
+PASSED tests/test_sprint14_epistemic.py::test_duplicate_evidence_from_same_origin_does_not_raise_confidence
+PASSED tests/test_sprint14_epistemic.py::test_independent_evidence_can_raise_but_not_force_certainty
+PASSED tests/test_sprint14_epistemic.py::test_contradiction_caps_confidence
+PASSED tests/test_sprint14_epistemic.py::test_stale_volatile_evidence_loses_confidence
+PASSED tests/test_sprint14_epistemic.py::test_unknown_is_always_low_confidence
+PASSED tests/test_sprint14_integration.py::test_current_mind_state_exposes_only_safe_epistemic_summaries
+PASSED tests/test_sprint14_integration.py::test_cognitive_runtime_owns_metacognition_without_replacing_existing_registry
+PASSED tests/test_sprint14_integration.py::test_safe_observation_updates_current_mind_summary
+PASSED tests/test_sprint14_integration.py::test_natural_certainty_and_provenance_questions_use_active_belief
+PASSED tests/test_sprint14_integration.py::test_unknown_certainty_is_truthful
+PASSED tests/test_sprint14_integration.py::test_unverified_execution_updates_needs_verification_not_success
+PASSED tests/test_sprint14_integration.py::test_verified_execution_supersedes_failed_expectation_and_becomes_known
+PASSED tests/test_sprint14_integration.py::test_epistemic_summary_persists_across_cognitive_restart
+PASSED tests/test_sprint14_integration.py::test_cognitive_orchestrator_runs_bounded_correction_and_updates_mind
+PASSED tests/test_sprint14_integration.py::test_cognitive_orchestrator_never_naturalizes_failed_correction_as_success
+PASSED tests/test_sprint14_knowledge.py::test_belief_store_is_bounded_private_and_restartable
+PASSED tests/test_sprint14_knowledge.py::test_fresh_direct_observation_supersedes_stale_memory
+PASSED tests/test_sprint14_knowledge.py::test_equally_weak_conflicting_sources_remain_conflicted
+PASSED tests/test_sprint14_knowledge.py::test_repetition_of_same_inference_never_becomes_known
+PASSED tests/test_sprint14_knowledge.py::test_volatile_freshness_policy_marks_old_state_stale
+PASSED tests/test_sprint14_knowledge.py::test_verify_before_ask_uses_safe_local_observation
+PASSED tests/test_sprint14_knowledge.py::test_stale_knowledge_is_reobserved_before_answer
+PASSED tests/test_sprint14_knowledge.py::test_risk_gate_remains_authoritative_before_observation
+PASSED tests/test_sprint14_knowledge.py::test_certainty_and_provenance_are_natural_and_factual
+PASSED tests/test_sprint14_knowledge.py::test_unknown_answer_is_truthful_and_does_not_record_leading_assumption
+PASSED tests/test_sprint14_live_demo.py::test_real_local_metacognition_live_demo
+PASSED tests/test_sprint15_context.py::test_context_budget_preserves_identity_request_and_mission
+PASSED tests/test_sprint15_context.py::test_context_budget_never_silently_drops_critical_state
+PASSED tests/test_sprint15_context.py::test_structured_output_uses_json_decoder_and_bounded_repair
+PASSED tests/test_sprint15_context.py::test_structured_output_never_executes_tool_shaped_data
+PASSED tests/test_sprint15_context.py::test_critic_returns_only_structured_verdicts
+PASSED tests/test_sprint15_context.py::test_local_gguf_discovery_reads_metadata_without_loading_or_copying
+PASSED tests/test_sprint15_context.py::test_local_lifecycle_loads_only_selected_model_and_unloads
+PASSED tests/test_sprint15_context.py::test_local_manager_applies_ram_and_background_resource_budget
+PASSED tests/test_sprint15_context.py::test_benchmark_reports_measurements_not_subjective_score
+PASSED tests/test_sprint15_context.py::test_auto_role_suggestion_uses_capability_and_measurement_with_override
+PASSED tests/test_sprint15_integration.py::test_settings_default_brain_policy_preserves_local_behavior
+PASSED tests/test_sprint15_integration.py::test_model_router_returns_semantic_provider_model_without_hidden_reasoning
+PASSED tests/test_sprint15_integration.py::test_identity_contract_is_consistent_across_models_and_streaming
+PASSED tests/test_sprint15_integration.py::test_brain_backend_bridge_preserves_existing_llm_contract
+PASSED tests/test_sprint15_integration.py::test_cognitive_core_owns_brain_fabric_and_self_model_reports_fact
+PASSED tests/test_sprint15_integration.py::test_shadow_background_brain_obeys_local_cost_privacy_policy
+PASSED tests/test_sprint15_integration.py::test_provider_hot_reload_keeps_bound_step_then_removes_for_new_routes
+PASSED tests/test_sprint15_integration.py::test_provider_uncertainty_does_not_become_truth_confidence
+PASSED tests/test_sprint15_providers.py::test_openai_compatible_custom_endpoint_uses_provider_contract
+PASSED tests/test_sprint15_providers.py::test_malformed_provider_response_is_inert_error
+PASSED tests/test_sprint15_providers.py::test_health_manager_opens_and_recovers_bounded_circuit
+PASSED tests/test_sprint15_providers.py::test_anthropic_adapter_uses_messages_protocol
+PASSED tests/test_sprint15_routing.py::test_semantic_roles_select_fast_reasoning_and_coder
+PASSED tests/test_sprint15_routing.py::test_local_only_and_sensitive_privacy_filter_cloud
+PASSED tests/test_sprint15_routing.py::test_context_window_health_and_background_policy_are_hard_filters
+PASSED tests/test_sprint15_routing.py::test_fabric_fails_over_quickly_and_circuit_skips_primary
+PASSED tests/test_sprint15_routing.py::test_mission_stage_binding_survives_better_provider_registration
+PASSED tests/test_sprint15_routing.py::test_local_only_policy_mode_blocks_external_even_for_public_data
+PASSED tests/test_sprint15_security.py::test_provider_config_persists_reference_never_secret
+PASSED tests/test_sprint15_security.py::test_plaintext_api_key_in_provider_json_is_rejected
+PASSED tests/test_sprint15_security.py::test_hot_reload_changes_generation_only_and_redacts_snapshot
+PASSED tests/test_sprint15_security.py::test_dpapi_secret_store_encrypts_at_rest_and_reopens
+PASSED tests/test_sprint15_security.py::test_custom_provider_configurator_persists_model_but_not_key
+PASSED tests/test_sprint3.py::test_tool_timeout_interrupts_hanging_tool
+PASSED tests/test_sprint3.py::test_tool_timeout_not_retried
+PASSED tests/test_sprint3.py::test_tool_timeout_categories
+PASSED tests/test_sprint3.py::test_tool_output_truncated
+PASSED tests/test_sprint3.py::test_small_output_not_touched
+PASSED tests/test_sprint3.py::test_parallel_tools_isolated
+PASSED tests/test_sprint3.py::test_parallel_semaphore_limits_concurrency
+PASSED tests/test_sprint3.py::test_repair_loop_stops_after_max_attempts
+PASSED tests/test_sprint3.py::test_repair_loop_risk_gate_blocks_high_risk_retry
+PASSED tests/test_sprint3.py::test_repair_loop_allows_low_risk_retry
+PASSED tests/test_sprint3.py::test_repair_loop_reasoner_patch_also_gated
+PASSED tests/test_sprint3.py::test_circuit_breaker_opens_after_consecutive_failures
+PASSED tests/test_sprint3.py::test_circuit_breaker_model_scoped
+PASSED tests/test_sprint3.py::test_agent_skips_open_breaker_tier
+PASSED tests/test_sprint3.py::test_stream_budget_kills_trickle
+PASSED tests/test_sprint3.py::test_conversation_fallback_degraded
+PASSED tests/test_sprint3.py::test_conversation_all_models_dead_model_error
+PASSED tests/test_sprint3.py::test_planner_bumps_fast_to_analyst
+PASSED tests/test_sprint3.py::test_planner_keeps_forced_local
+PASSED tests/test_sprint4.py::test_extract_facts_name
+PASSED tests/test_sprint4.py::test_extract_facts_like_dislike
+PASSED tests/test_sprint4.py::test_extract_facts_no_false_positive
+PASSED tests/test_sprint4.py::test_detect_tone
+PASSED tests/test_sprint4.py::test_budget_fit_keeps_recent
+PASSED tests/test_sprint4.py::test_budget_tiny_returns_user_only
+PASSED tests/test_sprint4.py::test_budget_full_history_fits
+PASSED tests/test_sprint4.py::test_session_memory_bounded_fifo
+PASSED tests/test_sprint4.py::test_session_history_injected_into_conversation
+PASSED tests/test_sprint4.py::test_tool_prompts_stay_clean
+PASSED tests/test_sprint4.py::test_fact_survives_restart
+PASSED tests/test_sprint4.py::test_name_not_overwritten
+PASSED tests/test_sprint4.py::test_learn_facts_dedup
+PASSED tests/test_sprint4.py::test_persona_injected_into_conversation_prompt
+PASSED tests/test_sprint4.py::test_persona_planner_focus
+PASSED tests/test_sprint4.py::test_tone_adaptation_in_prompt
+PASSED tests/test_sprint4.py::test_first_contact_hint_without_name
+PASSED tests/test_sprint4.py::test_time_of_day_hint_present
+PASSED tests/test_sprint4.py::test_regression_conversation_action_split
+PASSED tests/test_sprint7.py::test_vad_silence_and_nonempty_fallback
+PASSED tests/test_sprint7.py::test_trigger_fires_once_until_cooldown
+PASSED tests/test_sprint7.py::test_trigger_three_ignores_disables_it
+PASSED tests/test_sprint7.py::test_screen_capture_requires_permission
+PASSED tests/test_sprint7.py::test_wake_word_noop_is_safe
+PASSED tests/test_sprint8.py::test_pattern_watcher_detects_repeated_unfulfilled_request
+PASSED tests/test_sprint8.py::test_tool_generator_wraps_valid_local_model_code
+PASSED tests/test_sprint8.py::test_sandbox_rejects_dangerous_generated_code
+PASSED tests/test_sprint8.py::test_confidence_thresholds_auto_register_and_reject
+PASSED tests/test_sprint8.py::test_exact_confidence_policy_registers_95_and_rejects_50
+PASSED tests/test_sprint8.py::test_shadow_can_prepare_a_safe_tool_on_demand
+PASSED tests/test_sprint8.py::test_active_mode_uses_learning_language_and_safety_warning
+PASSED tests/test_sprint8.py::test_agent_unknown_path_says_it_will_investigate_not_cannot
+PASSED tests/test_sprint8.py::test_time_pattern_requires_repeated_ritual
+PASSED tests/test_sprint8.py::test_manual_workaround_is_recorded_as_an_unfulfilled_need
+PASSED tests/test_sprint9.py::test_offline_coder_keeps_task_role_with_best_local_model
+PASSED tests/test_sprint9.py::test_unknown_task_composes_existing_tools_before_generation
+PASSED tests/test_sprint9.py::test_acquired_capability_is_persisted
+PASSED tests/test_sprint9.py::test_tool_success_does_not_complete_when_desired_state_is_missing
+PASSED tests/test_sprint9.py::test_repair_targets_only_failed_desired_state_step
+PASSED tests/test_sprint9.py::test_successful_unknown_task_creates_retrievable_generalized_episode
+PASSED tests/test_sprint9.py::test_high_confidence_high_risk_still_requires_confirmation
+PASSED tests/test_sprint9.py::test_failed_file_change_rolls_back
+PASSED tests/test_sprint9.py::test_persistent_mission_can_cancel_explain_and_restore
+PASSED tests/test_sprint9.py::test_reference_interpreter_extracts_desired_state_not_click_sequence
+PASSED tests/test_sprint9.py::test_windows_execution_ladder_prefers_uia_over_vision
+PASSED tests/test_sprint9.py::test_browser_provider_uses_dom_engine
+PASSED tests/test_sprint9.py::test_shadow_backlog_pauses_during_high_load
+PASSED tests/test_sprint9.py::test_safe_unknown_file_organization_executes_verifies_and_learns
+PASSED tests/test_sprint9.py::test_agent_unknown_path_uses_capability_composition
+PASSED tests/test_sprint9.py::test_task_runtime_persists_and_restores_mission
+PASSED tests/test_sprint9.py::test_task_runtime_pause_skip_and_explain
+PASSED tests/test_sprint9.py::test_unknown_research_prioritizes_official_sources_and_structures_plan
+PASSED tests/test_stt.py::test_stt_disabled_is_not_available
+PASSED tests/test_stt.py::test_stt_disabled_raises_clear_error
+PASSED tests/test_stt.py::test_stt_enabled_reflects_real_backend
+PASSED tests/test_stt.py::test_stt_enabled_without_backend_raises_runtime_error
+PASSED tests/test_unified_path.py::test_unified_model_router_shared
+PASSED tests/test_unified_path.py::test_council_uses_model_router_for_routing
+PASSED tests/test_unified_path.py::test_both_entries_use_handle_input
+PASSED tests/test_voice_hardening.py::test_raw_http_error_codes_never_become_speech[401]
+PASSED tests/test_voice_hardening.py::test_raw_http_error_codes_never_become_speech[403]
+PASSED tests/test_voice_hardening.py::test_raw_http_error_codes_never_become_speech[404]
+PASSED tests/test_voice_hardening.py::test_raw_http_error_codes_never_become_speech[408]
+PASSED tests/test_voice_hardening.py::test_raw_http_error_codes_never_become_speech[429]
+PASSED tests/test_voice_hardening.py::test_raw_http_error_codes_never_become_speech[455]
+PASSED tests/test_voice_hardening.py::test_raw_http_error_codes_never_become_speech[500]
+PASSED tests/test_voice_hardening.py::test_raw_http_error_codes_never_become_speech[503]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[Traceback (most recent call last):\n  File "worker.py", line 7\nValueError: bad]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[C:\\Users\\WwW\\AppData\\Local\\secret.txt]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[/home/user/.config/private.json]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[https://provider.invalid/request?id=123]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[request_id=8a595baf-6f80-46b8-b150-2eb333cab08a]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[8a595baf-6f80-46b8-b150-2eb333cab08a]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[{"error": "provider unavailable", "status": 455}]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[2026-08-17 10:01:02 | ERROR | internal.provider | failed]
+PASSED tests/test_voice_hardening.py::test_technical_payloads_are_not_spoken[```python\nraise RuntimeError('boom')\n```]
+PASSED tests/test_voice_hardening.py::test_markdown_is_reduced_to_natural_text
+PASSED tests/test_voice_hardening.py::test_assistant_output_keeps_technical_error_out_of_speech_contract
+PASSED tests/test_voice_hardening.py::test_recovered_provider_failure_is_silent_but_final_answer_is_spoken
+PASSED tests/test_voice_hardening.py::test_agent_outcome_conversion_keeps_trace_in_debug_not_speech
+PASSED tests/test_voice_hardening.py::test_terminal_failure_uses_short_natural_russian_sentence
+PASSED tests/test_voice_hardening.py::test_all_voice_personality_modes_produce_bounded_profiles[normal]
+PASSED tests/test_voice_hardening.py::test_all_voice_personality_modes_produce_bounded_profiles[focused]
+PASSED tests/test_voice_hardening.py::test_all_voice_personality_modes_produce_bounded_profiles[quiet]
+PASSED tests/test_voice_hardening.py::test_all_voice_personality_modes_produce_bounded_profiles[urgent]
+PASSED tests/test_voice_hardening.py::test_all_voice_personality_modes_produce_bounded_profiles[amused]
+PASSED tests/test_voice_hardening.py::test_all_voice_personality_modes_produce_bounded_profiles[background]
+PASSED tests/test_voice_hardening.py::test_runtime_config_selects_local_russian_piper_and_no_english_fallback
+PASSED tests/test_voice_hardening.py::test_piper_prefers_project_runtime_over_unversioned_path_binary
+PASSED tests/test_voice_hardening.py::test_piper_subprocess_forces_utf8_stdin_on_windows
+PASSED tests/test_voice_hardening.py::test_missing_russian_voice_never_falls_back_to_english_voice
+PASSED tests/test_voice_hardening.py::test_piper_personality_volume_scales_pcm_wav
+PASSED tests/test_voice_hardening.py::test_queue_accepts_structured_output_and_barge_in_still_interrupts
+PASSED tests/test_voice_hardening.py::test_queue_defense_in_depth_blocks_legacy_raw_error
+PASSED tests/test_voice_hardening.py::test_websocket_speech_boundary_rejects_raw_event_messages
+PASSED tests/test_ws_server.py::test_ws_command_roundtrip_and_confirmation
+PASSED tests/test_ws_settings.py::test_ws_cloud_settings_are_masked_persisted_and_preserved
+PASSED tests/test_ws_settings.py::test_ws_cloud_settings_reject_invalid_provider_without_writing
+PASSED tests/test_ws_streaming.py::test_extractor_streams_answer_progressively
+PASSED tests/test_ws_streaming.py::test_extractor_handles_escapes_and_cut_escape
+PASSED tests/test_ws_streaming.py::test_extractor_plain_text_and_tool_plan
+PASSED tests/test_ws_streaming.py::test_orchestrator_sink_passthrough
+PASSED tests/test_ws_streaming.py::test_sync_pair_single_stable_id
+PASSED tests/test_ws_streaming.py::test_parallel_commands_do_not_mix
+PASSED tests/test_ws_streaming.py::test_ws_streaming_sequence
+PASSED tests/test_ws_streaming.py::test_mission_streaming_via_task_events
+PASSED tests/test_ws_streaming.py::test_provider_failure_friendly_and_fast
+SKIPPED [1] tests\test_model_failure.py:103: FAST-��� �������� �� ��������� ������ � �������� �� �����������
+SKIPPED [1] tests\test_model_failure.py:123: ANALYST-��� �������� �� ��������� ������ � �������� �� �����������
+466 passed, 2 skipped, 2 warnings in 53.53s

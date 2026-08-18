@@ -1,0 +1,24 @@
+{
+  "cold_atlas_samples_ms": [
+    889.95,
+    818.363,
+    850.503,
+    813.237,
+    801.447
+  ],
+  "cold_atlas_start_ms": 818.363,
+  "local_model": {
+    "cold_load_and_warm_ms": 20674.1,
+    "measured": true,
+    "model": "local:Qwen3-1.7B-Q6_K",
+    "output": "",
+    "path": "E:\\jarvis-project\\data\\models\\Qwen3-1.7B-Q6_K.gguf",
+    "rss_loaded_mb": 1910.992,
+    "warm_inference_ms": 880.524
+  },
+  "probe_rss_after_unload_mb": 65.652,
+  "probe_rss_before_mb": 36.375,
+  "provider_failover_latency_ms": 360.384,
+  "simple_chat_latency_ms": 17.495,
+  "live_report": "artifacts/sprint15/live/live_demo_report.json"
+}

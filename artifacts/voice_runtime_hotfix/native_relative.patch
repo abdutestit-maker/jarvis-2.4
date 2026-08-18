@@ -1,0 +1,218 @@
+diff --git a/patch_tree_from/core/voice/tts.py b/patch_tree_to/core/voice/tts.py
+index 8e8e02e..aec193f 100644
+--- a/patch_tree_from/core/voice/tts.py
++++ b/patch_tree_to/core/voice/tts.py
+@@ -9,6 +9,7 @@ Voice выбирается конфигурацией, а не эвристик
+ 
+ from __future__ import annotations
+ 
++import os
+ import re
+ import subprocess
+ import tempfile
+@@ -87,26 +88,40 @@ class PiperTTS:
+             )
+ 
+     def _resolve_binary(self) -> Optional[Path]:
+-        """Находит piper исполняемый файл."""
++        """Находит Piper, предпочитая проверенный runtime внутри проекта.
++
++        ``piper`` из PATH не является стабильной зависимостью: пакет Piper
++        1.3.0 может находиться там вместо совместимого с текущими ONNX-голосами
++        runtime. Явный существующий путь из конфигурации всё ещё имеет высший
++        приоритет, затем используется локальная проверенная сборка.
++        """
+         voice = getattr(self._settings, "voice", None)
+         if voice and getattr(voice, "piper_binary_path", None):
+             p = Path(voice.piper_binary_path).expanduser()
+             if p.exists():
+-                return p
++                return p.resolve()
++
++        models_dir = Path(getattr(self._settings, "models_dir", Path("data/models")))
++        bundled = models_dir.parent / "runtime" / "piper" / "piper.exe"
++        if bundled.exists():
++            return bundled.resolve()
+ 
+         # Стандартные места установки
+         candidates = [
+-            Path("piper.exe"),  # в PATH
+             Path.home() / ".local" / "bin" / "piper.exe",
+             Path("C:/Program Files/piper/piper.exe"),
+             Path("C:/Program Files (x86)/piper/piper.exe"),
+         ]
+         for c in candidates:
+             try:
+-                if c.exists() or (c.name == "piper.exe" and self._which("piper")):
+-                    return c
++                if c.exists():
++                    return c.resolve()
+             except Exception:
+                 pass
++        import shutil
++        discovered = shutil.which("piper")
++        if discovered:
++            return Path(discovered).resolve()
+         return None
+ 
+     def _load_voices(self) -> None:
+@@ -297,10 +312,16 @@ class PiperTTS:
+                 cmd += ["--noise_scale", str(voice.noise_scale)]
+             if voice.noise_w > 0:
+                 cmd += ["--noise_w", str(voice.noise_w)]
++        child_env = os.environ.copy()
++        # Python Piper 1.3 reads redirected stdin using the active Windows code
++        # page unless these flags are explicit. Sending UTF-8 bytes without the
++        # matching decoder turns Russian text into mojibake ("РЎСЌ...").
++        child_env["PYTHONIOENCODING"] = "utf-8"
++        child_env["PYTHONUTF8"] = "1"
+         try:
+             proc = subprocess.run(
+-                cmd, input=text.strip().encode("utf-8"),
+-                capture_output=True, timeout=30,
++                cmd, input=(text.strip() + "\n").encode("utf-8"),
++                capture_output=True, timeout=30, env=child_env,
+             )
+         except subprocess.TimeoutExpired:
+             log.error("Piper таймаут (>30s)")
+diff --git a/patch_tree_to/scripts/voice_runtime_smoke.py b/patch_tree_to/scripts/voice_runtime_smoke.py
+new file mode 100644
+index 0000000..ac76fec
+--- /dev/null
++++ b/patch_tree_to/scripts/voice_runtime_smoke.py
+@@ -0,0 +1,74 @@
++"""Offline acoustic smoke test for the pinned Russian Piper runtime."""
++
++from __future__ import annotations
++
++import json
++import sys
++import wave
++from pathlib import Path
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
++from config.settings import load_config  # noqa: E402
++from core.voice.tts import PiperTTS  # noqa: E402
++
++
++PHRASE = "Сэр, я вас понял. Это тестовый ответ Джарвиса."
++
++
++def main() -> int:
++    output = (
++        Path(sys.argv[1]).resolve()
++        if len(sys.argv) > 1
++        else PROJECT_ROOT / "artifacts" / "voice_runtime_hotfix" / "smoke.wav"
++    )
++    expected_runtime = (
++        PROJECT_ROOT / "data" / "runtime" / "piper" / "piper.exe"
++    ).resolve()
++    tts = PiperTTS(load_config())
++    actual_runtime = Path(tts._binary).resolve() if tts._binary else None
++
++    result: dict[str, object] = {
++        "success": False,
++        "input": PHRASE,
++        "runtime": str(actual_runtime) if actual_runtime else None,
++        "expected_runtime": str(expected_runtime),
++        "output": str(output),
++    }
++    if actual_runtime != expected_runtime:
++        result["error"] = "unvalidated_piper_runtime"
++        print(json.dumps(result, ensure_ascii=False, indent=2))
++        return 2
++    if not tts.synthesize_to_file(PHRASE, output):
++        result["error"] = "synthesis_failed"
++        print(json.dumps(result, ensure_ascii=False, indent=2))
++        return 3
++
++    with wave.open(str(output), "rb") as wav:
++        duration = wav.getnframes() / float(wav.getframerate())
++        result.update(
++            channels=wav.getnchannels(),
++            sample_rate=wav.getframerate(),
++            sample_width=wav.getsampwidth(),
++            frames=wav.getnframes(),
++            duration_seconds=round(duration, 3),
++        )
++
++    # The broken Piper 1.3.0 path generated ~13 seconds of digital tones for
++    # this 48-character phrase. The validated runtime produces ~3.3 seconds.
++    structurally_valid = (
++        result["channels"] == 1
++        and result["sample_rate"] == 22_050
++        and result["sample_width"] == 2
++        and 1.5 <= duration <= 6.0
++    )
++    result["success"] = structurally_valid
++    result["error"] = None if structurally_valid else "acoustic_smoke_failed"
++    print(json.dumps(result, ensure_ascii=False, indent=2))
++    return 0 if structurally_valid else 4
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/patch_tree_from/tests/test_voice_hardening.py b/patch_tree_to/tests/test_voice_hardening.py
+index cd2d1ed..0bf5542 100644
+--- a/patch_tree_from/tests/test_voice_hardening.py
++++ b/patch_tree_to/tests/test_voice_hardening.py
+@@ -157,6 +157,56 @@ def test_runtime_config_selects_local_russian_piper_and_no_english_fallback() ->
+     assert "jarvis-medium" not in tts.available_voices
+ 
+ 
++def test_piper_prefers_project_runtime_over_unversioned_path_binary(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """A random PATH piper must not silently replace the validated runtime."""
++    models_dir = tmp_path / "data" / "models"
++    bundled = models_dir.parent / "runtime" / "piper" / "piper.exe"
++    bundled.parent.mkdir(parents=True)
++    bundled.write_bytes(b"validated local runtime fixture")
++
++    tts = PiperTTS.__new__(PiperTTS)
++    tts._settings = SimpleNamespace(
++        models_dir=models_dir,
++        voice=SimpleNamespace(piper_binary_path="piper"),
++    )
++    monkeypatch.setattr(PiperTTS, "_which", staticmethod(lambda _cmd: True))
++
++    assert tts._resolve_binary() == bundled
++
++
++def test_piper_subprocess_forces_utf8_stdin_on_windows(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """Cyrillic bytes must not be decoded through the Windows code page."""
++    voice = VoiceConfig(
++        "ru_RU-dmitri-medium",
++        tmp_path / "voice.onnx",
++        tmp_path / "voice.onnx.json",
++        language="ru",
++        noise_scale=0.0,
++        noise_w=0.0,
++    )
++    tts = PiperTTS.__new__(PiperTTS)
++    tts._available = True
++    tts._target_language = "ru"
++    tts._binary = Path("piper.exe")
++    tts._select_voice = lambda _text: voice
++    captured: dict[str, object] = {}
++
++    def fake_run(cmd, **kwargs):
++        captured.update(kwargs)
++        output = Path(cmd[cmd.index("--output_file") + 1])
++        output.write_bytes(b"generated wav fixture")
++        return SimpleNamespace(returncode=0, stderr=b"")
++
++    monkeypatch.setattr("core.voice.tts.subprocess.run", fake_run)
++
++    assert tts.synthesize_to_file("Сэр, я вас понял.", tmp_path / "out.wav")
++    assert captured["env"]["PYTHONIOENCODING"] == "utf-8"
++    assert captured["env"]["PYTHONUTF8"] == "1"
++
+ 
+ def test_missing_russian_voice_never_falls_back_to_english_voice(tmp_path: Path) -> None:
+     tts = PiperTTS.__new__(PiperTTS)

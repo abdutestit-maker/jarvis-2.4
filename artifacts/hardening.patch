@@ -1,0 +1,2834 @@
+diff --git a/.gitignore b/.gitignore
+index 7e34536..4043456 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -5,6 +5,11 @@ dist/
+ __pycache__/
+ .pytest_cache/
+ data/
++!data/
++data/*
++!data/tools/
++!data/tools/templates/
++!data/tools/templates/basic_tool.py
+ *.gguf
+ *.onnx
+ *.onnx.json
+@@ -29,3 +34,14 @@ _live_screenshot.png
+ 
+ # browser-automation (SPRINT P2-B): user-data-dir браузера (куки/сессии) — не коммитить
+ browser-user-data/
++
++# generated verification workspaces and local media (keep compact manifests/reports)
++artifacts/**/patch_probe/
++artifacts/**/patch_stage*/
++artifacts/**/rollback_probe*/
++artifacts/**/rollback_verification/workspace*/
++artifacts/**/live_workspace/
++artifacts/**/source_snapshots/
++artifacts/**/*.wav
++artifacts/**/*.tmp
++artifacts/**/test_installations/
+diff --git a/core/actions/app_control.py b/core/actions/app_control.py
+index e23b659..260020c 100644
+--- a/core/actions/app_control.py
++++ b/core/actions/app_control.py
+@@ -151,7 +151,7 @@ def _find_executable(cmd: str) -> Optional[str]:
+         # where.exe работает только для .exe
+         try:
+             result = subprocess.run(
+-                ["where.exe", cmd], capture_output=True, text=True, timeout=3
++                ["where.exe", cmd], capture_output=True, text=True, timeout=3, shell=False
+             )
+             if result.returncode == 0:
+                 return result.stdout.strip().splitlines()[0]
+@@ -214,10 +214,15 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") ->
+     try:
+         # URI-схемы (ms-settings:) запускаем через start
+         if ":" in cmd and not os.path.isabs(cmd):
+-            full_cmd = f'start "" "{cmd}"'
+-            if args:
+-                full_cmd += f" {args}"
+-            subprocess.Popen(full_cmd, shell=True)
++            if args.strip():
++                return ActionResult(tool="open_app", args={"name": name, "args": args}, ok=False,
++                                    error="URI-запуск с аргументами требует отдельного подтверждённого провайдера")
++            if hasattr(os, "startfile"):
++                os.startfile(cmd)  # type: ignore[attr-defined]
++            elif sys.platform == "darwin":
++                subprocess.Popen(["open", cmd], shell=False)
++            else:
++                subprocess.Popen(["xdg-open", cmd], shell=False)
+         else:
+             # Обычный исполняемый файл.
+             # ВАЖНО: shlex.split() в POSIX-режиме съедает обратные слэши
+@@ -226,7 +231,7 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") ->
+             cmd_parts = [cmd]
+             if args:
+                 cmd_parts.extend(shlex.split(args, posix=False))
+-            subprocess.Popen(cmd_parts)
++            subprocess.Popen(cmd_parts, shell=False)
+         log.info("Запущено приложение: %s (cmd=%s)", name, cmd)
+         return ActionResult(
+             tool="open_app",
+@@ -367,4 +372,4 @@ class CloseAppTool(Tool):
+ 
+ # Авто-регистрация при импорте
+ DEFAULT_REGISTRY.register(OpenAppTool())
+-DEFAULT_REGISTRY.register(CloseAppTool())
+\ No newline at end of file
++DEFAULT_REGISTRY.register(CloseAppTool())
+diff --git a/core/actions/base.py b/core/actions/base.py
+index a83e6d4..50d1e5f 100644
+--- a/core/actions/base.py
++++ b/core/actions/base.py
+@@ -9,6 +9,7 @@ from __future__ import annotations
+ 
+ from abc import ABC, abstractmethod
+ from dataclasses import dataclass, field
++import threading
+ from typing import Any, Dict, Optional
+ 
+ from config.settings import Settings
+@@ -31,6 +32,7 @@ class ToolContext:
+     settings: Optional[Settings] = None
+     state: Optional[JarvisState] = None
+     extra: Dict[str, Any] = field(default_factory=dict)
++    cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
+ 
+ 
+ @dataclass(slots=True)
+@@ -54,6 +56,9 @@ class ActionResult:
+     error: Optional[str] = None
+     duration_sec: float = 0.0
+     step_index: Optional[int] = None
++    terminated: bool = False
++    side_effects_contained: bool = False
++    execution_mode: str = "in_process"
+ 
+     def __bool__(self) -> bool:
+         return self.ok
+@@ -67,6 +72,9 @@ class ActionResult:
+             "error": self.error,
+             "duration_sec": self.duration_sec,
+             "step_index": self.step_index,
++            "terminated": self.terminated,
++            "side_effects_contained": self.side_effects_contained,
++            "execution_mode": self.execution_mode,
+         }
+ 
+ 
+@@ -87,6 +95,10 @@ class Tool(ABC):
+             def run(self, args, context) -> ActionResult: ...
+     """
+ 
++    # Tools may opt into hard subprocess cancellation. Legacy in-process
++    # tools remain API-compatible and receive cooperative cancellation only.
++    supports_hard_cancellation: bool = False
++
+     @property
+     @abstractmethod
+     def name(self) -> str:
+@@ -112,4 +124,4 @@ class Tool(ABC):
+ 
+         Returns:
+             ActionResult — всегда возвращается, исключения не бросаются.
+-        """
+\ No newline at end of file
++        """
+diff --git a/core/actions/browser_automation.py b/core/actions/browser_automation.py
+index fc3fbe9..8e37f6c 100644
+--- a/core/actions/browser_automation.py
++++ b/core/actions/browser_automation.py
+@@ -145,6 +145,9 @@ class BrowserAutomationEngine:
+         """Открывает URL в новом контексте. Сбрасывает предыдущую сессию."""
+         self.close()
+         try:
++            if str(url).startswith(("http://", "https://")):
++                from core.network_guard import assert_safe_url
++                assert_safe_url(str(url))
+             from playwright.sync_api import sync_playwright
+             self._pw = sync_playwright().start()
+             if self._user_data_dir:
+diff --git a/core/actions/executor.py b/core/actions/executor.py
+index a9c0dd1..2d8cbc7 100644
+--- a/core/actions/executor.py
++++ b/core/actions/executor.py
+@@ -1,11 +1,11 @@
+-"""Исполнитель инструментов (execute_tool).
+-
+-Валидация аргументов по JSON Schema, retry на временные сбои,
+-всегда возвращает ActionResult (никогда не бросает исключение наружу).
+-"""
+-
++"""Validated, bounded and cancellable tool execution."""
+ from __future__ import annotations
+ 
++import multiprocessing
++import pickle
++import queue
++import subprocess
++import threading
+ import time
+ from typing import Any, Dict, Optional
+ 
+@@ -16,122 +16,194 @@ from core.actions.base import ActionResult, Tool, ToolContext
+ from core.actions.registry import ToolRegistry
+ from core.utils.logger import get_logger
+ 
+-__all__ = ["execute_tool", "validate_args"]
++__all__ = ["ToolExecutor", "execute_tool", "validate_args", "tool_timeout_for"]
+ 
+ log = get_logger(__name__)
+ 
++_WEB_TOOLS = frozenset({"web_search", "web_fetch", "weather", "browser_open", "browser_click", "browser_type", "browser_scroll", "browser_close", "browser_screenshot"})
++_SYSTEM_TOOLS = frozenset({"system_status", "volume", "open_app", "close_app", "add_reminder", "list_reminders", "cancel_reminder", "screenshot", "clipboard_read", "clipboard_write", "key_press", "type_text", "screen_capture"})
+ 
+-def validate_args(schema: Dict[str, Any], args: Dict[str, Any]) -> Optional[str]:
+-    """Валидирует аргументы по JSON Schema.
+ 
+-    Args:
+-        schema: JSON Schema (draft-07).
+-        args: словарь аргументов.
++def tool_timeout_for(tool_name: str, context: ToolContext) -> float:
++    limits = getattr(getattr(context, "settings", None), "limits", None)
++    if tool_name in _WEB_TOOLS:
++        return float(getattr(limits, "tool_timeout_web_sec", 30.0))
++    if tool_name in _SYSTEM_TOOLS:
++        return float(getattr(limits, "tool_timeout_system_sec", 5.0))
++    return float(getattr(limits, "tool_timeout_file_sec", 10.0))
++
+ 
+-    Returns:
+-        None — валидация прошла.
+-        Строка — текст ошибки валидации.
+-    """
++def _truncate_output(output: Any, context: ToolContext) -> Any:
++    if not isinstance(output, str):
++        return output
++    cap = int(getattr(getattr(getattr(context, "settings", None), "limits", None), "tool_output_max_bytes", 50 * 1024) or 0)
++    if cap <= 0 or len(output.encode("utf-8", errors="replace")) <= cap:
++        return output
++    text = output.encode("utf-8", errors="replace")[:cap].decode("utf-8", errors="ignore")
++    return f"{text}\n… [вывод усечён: {len(output)} символов, потолок {cap} байт — resource limit]"
++
++
++def _process_worker(tool: Tool, args: Dict[str, Any], settings: Any, result_queue: Any) -> None:
++    context = ToolContext(settings=settings)
++    try:
++        result = tool.run(args, context)
++        if not isinstance(result, ActionResult):
++            result = ActionResult(tool=tool.name, args=args, ok=False, error=f"Инструмент вернул не ActionResult: {type(result)}")
++        result.execution_mode = "subprocess"
++        result.side_effects_contained = True
++        result_queue.put(result)
++    except BaseException as exc:  # process boundary converts all failures
++        result_queue.put(ActionResult(tool=tool.name, args=args, ok=False, error=f"{type(exc).__name__}: {exc}", execution_mode="subprocess", side_effects_contained=True))
++
++
++def _terminate_process(process: Any) -> bool:
++    if not process.is_alive():
++        return True
++    process.terminate()
++    process.join(timeout=0.3)
++    if process.is_alive():
++        try:
++            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
++        except OSError:
++            pass
++        process.join(timeout=2.0)
++    return not process.is_alive()
++
++
++class ToolExecutor:
++    """Runtime-owned executor; no mutable global semaphore lifecycle."""
++
++    def __init__(self, max_parallel: int = 0) -> None:
++        self.capacity = max(0, int(max_parallel))
++        self.semaphore = threading.Semaphore(self.capacity) if self.capacity else None
++
++    def _can_spawn(self, tool: Tool, args: Dict[str, Any], context: ToolContext) -> bool:
++        try:
++            pickle.dumps((tool, args, getattr(context, "settings", None)))
++            return True
++        except Exception:
++            return False
++
++    def _run_subprocess(self, tool: Tool, args: Dict[str, Any], context: ToolContext, timeout_sec: float) -> ActionResult | None:
++        if not getattr(tool, "supports_hard_cancellation", False) and not getattr(tool, "generated_by_shadow", False):
++            return None
++        if not self._can_spawn(tool, args, context):
++            return None
++        mp = multiprocessing.get_context("spawn")
++        result_queue = mp.Queue()
++        process = mp.Process(target=_process_worker, args=(tool, args, getattr(context, "settings", None), result_queue), name=f"tool-process:{tool.name}")
++        try:
++            process.start()
++        except Exception as exc:
++            result_queue.close()
++            return ActionResult(tool=tool.name, args=args, ok=False,
++                                error=f"Не удалось запустить изолированный worker: {type(exc).__name__}: {exc}",
++                                execution_mode="subprocess", side_effects_contained=True)
++        try:
++            result = result_queue.get(timeout=max(0.1, timeout_sec))
++        except queue.Empty:
++            terminated = _terminate_process(process)
++            return ActionResult(tool=tool.name, args=args, ok=False,
++                                error=f"Таймаут выполнения: инструмент '{tool.name}' остановлен watchdog",
++                                duration_sec=timeout_sec, terminated=terminated,
++                                side_effects_contained=terminated, execution_mode="subprocess")
++        process.join(timeout=1.0)
++        if result is None:
++            result = ActionResult(tool=tool.name, args=args, ok=False,
++                                  error=f"worker завершился с кодом {process.exitcode}",
++                                  execution_mode="subprocess", side_effects_contained=True)
++        result_queue.close()
++        result_queue.join_thread()
++        result.execution_mode = "subprocess"
++        result.side_effects_contained = True
++        return result
++
++    def _run_legacy(self, tool: Tool, args: Dict[str, Any], context: ToolContext, timeout_sec: float) -> ActionResult:
++        box: "queue.Queue[ActionResult]" = queue.Queue()
++        context.cancel_event.clear()
++
++        def worker() -> None:
++            start = time.perf_counter()
++            try:
++                result = tool.run(args, context)
++                if not isinstance(result, ActionResult):
++                    result = ActionResult(tool=tool.name, args=args, ok=False, error=f"Инструмент вернул не ActionResult: {type(result)}")
++                result.duration_sec = time.perf_counter() - start
++                box.put(result)
++            except Exception as exc:
++                box.put(ActionResult(tool=tool.name, args=args, ok=False, error=f"{type(exc).__name__}: {exc}", duration_sec=time.perf_counter() - start))
++
++        thread = threading.Thread(target=worker, name=f"legacy-tool:{tool.name}", daemon=True)
++        thread.start()
++        try:
++            return box.get(timeout=max(0.1, timeout_sec))
++        except queue.Empty:
++            context.cancel_event.set()
++            thread.join(timeout=0.25)
++            contained = not thread.is_alive()
++            return ActionResult(tool=tool.name, args=args, ok=False,
++                                error=f"Таймаут выполнения: legacy-инструмент '{tool.name}' не поддерживает hard cancellation",
++                                duration_sec=timeout_sec, terminated=contained,
++                                side_effects_contained=contained, execution_mode="legacy_thread")
++
++    def run(self, tool: Tool, args: Dict[str, Any], context: ToolContext, timeout_sec: float) -> ActionResult:
++        result = self._run_subprocess(tool, args, context, timeout_sec)
++        return result if result is not None else self._run_legacy(tool, args, context, timeout_sec)
++
++    def execute(self, registry: ToolRegistry, tool_name: str, args: Dict[str, Any], context: ToolContext,
++                max_retries: int = 2, retry_delay: float = 0.5, timeout_sec: Optional[float] = None) -> ActionResult:
++        tool = registry.get(tool_name)
++        if tool is None:
++            return ActionResult(tool=tool_name, args=args, ok=False, error=f"Инструмент '{tool_name}' не найден в реестре")
++        validation_error = validate_args(tool.input_schema, args)
++        if validation_error is not None:
++            return ActionResult(tool=tool_name, args=args, ok=False, error=validation_error)
++        if timeout_sec is None:
++            timeout_sec = tool_timeout_for(tool_name, context)
++        last_error: Optional[str] = None
++        for attempt in range(max(0, int(max_retries)) + 1):
++            acquired = False
++            if self.semaphore is not None:
++                self.semaphore.acquire()
++                acquired = True
++            try:
++                result = self.run(tool, args, context, float(timeout_sec))
++            finally:
++                if acquired:
++                    self.semaphore.release()
++            if result.error and "Таймаут выполнения" in result.error:
++                return result
++            if not result.ok and attempt < max_retries:
++                last_error = result.error
++                time.sleep(max(0.0, retry_delay))
++                continue
++            result.output = _truncate_output(result.output, context)
++            return result
++        return ActionResult(tool=tool_name, args=args, ok=False, error=last_error or "Неизвестная ошибка после всех попыток")
++
++
++def _executor_for(context: ToolContext) -> ToolExecutor:
++    limits = getattr(getattr(context, "settings", None), "limits", None)
++    capacity = int(getattr(limits, "max_parallel_tools", 0) or 0)
++    current = context.extra.get("_tool_executor") if isinstance(context.extra, dict) else None
++    if not isinstance(current, ToolExecutor) or current.capacity != max(0, capacity):
++        current = ToolExecutor(capacity)
++        if isinstance(context.extra, dict):
++            context.extra["_tool_executor"] = current
++    return current
++
++
++def validate_args(schema: Dict[str, Any], args: Dict[str, Any]) -> Optional[str]:
+     try:
+         jsonschema.validate(instance=args, schema=schema)
+     except ValidationError as exc:
+-        # Формируем читаемое сообщение
+         path = " -> ".join(str(p) for p in exc.path) if exc.path else "корень"
+         return f"Валидация аргументов не прошла ({path}): {exc.message}"
+-    except Exception as exc:  # jsonschema может бросить другие ошибки
++    except Exception as exc:
+         return f"Ошибка валидатора: {exc}"
+     return None
+ 
+ 
+-def execute_tool(
+-    registry: ToolRegistry,
+-    tool_name: str,
+-    args: Dict[str, Any],
+-    context: ToolContext,
+-    max_retries: int = 2,
+-    retry_delay: float = 0.5,
+-) -> ActionResult:
+-    """Выполняет инструмент с валидацией и retry.
+-
+-    Args:
+-        registry: реестр инструментов.
+-        tool_name: имя инструмента.
+-        args: аргументы вызова.
+-        context: контекст выполнения.
+-        max_retries: число повторных попыток при временных ошибках (default 2).
+-        retry_delay: задержка между попытками в секундах (default 0.5).
+-
+-    Returns:
+-        ActionResult — всегда возвращается, ok=False при любой ошибке.
+-    """
+-    tool = registry.get(tool_name)
+-    if tool is None:
+-        return ActionResult(
+-            tool=tool_name,
+-            args=args,
+-            ok=False,
+-            error=f"Инструмент '{tool_name}' не найден в реестре",
+-        )
+-
+-    # Валидация аргументов
+-    validation_error = validate_args(tool.input_schema, args)
+-    if validation_error is not None:
+-        log.warning("Валидация аргументов '%s' не прошла: %s", tool_name, validation_error)
+-        return ActionResult(
+-            tool=tool_name,
+-            args=args,
+-            ok=False,
+-            error=validation_error,
+-        )
+-
+-    # Выполнение с retry
+-    last_error: Optional[str] = None
+-    for attempt in range(max_retries + 1):
+-        start = time.perf_counter()
+-        try:
+-            result = tool.run(args, context)
+-            if not isinstance(result, ActionResult):
+-                # На случай, если инструмент вернул не ActionResult
+-                result = ActionResult(
+-                    tool=tool_name,
+-                    args=args,
+-                    ok=False,
+-                    error=f"Инструмент вернул не ActionResult: {type(result)}",
+-                )
+-            result.duration_sec = time.perf_counter() - start
+-            if not result.ok and attempt < max_retries:
+-                # Временная ошибка — пробуем ещё раз
+-                last_error = result.error
+-                log.debug(
+-                    "Инструмент '%s' вернул ошибку (попытка %d/%d): %s — retry",
+-                    tool_name,
+-                    attempt + 1,
+-                    max_retries + 1,
+-                    last_error,
+-                )
+-                time.sleep(retry_delay)
+-                continue
+-            return result
+-        except Exception as exc:  # Никакие исключения не должны выходить наружу
+-            duration = time.perf_counter() - start
+-            last_error = f"{type(exc).__name__}: {exc}"
+-            log.error("Исключение в инструменте '%s' (попытка %d/%d): %s",
+-                      tool_name, attempt + 1, max_retries + 1, exc)
+-            if attempt < max_retries:
+-                time.sleep(retry_delay)
+-                continue
+-            return ActionResult(
+-                tool=tool_name,
+-                args=args,
+-                ok=False,
+-                error=last_error,
+-                duration_sec=duration,
+-            )
+-
+-    # Все попытки исчерпаны
+-    return ActionResult(
+-        tool=tool_name,
+-        args=args,
+-        ok=False,
+-        error=last_error or "Неизвестная ошибка после всех попыток",
+-    )
+\ No newline at end of file
++def execute_tool(registry: ToolRegistry, tool_name: str, args: Dict[str, Any], context: ToolContext,
++                 max_retries: int = 2, retry_delay: float = 0.5, timeout_sec: Optional[float] = None) -> ActionResult:
++    return _executor_for(context).execute(registry, tool_name, args, context, max_retries, retry_delay, timeout_sec)
+diff --git a/core/actions/filesystem.py b/core/actions/filesystem.py
+index 46c4f92..4ac3ac5 100644
+--- a/core/actions/filesystem.py
++++ b/core/actions/filesystem.py
+@@ -13,6 +13,7 @@
+ from __future__ import annotations
+ 
+ import fnmatch
++import shutil
+ from pathlib import Path
+ from typing import Any, Dict, List
+ 
+@@ -21,6 +22,7 @@ from core.actions.base import ActionResult, Tool, ToolContext
+ from core.actions.registry import DEFAULT_REGISTRY
+ from core.utils.logger import get_logger
+ from core.utils.paths import ensure_parent
++from core.security.atomic import atomic_write_text
+ 
+ __all__ = [
+     "resolve_docs_path",
+@@ -32,6 +34,9 @@ __all__ = [
+     "ReadFileTool",
+     "WriteFileTool",
+     "SearchFilesTool",
++    "CopyFileTool",
++    "MoveFileTool",
++    "ListFilesRecursiveTool",
+ ]
+ 
+ log = get_logger(__name__)
+@@ -143,7 +148,7 @@ def write_file(path: str, content: str, settings: Settings) -> ActionResult:
+     try:
+         target = resolve_docs_path(path, settings)
+         ensure_parent(target)
+-        target.write_text(content, encoding="utf-8")
++        atomic_write_text(target, content)
+         log.info("Файл записан: %s (%d байт)", path, len(content.encode("utf-8")))
+         return ActionResult(
+             tool="write_file",
+@@ -161,6 +166,40 @@ def write_file(path: str, content: str, settings: Settings) -> ActionResult:
+         )
+ 
+ 
++def copy_file(source: str, destination: str, settings: Settings) -> ActionResult:
++    """Copies a file inside documents_dir; destination parents are created."""
++    try:
++        src = resolve_docs_path(source, settings)
++        dst = resolve_docs_path(destination, settings)
++        if not src.is_file():
++            raise ValueError(f"Файл не найден: {source}")
++        dst.parent.mkdir(parents=True, exist_ok=True)
++        shutil.copy2(src, dst)
++        return ActionResult("file_copy", {"source": source, "destination": destination},
++                            True, f"Скопировано: {source} -> {destination}")
++    except Exception as exc:
++        return ActionResult("file_copy", {"source": source, "destination": destination},
++                            False, error=f"Копирование не выполнено: {exc}")
++
++
++def move_file(source: str, destination: str, settings: Settings) -> ActionResult:
++    """Moves a file inside documents_dir; path traversal remains blocked."""
++    try:
++        src = resolve_docs_path(source, settings)
++        dst = resolve_docs_path(destination, settings)
++        if not src.is_file():
++            raise ValueError(f"Файл не найден: {source}")
++        if dst.exists():
++            raise ValueError(f"Назначение уже существует: {destination}")
++        dst.parent.mkdir(parents=True, exist_ok=True)
++        shutil.move(str(src), str(dst))
++        return ActionResult("file_move", {"source": source, "destination": destination},
++                            True, f"Перемещено: {source} -> {destination}")
++    except Exception as exc:
++        return ActionResult("file_move", {"source": source, "destination": destination},
++                            False, error=f"Перемещение не выполнено: {exc}")
++
++
+ def search_files(
+     query: str,
+     settings: Settings,
+@@ -436,8 +475,48 @@ class SearchFilesTool(Tool):
+         )
+ 
+ 
++class CopyFileTool(Tool):
++    @property
++    def name(self) -> str: return "file_copy"
++    @property
++    def description(self) -> str: return "Копирует файл внутри documents_dir с проверкой границ пути."
++    @property
++    def input_schema(self) -> Dict[str, Any]:
++        return {"type": "object", "properties": {
++            "source": {"type": "string"}, "destination": {"type": "string"}},
++            "required": ["source", "destination"], "additionalProperties": False}
++    def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
++        return copy_file(args["source"], args["destination"], context.settings)
++
++
++class MoveFileTool(Tool):
++    @property
++    def name(self) -> str: return "file_move"
++    @property
++    def description(self) -> str: return "Перемещает файл внутри documents_dir с проверкой границ пути."
++    @property
++    def input_schema(self) -> Dict[str, Any]:
++        return {"type": "object", "properties": {
++            "source": {"type": "string"}, "destination": {"type": "string"}},
++            "required": ["source", "destination"], "additionalProperties": False}
++    def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
++        return move_file(args["source"], args["destination"], context.settings)
++
++
++class ListFilesRecursiveTool(ListFilesTool):
++    @property
++    def name(self) -> str: return "list_files_recursive"
++    @property
++    def description(self) -> str: return "Рекурсивно перечисляет файлы внутри documents_dir для проверки состояния."
++    def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
++        return super().run({"dir_path": args.get("dir_path", ""), "recursive": True}, context)
++
++
+ # Авто-регистрация
+ DEFAULT_REGISTRY.register(ListFilesTool())
+ DEFAULT_REGISTRY.register(ReadFileTool())
+ DEFAULT_REGISTRY.register(WriteFileTool())
+-DEFAULT_REGISTRY.register(SearchFilesTool())
+\ No newline at end of file
++DEFAULT_REGISTRY.register(SearchFilesTool())
++DEFAULT_REGISTRY.register(CopyFileTool())
++DEFAULT_REGISTRY.register(MoveFileTool())
++DEFAULT_REGISTRY.register(ListFilesRecursiveTool())
+diff --git a/core/actions/web_fetch.py b/core/actions/web_fetch.py
+index 6c2a391..3e11aad 100644
+--- a/core/actions/web_fetch.py
++++ b/core/actions/web_fetch.py
+@@ -11,6 +11,7 @@
+ from __future__ import annotations
+ 
+ import html
++from urllib.parse import urljoin
+ from typing import Any, Dict
+ 
+ import requests
+@@ -89,17 +90,45 @@ def fetch_page(url: str, max_length: int = _MAX_TEXT_LENGTH) -> str:
+ 
+     # §21/Q05 — SSRF-защита: блокируем внутренние/зарезервированные адреса
+     # (loopback, private, link-local/cloud-metadata, file:// и пр.) ДО запроса.
+-    from core.network_guard import assert_safe_url
++    from core.network_guard import assert_safe_url, safe_redirect_url
+     assert_safe_url(url)
+ 
+     headers = {"User-Agent": _USER_AGENT}
+-    resp = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
++    current_url = url
++    resp = None
++    for _hop in range(4):
++        resp = requests.get(current_url, headers=headers, timeout=_REQUEST_TIMEOUT,
++                            allow_redirects=False, stream=True)
++        if 300 <= resp.status_code < 400 and resp.headers.get("Location"):
++            current_url = safe_redirect_url(current_url, resp.headers["Location"])
++            resp.close()
++            continue
++        break
++    if resp is None:
++        raise ValueError("Пустой ответ")
++    if int(resp.headers.get("Content-Length", "0") or 0) > 5 * 1024 * 1024:
++        resp.close()
++        raise ValueError("Ответ превышает лимит 5 MB")
+     resp.raise_for_status()
+ 
+     # Определяем кодировку
+     resp.encoding = resp.apparent_encoding or "utf-8"
+ 
+-    soup = BeautifulSoup(resp.text, "html.parser")
++    max_bytes = 5 * 1024 * 1024
++    body_buffer = bytearray()
++    iterator = getattr(resp, "iter_content", None)
++    if callable(iterator):
++        for chunk in iterator(64 * 1024):
++            if not chunk:
++                continue
++            body_buffer.extend(chunk)
++            if len(body_buffer) > max_bytes:
++                resp.close()
++                raise ValueError("Ответ превышает лимит 5 MB")
++        body = bytes(body_buffer)
++    else:
++        body = bytes(getattr(resp, "content", b""))[:max_bytes]
++    soup = BeautifulSoup(body, "html.parser")
+ 
+     # Удаляем шум
+     for selector in _REMOVE_SELECTORS:
+@@ -224,4 +253,4 @@ class WebFetchTool(Tool):
+ 
+ 
+ # Авто-регистрация
+-DEFAULT_REGISTRY.register(WebFetchTool())
+\ No newline at end of file
++DEFAULT_REGISTRY.register(WebFetchTool())
+diff --git a/core/ingest.py b/core/ingest.py
+index 6e561db..75daa4a 100644
+--- a/core/ingest.py
++++ b/core/ingest.py
+@@ -213,20 +213,14 @@ def _persist(ingested: IngestedInput, raw_text: str,
+             base = PROJECT_ROOT / "data"
+         store = Path(base) / "ingest" / ingested.task_id
+         store.mkdir(parents=True, exist_ok=True)
+-        (store / "raw.txt").write_text(raw_text, encoding="utf-8")
++        from core.security.atomic import atomic_write_text, atomic_json_write
++        atomic_write_text(store / "raw.txt", raw_text)
+         # Индекс чанков как JSON (без полного текста — экономим память при чтении).
+-        import json
+-        (store / "chunks.json").write_text(
+-            json.dumps(
+-                [{"index": c["index"], "char_count": c["char_count"],
+-                  "tokens": c["tokens"], "head": c["head"]} for c in ingested.chunks],
+-                ensure_ascii=False, indent=2,
+-            ),
+-            encoding="utf-8",
+-        )
+-        (store / "index.json").write_text(
+-            json.dumps(ingested.index, ensure_ascii=False, indent=2), encoding="utf-8"
+-        )
++        atomic_json_write(store / "chunks.json", [
++            {"index": c["index"], "char_count": c["char_count"],
++             "tokens": c["tokens"], "head": c["head"]} for c in ingested.chunks
++        ])
++        atomic_json_write(store / "index.json", ingested.index)
+         return store
+     except OSError as exc:
+         log.warning("Ingest: не удалось сохранить промежуточные данные: %s", exc)
+diff --git a/core/memory/secret_filter.py b/core/memory/secret_filter.py
+index 3b19e88..880e6a7 100644
+--- a/core/memory/secret_filter.py
++++ b/core/memory/secret_filter.py
+@@ -16,6 +16,8 @@ import json
+ import re
+ from typing import Optional
+ 
++from core.security.redaction import SECRET_VALUE_RE, redact_text
++
+ # Сырые ошибки/исключения.
+ _RE_TRACEBACK = re.compile(
+     r"(?i)(traceback\s*\(most\s+recent\s+call\s+last\)|"
+@@ -29,11 +31,9 @@ _RE_JSON = re.compile(r"\{[^{}]*\"(tool|arguments|reason|verification|risk)\"[^{
+ # Служебные маркерки пайплайна.
+ _RE_EVENT = re.compile(r"(?i)\b(event_|mission-|task_id|task_started|confirmation_required)\b")
+ # Секреты: ключи/токены/пароли (sk-, pk-, Bearer, api_key=...).
+-_RE_SECRET = re.compile(
+-    r"(?i)(sk-[a-z0-9]{8,}|pk-[a-z0-9]{8,}|bearer\s+[a-z0-9._-]+|"
+-    r"api[_-]?key\s*[:=]\s*\S+|password\s*[:=]\s*\S+|token\s*[:=]\s*\S+|"
+-    r"client[_-]?secret\s*[:=]\s*\S+)"
+-)
++# Compatibility alias for older callers; pattern ownership lives in the
++# canonical security service.
++_RE_SECRET = SECRET_VALUE_RE
+ 
+ __all__ = ["contains_secret_or_raw", "sanitize_for_memory"]
+ 
+@@ -74,10 +74,7 @@ def sanitize_for_memory(text: str) -> str:
+             return ""
+ 
+     # Маскируем секреты: оставляем префикс + звёздочки.
+-    cleaned = _RE_SECRET.sub(
+-        lambda m: f"{m.group(0).split('=')[0].split(':')[0].strip()}=***",
+-        text,
+-    )
++    cleaned = redact_text(text).replace("[redacted]", "***")
+     # Вырезаем внутренний JSON плана (но оставляем обычный текст вокруг).
+     cleaned = _RE_JSON.sub("[внутренний план]", cleaned)
+     # Вырезаем служебные маркерки.
+diff --git a/core/network_guard.py b/core/network_guard.py
+index 256f591..b67d7e9 100644
+--- a/core/network_guard.py
++++ b/core/network_guard.py
+@@ -23,11 +23,13 @@ from __future__ import annotations
+ 
+ import ipaddress
+ import socket
+-from urllib.parse import urlparse
++import urllib.request
++from typing import Any
++from urllib.parse import urljoin, urlparse
+ 
+ from core.utils.logger import get_logger
+ 
+-__all__ = ["is_ssrf_blocked", "assert_safe_url", "SSRFBlocked"]
++__all__ = ["is_ssrf_blocked", "assert_safe_url", "safe_redirect_url", "safe_urlopen", "SSRFBlocked"]
+ 
+ log = get_logger(__name__)
+ 
+@@ -93,6 +95,10 @@ def is_ssrf_blocked(url: str) -> bool:
+     if scheme not in _ALLOWED_SCHEMES:
+         # file://, ftp://, gopher://, неизвестная/пустая схема — блок.
+         return True
++    if parsed.username or parsed.password:
++        return True
++    if parsed.port is not None and parsed.port in {21, 22, 23, 25, 110, 143, 445, 3389, 6379, 9200, 11211}:
++        return True
+ 
+     host = (parsed.hostname or "").strip().lower()
+     if not host:
+@@ -136,3 +142,25 @@ def assert_safe_url(url: str) -> str:
+         log.warning("SSRF-защита заблокировала URL: %s", (url or "").strip())
+         raise SSRFBlocked(f"URL заблокирован SSRF-защитой: {(url or '').strip()}")
+     return url.strip()
++
++
++def safe_redirect_url(base_url: str, location: str) -> str:
++    """Resolve and validate one redirect hop; every hop is re-resolved."""
++    if not location or not str(location).strip():
++        raise SSRFBlocked("Пустой redirect")
++    target = urljoin(base_url, str(location).strip())
++    return assert_safe_url(target)
++
++
++class _ValidatedRedirectHandler(urllib.request.HTTPRedirectHandler):
++    """Revalidate every urllib redirect instead of trusting the first host."""
++
++    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
++        safe_redirect_url(req.full_url, newurl)
++        return super().redirect_request(req, fp, code, msg, headers, newurl)
++
++
++def safe_urlopen(request: object, *, timeout: float) -> Any:
++    """Open an HTTPS/HTTP request with per-hop SSRF validation."""
++    opener = urllib.request.build_opener(_ValidatedRedirectHandler())
++    return opener.open(request, timeout=timeout)
+diff --git a/core/proactive/background_tasks.py b/core/proactive/background_tasks.py
+index 88e0bc0..81ea175 100644
+--- a/core/proactive/background_tasks.py
++++ b/core/proactive/background_tasks.py
+@@ -58,7 +58,8 @@ class BackgroundScheduler:
+             if self._running:
+                 return
+             self._running = True
+-            self._thread = threading.Thread(target=self._loop, daemon=True, name="BackgroundScheduler")
++            self._stop = threading.Event()
++            self._thread = threading.Thread(target=self._loop, daemon=False, name="BackgroundScheduler")
+             self._thread.start()
+             log.info("BackgroundScheduler запущен (nightly=%s)", self._nightly_time.strftime("%H:%M"))
+ 
+@@ -68,10 +69,16 @@ class BackgroundScheduler:
+             if not self._running:
+                 return
+             self._running = False
++            self._stop.set()
+         if wait and self._thread and self._thread.is_alive():
+             self._thread.join(timeout=timeout)
+         log.info("BackgroundScheduler остановлен")
+ 
++    def join(self, timeout: float | None = None) -> bool:
++        if self._thread and self._thread.is_alive():
++            self._thread.join(timeout=timeout)
++        return bool(self._thread is None or not self._thread.is_alive())
++
+     # --------------------------------------------------------------------- #
+     #  Цикл
+     # --------------------------------------------------------------------- #
+@@ -79,7 +86,7 @@ class BackgroundScheduler:
+     def _loop(self) -> None:
+         last_nightly_date = None
+ 
+-        while self._running:
++        while self._running and not self._stop.is_set():
+             try:
+                 now = datetime.now()
+ 
+@@ -96,7 +103,7 @@ class BackgroundScheduler:
+             except Exception as exc:
+                 log.error("BackgroundScheduler loop ошибка: %s", exc)
+ 
+-            time.sleep(30)  # проверка каждые 30 сек
++            self._stop.wait(30)  # проверка каждые 30 сек
+ 
+     def _check_reminders(self) -> None:
+         """Проверяет и обрабатывает сработавшие напоминания.
+@@ -126,4 +133,4 @@ class BackgroundScheduler:
+             log.info("  - Анализ дня (статистика, паттерны)")
+             log.info("  - Консолидация памяти (дедуп, суммаризация)")
+             log.info("  - Подготовка утреннего брифинга")
+-            log.info("  - Очистка старых временных файлов")
+\ No newline at end of file
++            log.info("  - Очистка старых временных файлов")
+diff --git a/core/proactive/proactor.py b/core/proactive/proactor.py
+index 6325e2a..3af0ba6 100644
+--- a/core/proactive/proactor.py
++++ b/core/proactive/proactor.py
+@@ -68,7 +68,8 @@ class Proactor:
+             if self._running:
+                 return
+             self._running = True
+-            self._thread = threading.Thread(target=self._loop, daemon=True, name="Proactor")
++            self._stop = threading.Event()
++            self._thread = threading.Thread(target=self._loop, daemon=False, name="Proactor")
+             self._thread.start()
+             log.info("Proactor запущен (cooldown=%d мин, interval=%d сек)", self._cooldown_min, self._interval_sec)
+ 
+@@ -78,10 +79,20 @@ class Proactor:
+             if not self._running:
+                 return
+             self._running = False
++            self._stop.set()
+         if wait and self._thread and self._thread.is_alive():
+             self._thread.join(timeout=timeout)
+         log.info("Proactor остановлен")
+ 
++    def join(self, timeout: float | None = None) -> bool:
++        if self._thread and self._thread.is_alive():
++            self._thread.join(timeout=timeout)
++        return bool(self._thread is None or not self._thread.is_alive())
++
++    @property
++    def stopped(self) -> bool:
++        return not bool(self._thread and self._thread.is_alive())
++
+     def mark_user_activity(self) -> None:
+         """Вызывается при активности пользователя (ввод текста, голос и т.д.)."""
+         self._last_user_activity = time.time()
+@@ -95,12 +106,12 @@ class Proactor:
+     # --------------------------------------------------------------------- #
+ 
+     def _loop(self) -> None:
+-        while self._running:
++        while self._running and not self._stop.is_set():
+             try:
+                 self._check_triggers()
+             except Exception as exc:
+                 log.error("Proactor loop ошибка: %s", exc)
+-            time.sleep(self._interval_sec)
++            self._stop.wait(self._interval_sec)
+ 
+     def _check_triggers(self) -> None:
+         now = time.time()
+@@ -143,4 +154,4 @@ class Proactor:
+             else:
+                 log.debug("Proactor (%s): пустой ответ", source)
+         except Exception as exc:
+-            log.error("Proactor генерация ошибка: %s", exc)
+\ No newline at end of file
++            log.error("Proactor генерация ошибка: %s", exc)
+diff --git a/core/redact.py b/core/redact.py
+index 7a385cd..1519697 100644
+--- a/core/redact.py
++++ b/core/redact.py
+@@ -20,7 +20,7 @@ from __future__ import annotations
+ 
+ from typing import Any
+ 
+-from core.memory.secret_filter import _RE_SECRET
++from core.security.redaction import redact as _redact, redact_text
+ from core.utils.logger import get_logger
+ 
+ __all__ = ["redact_secrets", "redact_args"]
+@@ -39,8 +39,7 @@ def redact_secrets(value: Any) -> Any:
+         return value
+     if not value:
+         return value
+-    # Заменяем весь совпавший секретный кусок единым маркером (идемпотентно).
+-    return _RE_SECRET.sub("<secret>", value)
++    return redact_text(value).replace("[redacted]", "<secret>")
+ 
+ 
+ def redact_args(args: Any) -> Any:
+@@ -53,10 +52,14 @@ def redact_args(args: Any) -> Any:
+         Копия структуры с замаскированными секретами в строках/значениях.
+         Исходный ``args`` НЕ мутируется.
+     """
+-    if isinstance(args, dict):
+-        return {k: redact_args(v) for k, v in args.items()}
+-    if isinstance(args, (list, tuple)):
+-        return type(args)(redact_args(v) for v in args)  # type: ignore[arg-type]
+-    if isinstance(args, str):
+-        return redact_secrets(args)
+-    return args
++    def convert(value: Any) -> Any:
++        if isinstance(value, str):
++            return value.replace("[redacted]", "<secret>")
++        if isinstance(value, dict):
++            return {key: convert(item) for key, item in value.items()}
++        if isinstance(value, list):
++            return [convert(item) for item in value]
++        if isinstance(value, tuple):
++            return tuple(convert(item) for item in value)
++        return value
++    return convert(_redact(args))
+diff --git a/core/skill_forge.py b/core/skill_forge.py
+index 19ca461..065d9bc 100644
+--- a/core/skill_forge.py
++++ b/core/skill_forge.py
+@@ -33,6 +33,7 @@ from pathlib import Path
+ from typing import Any, Dict, List, Optional
+ 
+ from config.settings import Settings
++from core.security.atomic import atomic_write_text
+ from core.utils.logger import get_logger
+ from core.utils.paths import PROJECT_ROOT, resolve_path
+ 
+@@ -211,9 +212,7 @@ class SkillForge:
+         """Сохраняет навык на диск (атомарно). Обновляет updated_at."""
+         skill.updated_at = datetime.now(timezone.utc).isoformat()
+         p = self._dir / f"{_slug(skill.name)}.md"
+-        tmp = p.with_suffix(".tmp")
+-        tmp.write_text(skill.to_file_text(), encoding="utf-8")
+-        tmp.replace(p)
++        atomic_write_text(p, skill.to_file_text())
+         log.info("SkillForge: навык '%s' сохранён (%s)", skill.name, skill.status.value)
+         return p
+ 
+diff --git a/core/task_runtime.py b/core/task_runtime.py
+index b802e82..d4b4a9f 100644
+--- a/core/task_runtime.py
++++ b/core/task_runtime.py
+@@ -38,15 +38,18 @@ from __future__ import annotations
+ 
+ import collections
+ import itertools
++import json
+ import threading
+ import time
+ import uuid
+ from dataclasses import dataclass, field
+ from datetime import datetime, timezone
+ from enum import Enum
++from pathlib import Path
+ from typing import Any, Callable, Dict, List, Optional
+ 
+ from core.utils.logger import get_logger
++from core.security.atomic import atomic_json_write, load_json
+ 
+ __all__ = [
+     "MissionStatus",
+@@ -356,7 +359,8 @@ class TaskRuntime:
+     """
+ 
+     def __init__(self, default_watchdog_sec: Optional[float] = None,
+-                 *, max_concurrent: int = 2) -> None:
++                 *, max_concurrent: int = 2,
++                 persistence_dir: Optional[str | Path] = None) -> None:
+         """
+         Args:
+             default_watchdog_sec: реальный потолок на ВСЮ миссию (сек).
+@@ -381,6 +385,11 @@ class TaskRuntime:
+         self._active_count = 0
+         # Очередь ожидающих миссий: (mission, runner, cancel, watchdog)
+         self._queue: "collections.deque" = collections.deque()
++        self._persistence_dir = Path(persistence_dir) if persistence_dir else None
++        if self._persistence_dir is not None:
++            self._persistence_dir.mkdir(parents=True, exist_ok=True)
++            self._restore_persisted()
++            self._bus.subscribe(self._persist_event)
+ 
+     # ------------------------------------------------------------------ #
+     #  Доступ к шине событий
+@@ -454,7 +463,7 @@ class TaskRuntime:
+             target=self._run_wrapper,
+             args=(mission, runner, cancel, watchdog),
+             name=f"mission-{mission.task_id}",
+-            daemon=True,
++            daemon=False,
+         )
+         with self._lock:
+             self._threads[mission.task_id] = thread
+@@ -478,7 +487,7 @@ class TaskRuntime:
+                         mission.set_status(MissionStatus.FAILED,
+                                            f"real watchdog timeout ({watchdog}s)")
+             wthread = threading.Thread(target=_watcher, name=f"watchdog-{mission.task_id}",
+-                                       daemon=True)
++                                       daemon=False)
+             wthread.start()
+ 
+         try:
+@@ -584,6 +593,48 @@ class TaskRuntime:
+             return True
+         return False
+ 
++    def pause(self, task_id: str) -> bool:
++        """Marks a mission paused; cooperative runners inspect this state."""
++        mission = self.get(task_id)
++        if mission is None or mission.status.is_terminal:
++            return False
++        mission.set_status(MissionStatus.PAUSED, "paused by user")
++        return True
++
++    def skip_step(self, task_id: str) -> bool:
++        """Skips only the current pending plan step and preserves the mission."""
++        mission = self.get(task_id)
++        if mission is None:
++            return False
++        for step in mission.plan:
++            if step.get("status") == "pending":
++                step["status"] = "skipped"
++                mission._touch()
++                mission.emit(EVENT_STEP_COMPLETED, payload={
++                    "step": step.get("description"), "status": "skipped",
++                })
++                return True
++        return False
++
++    def explain_current_step(self, task_id: str) -> str:
++        """Returns an action trace item, never hidden model reasoning."""
++        mission = self.get(task_id)
++        if mission is None:
++            return "mission not found"
++        for step in mission.plan:
++            if step.get("status") == "pending":
++                return str(step.get("description") or step.get("tool") or "pending")
++        return "completed"
++
++    def restore_mission(self, mission: Mission) -> Mission:
++        """Registers an externally reconstructed mission for continuation."""
++        mission._bus = self._bus
++        with self._lock:
++            self._missions[mission.task_id] = mission
++            self._cancel.setdefault(mission.task_id, threading.Event())
++        self._persist(mission)
++        return mission
++
+     def wait(self, task_id: str, timeout: Optional[float] = None) -> Optional[Mission]:
+         """Блокирует до терминального статуса миссии или до timeout.
+ 
+@@ -629,3 +680,46 @@ class TaskRuntime:
+         with self._lock:
+             th = self._threads.get(task_id)
+         return th is not None and th.is_alive()
++
++    # ------------------------------------------------------------------ #
++    #  Sprint 9 — local mission persistence
++    # ------------------------------------------------------------------ #
++    def _persist_event(self, event: TaskEvent) -> None:
++        mission = self.get(event.task_id)
++        if mission is not None:
++            self._persist(mission)
++
++    def _persist(self, mission: Mission) -> None:
++        if self._persistence_dir is None:
++            return
++        path = self._persistence_dir / f"{mission.task_id}.json"
++        atomic_json_write(path, mission.to_dict())
++
++    def _restore_persisted(self) -> None:
++        if self._persistence_dir is None:
++            return
++        for path in self._persistence_dir.glob("*.json"):
++            try:
++                data = load_json(path, default={})
++                mission = Mission(
++                    task_id=data["task_id"], goal=data["goal"],
++                    status=MissionStatus(data.get("status", "queued")),
++                    created_at=data.get("created_at", _utcnow_iso()),
++                    updated_at=data.get("updated_at", _utcnow_iso()),
++                    result=data.get("result"), error=data.get("error"),
++                    plan=list(data.get("plan") or []), metadata=dict(data.get("metadata") or {}),
++                    progress=float(data.get("progress", 0.0)),
++                    current_step=data.get("current_step"), model_used=data.get("model_used"),
++                    tools_used=list(data.get("tools_used") or []),
++                    errors=list(data.get("errors") or []), verification=data.get("verification"),
++                    acknowledgement=data.get("acknowledgement"),
++                )
++                mission._bus = self._bus
++                self._missions[mission.task_id] = mission
++                self._cancel[mission.task_id] = threading.Event()
++            except (OSError, ValueError, TypeError, KeyError):
++                continue
++
++
++def _utcnow_iso() -> str:
++    return datetime.now(timezone.utc).isoformat()
+diff --git a/core/utils/model_manager.py b/core/utils/model_manager.py
+index 35dad5f..99bb937 100644
+--- a/core/utils/model_manager.py
++++ b/core/utils/model_manager.py
+@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
+ from config.settings import Settings, load_config
+ from core.utils.logger import get_logger
+ from core.utils.paths import PROJECT_ROOT, ensure_parent
++from core.security.atomic import atomic_json_write, load_json
+ 
+ __all__ = ["ModelManager"]
+ 
+@@ -294,19 +295,15 @@ class ModelManager:
+     def _load_config_dict(self) -> Dict[str, Any]:
+         """Загружает конфиг как словарь."""
+         if self._config_path.exists():
+-            return json.loads(self._config_path.read_text(encoding="utf-8"))
++            return load_json(self._config_path, default={})
+         return {}
+ 
+     def _save_config_dict(self, config: Dict[str, Any]) -> None:
+         """Атомарно сохраняет конфиг."""
+         ensure_parent(self._config_path)
+-        tmp = self._config_path.with_suffix(self._config_path.suffix + ".tmp")
+         try:
+-            tmp.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+-            tmp.replace(self._config_path)
++            atomic_json_write(self._config_path, config)
+             log.info("Конфигурация обновлена: %s", self._config_path)
+         except (OSError, json.JSONDecodeError) as exc:
+-            if tmp.exists():
+-                tmp.unlink(missing_ok=True)
+             log.error("Не удалось сохранить конфиг: %s", exc)
+-            raise RuntimeError(f"Ошибка сохранения конфигурации: {exc}") from exc
+\ No newline at end of file
++            raise RuntimeError(f"Ошибка сохранения конфигурации: {exc}") from exc
+diff --git a/core/voice/tts.py b/core/voice/tts.py
+index fb4b3ab..a3c3ad6 100644
+--- a/core/voice/tts.py
++++ b/core/voice/tts.py
+@@ -1,9 +1,7 @@
+-"""Text-to-Speech через Piper (локальный, быстрый, качественный).
++"""Локальный Russian-only Text-to-Speech через Piper.
+ 
+-``PiperTTS`` поддерживает несколько голосов и выбирает их по языку текста:
+-- Английский (en) -> Jarvis voice (en_GB)
+-- Русский (ru) -> irina voice (ru_RU)
+-- Другие -> fallback на ru голос
++Voice выбирается конфигурацией, а не эвристикой языка входной строки. Это
++исключает старый путь ``Error 455 -> English jarvis-medium``.
+ 
+ Если piper_binary_path / piper_model_path не найдены — ``is_available()`` = False,
+ ``speak()`` логирует warning и не падает (текстовый режим остаётся рабочим).
+@@ -11,12 +9,14 @@
+ 
+ from __future__ import annotations
+ 
++import os
+ import re
+ import subprocess
+ import tempfile
+ import threading
+ import time
+ import wave
++from array import array
+ from pathlib import Path
+ from typing import Optional
+ 
+@@ -28,9 +28,6 @@ __all__ = ["PiperTTS"]
+ log = get_logger(__name__)
+ 
+ # Регулярка для определения кириллицы
+-_CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
+-
+-
+ class VoiceConfig:
+     """Конфигурация одного голоса Piper."""
+ 
+@@ -65,6 +62,10 @@ class PiperTTS:
+                       voice.piper_voices - список дополнительных голосов).
+         """
+         self._settings = settings
++        self._voice_settings = getattr(settings, "voice", None)
++        language = str(getattr(self._voice_settings, "language", "ru")).lower()
++        self._target_language = language.split("_")[0].split("-")[0]
++        self._provider = str(getattr(self._voice_settings, "provider", "piper")).lower()
+         self._binary = self._resolve_binary()
+ 
+         # Загружаем конфигурацию голосов
+@@ -72,7 +73,9 @@ class PiperTTS:
+         self._default_voice: Optional[str] = None
+         self._load_voices()
+ 
+-        self._available = self._binary is not None and len(self._voices) > 0
++        self._available = (
++            self._provider == "piper" and self._binary is not None and len(self._voices) > 0
++        )
+ 
+         if self._available:
+             voice_names = ", ".join(self._voices.keys())
+@@ -85,49 +88,67 @@ class PiperTTS:
+             )
+ 
+     def _resolve_binary(self) -> Optional[Path]:
+-        """Находит piper исполняемый файл."""
++        """Находит Piper, предпочитая проверенный runtime внутри проекта.
++
++        ``piper`` из PATH не является стабильной зависимостью: пакет Piper
++        1.3.0 может находиться там вместо совместимого с текущими ONNX-голосами
++        runtime. Явный существующий путь из конфигурации всё ещё имеет высший
++        приоритет, затем используется локальная проверенная сборка.
++        """
+         voice = getattr(self._settings, "voice", None)
+         if voice and getattr(voice, "piper_binary_path", None):
+             p = Path(voice.piper_binary_path).expanduser()
+             if p.exists():
+-                return p
++                return p.resolve()
++
++        models_dir = Path(getattr(self._settings, "models_dir", Path("data/models")))
++        bundled = models_dir.parent / "runtime" / "piper" / "piper.exe"
++        if bundled.exists():
++            return bundled.resolve()
+ 
+         # Стандартные места установки
+         candidates = [
+-            Path("piper.exe"),  # в PATH
+             Path.home() / ".local" / "bin" / "piper.exe",
+             Path("C:/Program Files/piper/piper.exe"),
+             Path("C:/Program Files (x86)/piper/piper.exe"),
+         ]
+         for c in candidates:
+             try:
+-                if c.exists() or (c.name == "piper.exe" and self._which("piper")):
+-                    return c
++                if c.exists():
++                    return c.resolve()
+             except Exception:
+                 pass
++        import shutil
++        discovered = shutil.which("piper")
++        if discovered:
++            return Path(discovered).resolve()
+         return None
+ 
+     def _load_voices(self) -> None:
+         """Загружает конфигурацию голосов из settings."""
+         voice_cfg = getattr(self._settings, "voice", None)
+-        if not voice_cfg:
++        if not voice_cfg or self._provider != "piper":
+             return
+ 
+         # Основной голос (для обратной совместимости)
+         main_model = getattr(voice_cfg, "resolved_piper_model", None)
+         if main_model and main_model.exists():
+-            # Определяем язык по имени файла
+-            lang = "ru"  # дефолт
+-            if "jarvis" in main_model.stem.lower():
+-                lang = "en"
+-            elif "irina" in main_model.stem.lower():
+-                lang = "ru"
+-
+             config_path = main_model.with_suffix(main_model.suffix + ".json")
+             if not config_path.exists():
+                 # Попробуем найти .onnx.json
+                 config_path = main_model.with_name(main_model.name + ".json")
+ 
++            lang = self._model_language(config_path, main_model.stem)
++            if lang != self._target_language:
++                log.warning("Piper model %s skipped: language=%s, required=%s",
++                            main_model.name, lang, self._target_language)
++                main_model = None
++
++        if main_model and main_model.exists():
++            config_path = main_model.with_suffix(main_model.suffix + ".json")
++            if not config_path.exists():
++                config_path = main_model.with_name(main_model.name + ".json")
++            lang = self._model_language(config_path, main_model.stem)
+             # ВАЖНО: не переопределяем noise/length параметры модели своими
+             # громкими значениями, если сама модель в своём .onnx.json не
+             # задаёт их. Иначе голос искажается («robot/garbled» звук,
+@@ -159,7 +180,9 @@ class PiperTTS:
+                 if not p.exists():
+                     continue
+ 
+-                lang = v.get("language", "ru")
++                lang = str(v.get("language", "ru")).lower()
++                if lang != self._target_language:
++                    continue
+                 config_path = p.with_suffix(p.suffix + ".json")
+                 if not config_path.exists():
+                     config_path = p.with_name(p.name + ".json")
+@@ -183,16 +206,12 @@ class PiperTTS:
+             for onnx_file in piper_dir.glob("*.onnx"):
+                 if onnx_file.stem in self._voices:
+                     continue
+-                # Определяем язык по имени
+-                lang = "ru"
+-                if "jarvis" in onnx_file.stem.lower():
+-                    lang = "en"
+-                elif "irina" in onnx_file.stem.lower():
+-                    lang = "ru"
+-
+                 config_path = onnx_file.with_suffix(".json")
+                 if not config_path.exists():
+                     config_path = onnx_file.with_name(onnx_file.name + ".json")
++                lang = self._model_language(config_path, onnx_file.stem)
++                if lang != self._target_language:
++                    continue
+ 
+                 self._voices[onnx_file.stem] = VoiceConfig(
+                     name=onnx_file.stem,
+@@ -209,6 +228,24 @@ class PiperTTS:
+         import shutil
+         return shutil.which(cmd) is not None
+ 
++    @staticmethod
++    def _model_language(config_path: Path, stem: str = "") -> str:
++        try:
++            import json
++            data = json.loads(config_path.read_text(encoding="utf-8"))
++            language = data.get("language", {})
++            code = language.get("family") or language.get("code")
++            if code:
++                return str(code).split("_")[0].split("-")[0].lower()
++        except Exception:
++            pass
++        low = stem.lower()
++        if low.startswith("ru_") or "dmitri" in low or "irina" in low:
++            return "ru"
++        if low.startswith("en_") or "jarvis" in low:
++            return "en"
++        return "unknown"
++
+     @staticmethod
+     def _config_has_tuning(config_path: Path) -> bool:
+         """True, если .onnx.json модели сам задаёт noise/length-параметры.
+@@ -232,28 +269,106 @@ class PiperTTS:
+         return self._available
+ 
+     def _select_voice(self, text: str) -> Optional[VoiceConfig]:
+-        """Выбирает голос по языку текста."""
++        """Выбирает только configured Russian voice; input language irrelevant."""
+         if not self._voices:
+             return None
+-
+-        # Определяем язык текста
+-        has_cyrillic = bool(_CYRILLIC_RE.search(text))
+-        lang = "ru" if has_cyrillic else "en"
+-
+-        # Ищем голос для языка
+-        for voice in self._voices.values():
+-            if voice.language == lang:
+-                return voice
+-
+-        # Fallback на дефолтный
++        selected_name = str(getattr(self._voice_settings, "voice", ""))
++        if (selected_name in self._voices
++                and self._voices[selected_name].language == self._target_language):
++            return self._voices[selected_name]
+         if self._default_voice and self._default_voice in self._voices:
+-            return self._voices[self._default_voice]
++            default = self._voices[self._default_voice]
++            if default.language == self._target_language:
++                return default
++        if str(getattr(self._voice_settings, "fallback", "none")).lower() == "none":
++            return None
++        return next((v for v in self._voices.values()
++                     if v.language == self._target_language), None)
+ 
+-        # Любой доступный
+-        return next(iter(self._voices.values()))
++    def synthesize_to_file(self, text: str, output_path: Path | str,
++                           *, rate: float = 1.0, volume: float = 1.0) -> bool:
++        """Генерирует WAV локальным Russian Piper без воспроизведения."""
++        if not text or not text.strip() or not self._available:
++            return False
++        voice = self._select_voice(text)
++        if voice is None or voice.language != self._target_language:
++            log.warning("Piper synthesis skipped: compatible %s voice not found",
++                        self._target_language)
++            return False
++        target = Path(output_path)
++        target.parent.mkdir(parents=True, exist_ok=True)
++        adjusted_length = voice.length_scale / max(0.5, min(2.0, float(rate)))
++        has_tuning = (
++            voice.noise_scale > 0 or voice.noise_w > 0
++            or abs(adjusted_length - 1.0) > 0.001
++        )
++        cmd = [
++            str(self._binary), "--model", str(voice.model_path),
++            "--speaker", str(voice.speaker_id), "--output_file", str(target),
++        ]
++        if has_tuning:
++            cmd += ["--length_scale", str(adjusted_length)]
++            if voice.noise_scale > 0:
++                cmd += ["--noise_scale", str(voice.noise_scale)]
++            if voice.noise_w > 0:
++                cmd += ["--noise_w", str(voice.noise_w)]
++        child_env = os.environ.copy()
++        # Python Piper 1.3 reads redirected stdin using the active Windows code
++        # page unless these flags are explicit. Sending UTF-8 bytes without the
++        # matching decoder turns Russian text into mojibake ("РЎСЌ...").
++        child_env["PYTHONIOENCODING"] = "utf-8"
++        child_env["PYTHONUTF8"] = "1"
++        try:
++            proc = subprocess.run(
++                cmd, input=(text.strip() + "\n").encode("utf-8"),
++                capture_output=True, timeout=30, env=child_env, shell=False,
++            )
++        except subprocess.TimeoutExpired:
++            log.error("Piper таймаут (>30s)")
++            target.unlink(missing_ok=True)
++            return False
++        except Exception as exc:
++            log.error("Piper synthesis ошибка: %s", exc)
++            target.unlink(missing_ok=True)
++            return False
++        if proc.returncode != 0 or not target.exists() or target.stat().st_size == 0:
++            log.error("Piper ошибка (code=%d): %s", proc.returncode,
++                      proc.stderr.decode(errors="ignore"))
++            target.unlink(missing_ok=True)
++            return False
++        self._apply_volume(target, volume)
++        log.info("Piper WAV generated: provider=piper voice=%s language=%s rate=%s",
++                 voice.name, voice.language, rate)
++        return True
++
++    @staticmethod
++    def _apply_volume(path: Path, volume: float) -> None:
++        """Scales Piper's 16-bit PCM WAV using only the standard library."""
++        factor = max(0.0, min(1.0, float(volume)))
++        if abs(factor - 1.0) < 0.001:
++            return
++        try:
++            with wave.open(str(path), "rb") as source:
++                params = source.getparams()
++                frames = source.readframes(source.getnframes())
++            if params.sampwidth != 2:
++                log.warning("Piper volume control skipped: sample_width=%s", params.sampwidth)
++                return
++            samples = array("h")
++            samples.frombytes(frames)
++            for index, sample in enumerate(samples):
++                samples[index] = max(-32768, min(32767, int(sample * factor)))
++            temp_path = path.with_suffix(path.suffix + ".volume.tmp")
++            with wave.open(str(temp_path), "wb") as target:
++                target.setparams(params)
++                target.writeframes(samples.tobytes())
++            temp_path.replace(path)
++        except Exception as exc:
++            log.warning("Piper volume control skipped: %s", exc)
+ 
+-    def speak(self, text: str, blocking: bool = True) -> None:
+-        """Озвучивает текст, выбирая голос по языку.
++    def speak(self, text: str, blocking: bool = True, *, rate: float = 1.0,
++              volume: float = 1.0) -> None:
++        """Озвучивает уже отрендеренный текст локальным русским voice.
+ 
+         Args:
+             text: текст для озвучки.
+@@ -267,60 +382,20 @@ class PiperTTS:
+             log.warning("speak: Piper недоступен, текст не озвучен: %s", text[:60])
+             return
+ 
+-        voice = self._select_voice(text)
+-        if not voice:
+-            log.warning("speak: нет доступных голосов")
++        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
++            tmp_path = Path(tmp.name)
++        tmp_path.unlink(missing_ok=True)
++        if not self.synthesize_to_file(text, tmp_path, rate=rate, volume=volume):
+             return
++        if blocking:
++            self._play_wav(tmp_path)
++        else:
++            threading.Thread(target=self._play_wav, args=(tmp_path,), daemon=True).start()
+ 
+-        # Передаём Piper параметры тюнинга ТОЛЬКО если они заданы (>0).
+-        # Если noise_scale/length_scale == 0 — значит модель сама знает свои
+-        # родные значения из .onnx.json, и мы НЕ переопределяем их (это
+-        # предотвращает искажение/«garbled» звук).
+-        has_tuning = (voice.noise_scale > 0) or (voice.noise_w > 0) or (voice.length_scale != 1.0)
+-
+-        log.debug("speak: voice=%s, lang=%s, text=%s", voice.name, voice.language, text[:50])
+-
+-        # Генерируем WAV во временный файл
+-        try:
+-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+-                tmp_path = Path(tmp.name)
+-
+-            cmd = [
+-                str(self._binary),
+-                "--model", str(voice.model_path),
+-                "--speaker", str(voice.speaker_id),
+-                "--output_file", str(tmp_path),
+-            ]
+-            if has_tuning:
+-                cmd += [
+-                    "--length_scale", str(voice.length_scale),
+-                    "--noise_scale", str(voice.noise_scale),
+-                    "--noise_w", str(voice.noise_w),
+-                ]
+-
+-            # Piper читает текст из stdin
+-            proc = subprocess.run(
+-                cmd,
+-                input=text.strip().encode("utf-8"),
+-                capture_output=True,
+-                timeout=30,
+-            )
+-
+-            if proc.returncode != 0:
+-                log.error("Piper ошибка (code=%d): %s", proc.returncode, proc.stderr.decode(errors="ignore"))
+-                tmp_path.unlink(missing_ok=True)
+-                return
+-
+-            # Воспроизводим
+-            if blocking:
+-                self._play_wav(tmp_path)
+-            else:
+-                threading.Thread(target=self._play_wav, args=(tmp_path,), daemon=True).start()
+-
+-        except subprocess.TimeoutExpired:
+-            log.error("Piper таймаут (>30s)")
+-        except Exception as exc:
+-            log.error("Piper speak ошибка: %s", exc)
++    def speak_rendered(self, rendered) -> None:
++        """Typed queue-provider boundary used by :class:`TTSQueue`."""
++        self.speak(rendered.text, blocking=True,
++                   rate=rendered.rate, volume=rendered.volume)
+ 
+     def _play_wav(self, path: Path) -> None:
+         """Воспроизводит WAV через winsound (Windows) или удаляет файл после."""
+@@ -350,9 +425,26 @@ class PiperTTS:
+         winsound не поддерживает остановку, поэтому просто логируем.
+         Для полноценной остановки нужна отдельная очередь (см. tts_queue.py).
+         """
+-        log.debug("stop_speaking: запрос остановки (winsound не поддерживает прерывание)")
++        try:
++            import winsound
++            winsound.PlaySound(None, winsound.SND_PURGE)
++        except Exception:
++            pass
++        log.debug("stop_speaking: playback purge requested")
+ 
+     @property
+     def available_voices(self) -> list[str]:
+         """Список доступных голосов."""
+-        return list(self._voices.keys())
+\ No newline at end of file
++        return list(self._voices.keys())
++
++    @property
++    def provider_info(self) -> dict[str, object]:
++        selected = self._select_voice("")
++        return {
++            "provider": "piper",
++            "local": True,
++            "language": selected.language if selected else self._target_language,
++            "voice": selected.name if selected else None,
++            "fallback": str(getattr(self._voice_settings, "fallback", "none")),
++            "available": self._available,
++        }
+diff --git a/core/voice/tts_queue.py b/core/voice/tts_queue.py
+index 6f1a672..61169f0 100644
+--- a/core/voice/tts_queue.py
++++ b/core/voice/tts_queue.py
+@@ -1,190 +1,156 @@
+-"""Потоковая очередь озвучки (TTSQueue).
+-
+-``TTSQueue`` — отдельный поток, который последовательно озвучивает тексты,
+-добавленные через ``add_to_queue``. Позволяет не блокировать основной цикл
+-и корректно останавливать/очищать очередь.
+-"""
+-
++"""Thread-safe FIFO TTS queue with cooperative lifecycle controls."""
+ from __future__ import annotations
+ 
+-import queue
++import collections
+ import threading
+ import time
+ from typing import Optional
+ 
+ from core.utils.logger import get_logger
++from core.voice.output import AssistantOutput
++from core.voice.speech_renderer import RenderedSpeech, SpeechRenderer
+ 
+ __all__ = ["TTSQueue"]
+-
+ log = get_logger(__name__)
+ 
+ 
+ class TTSQueue:
+-    """Очередь TTS задач в отдельном потоке."""
+-
+-    def __init__(self, tts_engine) -> None:
+-        """
+-        Args:
+-            tts_engine: экземпляр с методом ``speak(text: str, blocking: bool)``
+-                и ``stop_speaking()`` (например, ``PiperTTS``).
+-        """
++    def __init__(self, tts_engine, *, renderer: Optional[SpeechRenderer] = None) -> None:
+         self._tts = tts_engine
+-        self._queue: "queue.Queue[Optional[str]]" = queue.Queue()
++        self._renderer = renderer or SpeechRenderer()
++        self._items: collections.deque[RenderedSpeech] = collections.deque()
+         self._thread: Optional[threading.Thread] = None
+         self._running = False
+         self._paused = False
+-        self._lock = threading.Lock()
++        self._active = False
++        self._condition = threading.Condition(threading.RLock())
++        self._stopped = threading.Event()
++        self._stopped.set()
+ 
+     def start(self) -> None:
+-        """Запускает поток очереди."""
+-        with self._lock:
++        with self._condition:
+             if self._running:
+                 return
+             self._running = True
+             self._paused = False
+-            self._thread = threading.Thread(target=self._worker, daemon=True, name="TTSQueue")
++            self._stopped.clear()
++            self._thread = threading.Thread(target=self._worker, daemon=False, name="TTSQueue")
+             self._thread.start()
+-            log.info("TTSQueue запущен")
+ 
+     def stop(self, wait: bool = True, timeout: float = 5.0) -> None:
+-        """Останавливает очередь.
+-
+-        Args:
+-            wait: ждать завершения текущего воспроизведения.
+-            timeout: макс. время ожидания в секундах.
+-        """
+-        with self._lock:
+-            if not self._running:
++        with self._condition:
++            if not self._running and self._thread is None:
+                 return
+             self._running = False
+-            # Разбудим воркер
+-            try:
+-                self._queue.put_nowait(None)
+-            except Exception:
+-                pass
+-
+-        if wait and self._thread and self._thread.is_alive():
+-            self._thread.join(timeout=timeout)
+-
+-        # Останавливаем текущее воспроизведение
++            self._items.clear()
++            self._condition.notify_all()
+         try:
+             self._tts.stop_speaking()
+         except Exception:
+             pass
++        if wait:
++            self.join(timeout=timeout)
+ 
+-        log.info("TTSQueue остановлен")
++    def join(self, timeout: float | None = None) -> bool:
++        thread = self._thread
++        if thread and thread.is_alive():
++            thread.join(timeout=timeout)
++        return bool(thread is None or not thread.is_alive())
+ 
+-    def add_to_queue(self, text: str) -> None:
+-        """Добавляет текст в очередь озвучки.
++    @property
++    def stopped(self) -> threading.Event:
++        return self._stopped
++
++    def add_output(self, output: AssistantOutput) -> bool:
++        rendered = self._renderer.render(output)
++        if rendered is None:
++            return False
++        with self._condition:
++            if not self._running:
++                return False
++            self._items.append(rendered)
++            self._condition.notify()
++        return True
+ 
+-        Args:
+-            text: текст для озвучивания.
+-        """
++    def add_to_queue(self, text: str) -> bool:
+         if not text or not text.strip():
+-            return
+-        if not self._running:
+-            log.warning("TTSQueue не запущен, текст не добавлен: %s", text[:50])
+-            return
+-        self._queue.put(text.strip())
+-        log.debug("TTSQueue: добавлен текст (%d символов)", len(text))
++            return False
++        return self.add_output(AssistantOutput.natural(text.strip()))
+ 
+     def clear(self) -> int:
+-        """Очищает очередь. Возвращает число удалённых элементов."""
+-        count = 0
+-        while True:
+-            try:
+-                self._queue.get_nowait()
+-                count += 1
+-            except queue.Empty:
+-                break
+-        log.info("TTSQueue: очищено %d элементов", count)
+-        return count
++        with self._condition:
++            count = len(self._items)
++            self._items.clear()
++            self._condition.notify_all()
++            return count
+ 
+     def interrupt(self) -> None:
+-        """Прерывает текущую озвучку и очищает очередь (П1 §1.2).
+-
+-        Используется, когда пользователь перебивает J.A.R.V.I.S. голосом:
+-        всё, что ещё не произнесено, отменяется, а играющая фраза —
+-        останавливается. Thread-safe.
+-        """
+-        # 1) Очистить очередь ожидания.
+-        cleared = self.clear()
+-        # 2) Остановить текущее воспроизведение (если движок поддерживает).
++        self.clear()
+         try:
+             self._tts.stop_speaking()
+         except Exception:
+             pass
+-        if cleared:
+-            log.info("TTSQueue: прерывание, очищено %d ожидавших фраз", cleared)
+ 
+     def wait_until_done(self, timeout: Optional[float] = None) -> bool:
+-        """Ждёт, пока очередь опустеет и текущее воспроизведение завершится.
+-
+-
+-        Args:
+-            timeout: макс. время ожидания (None = бесконечно).
+-
+-        Returns:
+-            True — очередь пуста, False — таймаут.
+-        """
+-        start = time.time()
+-        while self._running:
+-            if self._queue.empty():
+-                # Очередь пуста, но может играть текущий файл
+-                # Даём чуть времени на завершение
+-                time.sleep(0.1)
+-                if self._queue.empty():
+-                    return True
+-            if timeout is not None and time.time() - start > timeout:
+-                return False
+-            time.sleep(0.05)
+-        return True
++        deadline = None if timeout is None else time.monotonic() + max(0.0, timeout)
++        with self._condition:
++            while self._items or self._active:
++                if deadline is None:
++                    self._condition.wait()
++                else:
++                    remaining = deadline - time.monotonic()
++                    if remaining <= 0:
++                        return False
++                    self._condition.wait(timeout=remaining)
++            return True
+ 
+     def pause(self) -> None:
+-        """Приостанавливает обработку очереди (текущий текст доиграет)."""
+-        with self._lock:
++        with self._condition:
+             self._paused = True
+-        log.debug("TTSQueue: приостановлен")
+ 
+     def resume(self) -> None:
+-        """Возобновляет обработку очереди."""
+-        with self._lock:
++        with self._condition:
+             self._paused = False
+-        log.debug("TTSQueue: возобновлён")
++            self._condition.notify_all()
+ 
+     @property
+     def is_running(self) -> bool:
+-        return self._running
++        with self._condition:
++            return self._running
+ 
+     @property
+     def queue_size(self) -> int:
+-        return self._queue.qsize()
+-
+-    # --------------------------------------------------------------------- #
+-    #  Внутренний воркер
+-    # --------------------------------------------------------------------- #
++        with self._condition:
++            return len(self._items)
+ 
+     def _worker(self) -> None:
+-        while self._running:
+-            try:
+-                text = self._queue.get(timeout=0.2)
+-            except queue.Empty:
+-                continue
+-
+-            if text is None:  # сигнал остановки
+-                break
+-
+-            with self._lock:
+-                if self._paused:
+-                    # Положили обратно и ждём
+-                    self._queue.put(text)
+-                    time.sleep(0.5)
+-                    continue
+-
+-            try:
+-                # blocking=True — ждём завершения воспроизведения
+-                self._tts.speak(text, blocking=True)
+-            except Exception as exc:
+-                log.error("TTSQueue worker ошибка: %s", exc)
+-
+-        log.debug("TTSQueue worker завершён")
+\ No newline at end of file
++        try:
++            while True:
++                with self._condition:
++                    while self._running and (self._paused or not self._items):
++                        self._condition.wait()
++                    if not self._running and not self._items:
++                        break
++                    if not self._items:
++                        continue
++                    item = self._items.popleft()
++                    self._active = True
++                try:
++                    speak_rendered = getattr(self._tts, "speak_rendered", None)
++                    if callable(speak_rendered):
++                        speak_rendered(item)
++                    else:
++                        self._tts.speak(item.text, blocking=True)
++                except Exception as exc:
++                    log.error("TTSQueue worker ошибка: %s", exc)
++                finally:
++                    with self._condition:
++                        self._active = False
++                        self._condition.notify_all()
++        finally:
++            with self._condition:
++                self._thread = None
++                self._running = False
++                self._active = False
++                self._condition.notify_all()
++            self._stopped.set()
+diff --git a/core/voice/tts_sanitizer.py b/core/voice/tts_sanitizer.py
+index 58e98e5..96677cc 100644
+--- a/core/voice/tts_sanitizer.py
++++ b/core/voice/tts_sanitizer.py
+@@ -17,10 +17,13 @@ from __future__ import annotations
+ import json
+ import re
+ from typing import Optional
++from core.security.redaction import SECRET_VALUE_RE
+ 
+-# Сырые ошибки/исключения.
++# Сырые ошибки/исключения. Bare ``Error 455`` включён намеренно: раньше
++# эта строка проходила фильтр и выбирала английский Piper voice.
+ _RE_TRACEBACK = re.compile(
+     r"(?i)(traceback\s*\(most\s+recent\s+call\s+last\)|"
++    r"\b(?:error|exception)\b(?:\s*[:#-]?\s*\d{3})?|"
+     r"\b\w+(error|exception)\b\s*[:\(]|"
+     r"line\s+\d+,\s+in\s+\w+|"
+     r"raise\s+\w+|"
+@@ -31,10 +34,7 @@ _RE_JSON = re.compile(r"\{[^{}]*\"(tool|arguments|reason|verification|risk)\"[^{
+ # Служебные маркерки пайплайна.
+ _RE_EVENT = re.compile(r"(?i)\b(event_|mission-|task_id|task_started|confirmation_required)\b")
+ # Секреты: ключи/токены/пароли (sk-, pk-, Bearer, api_key=...).
+-_RE_SECRET = re.compile(
+-    r"(?i)(sk-[a-z0-9]{8,}|pk-[a-z0-9]{8,}|bearer\s+[a-z0-9._-]+|"
+-    r"api[_-]?key\s*[:=]\s*\S+|password\s*[:=]\s*\S+|token\s*[:=]\s*\S+)"
+-)
++_RE_SECRET = SECRET_VALUE_RE
+ # Обрывки мысли (многоточие в конце / незакрытая скобка / начало <think>).
+ _RE_FRAGMENT = re.compile(r"(?i)(^\s*<\s*think\s*>|…\s*$|[\(\[]\s*$|\[\.\.\.\]\s*$)")
+ # HTTP-коды (401/403/404/429/500/503 и т.п.) и фразы ошибок провайдера/связи.
+@@ -55,6 +55,17 @@ _RE_PROVIDER_ERR = re.compile(
+     r")"
+ )
+ 
++_RE_CODE_BLOCK = re.compile(r"```[\s\S]*?```|~~~[\s\S]*?~~~", re.MULTILINE)
++_RE_INLINE_CODE = re.compile(r"`[^`\n]+`")
++_RE_MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://|file:)[^)]+\)", re.I)
++_RE_URL = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
++_RE_WINDOWS_PATH = re.compile(r"(?i)(?:[a-z]:\\(?:[^\s\\]+\\)*[^\s]*|\\\\[^\s]+)")
++_RE_UNIX_PATH = re.compile(r"(?<!\w)/(?:home|Users|var|tmp|etc|opt|usr)/\S+")
++_RE_UUID = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b")
++_RE_REQUEST_ID = re.compile(r"(?i)\b(?:request|correlation|trace)[_-]?id\s*[:=]\s*\S+")
++_RE_LOG_LINE = re.compile(r"(?im)^\s*\d{4}-\d{2}-\d{2}[^\n]*(?:ERROR|WARNING|DEBUG|INFO)[^\n]*$")
++_RE_MARKDOWN = re.compile(r"(?:\*\*|__|~~|(?<!\w)[*_#>]+)")
++
+ __all__ = ["sanitize_for_tts", "looks_unsafe_for_tts"]
+ 
+ 
+@@ -62,7 +73,11 @@ def looks_unsafe_for_tts(text: str) -> bool:
+     """True, если строка содержит сырые ошибки/JSON/секреты/служебное."""
+     if not text or not text.strip():
+         return False
+-    for rx in (_RE_SECRET, _RE_JSON, _RE_EVENT, _RE_TRACEBACK, _RE_FRAGMENT, _RE_PROVIDER_ERR):
++    for rx in (
++        _RE_SECRET, _RE_JSON, _RE_EVENT, _RE_TRACEBACK, _RE_FRAGMENT,
++        _RE_PROVIDER_ERR, _RE_CODE_BLOCK, _RE_URL, _RE_WINDOWS_PATH,
++        _RE_UNIX_PATH, _RE_UUID, _RE_REQUEST_ID, _RE_LOG_LINE,
++    ):
+         if rx.search(text):
+             return True
+     # Попытка распарсить как JSON — если это чистый JSON, озвучивать нельзя.
+@@ -76,7 +91,7 @@ def looks_unsafe_for_tts(text: str) -> bool:
+     return False
+ 
+ 
+-def sanitize_for_tts(text: str, *, fallback: str = "Сэр, сейчас не могу дозвониться до модели. Попробуйте чуть позже.") -> str:
++def sanitize_for_tts(text: str, *, fallback: str = "") -> str:
+     """Возвращает безопасный для озвучки текст.
+ 
+     Если в исходнике есть сырые ошибки/JSON/секреты — возвращает
+@@ -91,13 +106,37 @@ def sanitize_for_tts(text: str, *, fallback: str = "Сэр, сейчас не м
+     if not text or not text.strip():
+         return ""
+ 
+-    if looks_unsafe_for_tts(text):
+-        # Сырые ошибки/ключи/JSON не должны попадать в эфир.
++    stripped = text.strip()
++    if stripped.startswith(("{", "[")):
++        try:
++            json.loads(stripped)
++            return fallback
++        except (ValueError, json.JSONDecodeError):
++            pass
++
++    # Ошибки, traceback, secrets, JSON и логи блокируются целиком. Естественная
++    # terminal-failure реплика создаётся ErrorMapper до этого слоя.
++    if any(rx.search(text) for rx in (
++        _RE_SECRET, _RE_JSON, _RE_EVENT, _RE_TRACEBACK, _RE_FRAGMENT,
++        _RE_PROVIDER_ERR, _RE_REQUEST_ID, _RE_LOG_LINE,
++    )):
+         return fallback
+ 
+-    # Очистка служебного мусора, который мог проскочить, но не опасен сам по себе.
+-    cleaned = _RE_EVENT.sub("", text)
++    # Представление, а не переозвучивание UI: code удаляется, markdown links
++    # оставляют только понятную подпись, identifiers/paths/URLs исчезают.
++    cleaned = _RE_CODE_BLOCK.sub(" ", text)
++    cleaned = _RE_INLINE_CODE.sub(" ", cleaned)
++    cleaned = _RE_MARKDOWN_LINK.sub(r"\1", cleaned)
++    cleaned = _RE_URL.sub(" ", cleaned)
++    cleaned = _RE_WINDOWS_PATH.sub(" ", cleaned)
++    cleaned = _RE_UNIX_PATH.sub(" ", cleaned)
++    cleaned = _RE_UUID.sub(" ", cleaned)
++    cleaned = _RE_EVENT.sub("", cleaned)
++    cleaned = _RE_MARKDOWN.sub("", cleaned)
++    # Sprint 3: визуальный индикатор деградации ответа не читаем вслух.
++    cleaned = re.sub(r"(?i)^\s*\[\s*degraded\s*\]\s*:?\s*", "", cleaned)
+     cleaned = re.sub(r"^\s*<\s*think\s*>", "", cleaned, flags=re.IGNORECASE)
++    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+     if not cleaned:
+         return ""
+diff --git a/core/ws_server.py b/core/ws_server.py
+index a7f9408..10dbcdd 100644
+--- a/core/ws_server.py
++++ b/core/ws_server.py
+@@ -31,11 +31,13 @@ from __future__ import annotations
+ 
+ import asyncio
+ import json
++import os
+ import re
+ import threading
+ import time
+ from typing import Any, Dict, Optional, Set
+-from urllib.parse import urlparse
++from urllib.parse import parse_qs, urlparse
++from uuid import uuid4
+ 
+ from config import load_config
+ from config.settings import Settings
+@@ -94,6 +96,11 @@ class JarvisWSServer:
+         orchestrator: Orchestrator,
+         host: str = DEFAULT_HOST,
+         port: int = DEFAULT_PORT,
++        *,
++        auth_token: str | None = None,
++        allowed_origins: set[str] | None = None,
++        max_messages_per_window: int = 60,
++        rate_window_sec: float = 10.0,
+     ) -> None:
+         self._orch = orchestrator
+         # Settings — единый runtime-объект, переданный Orchestrator. Его
+@@ -105,58 +112,195 @@ class JarvisWSServer:
+         )
+         self._host = host
+         self._port = port
++        self._auth_token = auth_token
++        self._allowed_origins = set(allowed_origins or set())
++        self._max_messages_per_window = max(1, int(max_messages_per_window))
++        self._rate_window_sec = max(1.0, float(rate_window_sec))
++        self._authorized_clients: Set[Any] = set()
++        self._message_times: dict[int, list[float]] = {}
+         self._clients: Set[Any] = set()
+         self._lock = threading.RLock()
+         # task_id, для которых уже отправлен event:jarvis:start (чтобы не
+         # дублировать start на каждый токен в streaming-пути).
+         self._streaming_started: Set[str] = set()
+         self._running = False
++        self._stop_event = threading.Event()
++        self._ws_server = None
+         self._loop: Optional[asyncio.AbstractEventLoop] = None
+         self._unsub: Optional[Any] = None
++        # Sprint 1: per-request контекст (thread-local). Каждый WS-запрос
++        # обрабатывается в своём потоке executor'а, поэтому параллельные
++        # запросы имеют независимые correlation ID и не перемешиваются.
++        self._tls = threading.local()
++        # Sprint 5: приветствие отправляется ОДИН раз за сессию сервера —
++        # при подключении первого клиента (не при каждом открытии окна).
++        self._greeted = False
++        self._system_monitor = None
++        self._stt_engine = None
++        self._voice_addressed_until = 0.0
++        try:
++            from core.voice.stt import STTEngine
++            candidate = STTEngine(self._settings)
++            if candidate.is_available(): self._stt_engine = candidate
++        except Exception as exc:
++            log.debug("STT startup probe failed: %s", exc)
+         # Перехватываем output_callback, чтобы синхронный fast-path
+         # ответ тоже доходил до фронта (handle_input сам его печатает).
+         self._orig_output = orchestrator._output_callback
+ 
+-        def _cb(text: str) -> None:
+-            # Дефолтный вывод оркестратора (print + TTS)
+-            try:
+-                self._orig_output(text)
+-            except Exception:
+-                pass
+-            # Транслируем в событие J.A.R.V.I.S. ответа.
+-            # ВАЖНО (P5 §5.4/frontend): фронт рендерит пузырь ответа ТОЛЬКО после
+-            # event:jarvis:start (useBackendBridge создаёт пузырь по start, а token/end
+-            # лишь обновляют его). Без start пузырь не создаётся и ответ не виден в
+-            # чате. Поэтому шлём start непосредственно перед end (fast-path без
+-            # токенов), чтобы контракт совпадал с streaming-путём.
+-            self._emit({
+-                "type": "event",
+-                "event": {
+-                    "type": "event:jarvis:start",
+-                    "payload": {
+-                        "id": f"sync-{_now_ms()}",
+-                        "kind": "jarvis",
+-                        "content": "",
+-                    },
+-                    "timestamp": _now_ms(),
+-                },
+-            })
++        def _emit_jarvis_event(etype: str, rid: str, payload: Dict[str, Any]) -> None:
+             self._emit({
+                 "type": "event",
+                 "event": {
+-                    "type": "event:jarvis:end",
+-                    "payload": {
+-                        "id": f"sync-{_now_ms()}",
+-                        "kind": "jarvis",
+-                        "content": text,
+-                        "model": "local",
+-                    },
++                    "type": etype,
++                    "payload": {"id": rid, "kind": "jarvis", **payload},
+                     "timestamp": _now_ms(),
+                 },
+             })
++
++        def _cb(text: str) -> None:
++            # Оркестратор уже отправил typed AssistantOutput в TTS. Callback
++            # отвечает только за UI transport — повторная raw озвучка запрещена.
++            try:
++                self._orig_output(text)
++            except Exception:
++                pass
++            # Транслируем в события J.A.R.V.I.S.
++            # ВАЖНО (P5 §5.4/frontend): фронт рендерит пузырь ответа ТОЛЬКО после
++            # event:jarvis:start (useBackendBridge создаёт пузырь по start, а
++            # token/end лишь обновляют его).
++            #
++            # Sprint 1 STEP 1: correlation ID создаётся ОДИН РАЗ на весь
++            # логический ответ (uuid, без timestamp-гонки). Если этот запрос
++            # стримился (пузырь с rid уже открыт) — закрываем ЕГО тем же rid.
++            tls = self._tls
++            rid = getattr(tls, "cid", None)
++            if rid and getattr(tls, "started", False) and not getattr(tls, "ended", False):
++                tls.ended = True
++                _emit_jarvis_event("event:jarvis:end", rid, {"content": text, "model": "local"})
++                self._emit({"type": "state", "state": "idle"})
++                return
++            # Стримленная миссия этого потока: финальный текст закрывает
++            # её пузырь (тот же task_id), не создавая второй ответ.
++            consume = getattr(self._orch, "consume_streamed_mission", None)
++            mission_rid = consume() if callable(consume) else None
++            if mission_rid:
++                self._streaming_started.discard(mission_rid)
++                _emit_jarvis_event("event:jarvis:end", mission_rid,
++                                   {"content": text, "model": "local"})
++                self._emit({"type": "state", "state": "idle"})
++                return
++            response_id = uuid4().hex
++            _emit_jarvis_event("event:jarvis:start", response_id, {"content": ""})
++            _emit_jarvis_event("event:jarvis:end", response_id, {"content": text, "model": "local"})
+             self._emit({"type": "state", "state": "idle"})
+ 
+         orchestrator._output_callback = _cb
++        # Proactor is an existing system-trigger source.  Preserve its output
++        # callback (notifications/TTS) and mirror it as a distinct UI event;
++        # it never becomes a user command or an action request.
++        proactor = getattr(orchestrator, "proactor", None)
++        if proactor is not None and hasattr(proactor, "_output"):
++            original_proactive = proactor._output
++
++            def _proactive_cb(text: str) -> None:
++                original_proactive(text)
++                self._emit({
++                    "type": "event",
++                    "event": {
++                        "type": "event:system_initiated",
++                        "payload": {"text": text},
++                        "timestamp": _now_ms(),
++                    },
++                })
++
++            proactor._output = _proactive_cb
++        try:
++            from core.triggers import SystemMonitor, SystemTriggerEngine
++            configured = getattr(self._settings, "system_triggers", []) or []
++            self._system_monitor = SystemMonitor(SystemTriggerEngine(configured, emit=lambda event, text: self._emit({"type": "event", "event": {"type": "event:system_initiated", "payload": {"text": text}, "timestamp": _now_ms()}}))) if configured else None
++        except Exception as exc:
++            log.warning("System triggers disabled: %s", exc)
++
++    # ----------------------------------------------------------------- #
++    #  Sprint 5 — ALWAYS-ON TTS + приветствие
++    # ----------------------------------------------------------------- #
++
++    def _tts_queue(self):
++        """TTSQueue оркестратора (None, если недоступен)."""
++        return getattr(self._orch, "_tts_queue", None)
++
++    def _speak(self, output) -> None:
++        """Typed greeting/system path; arbitrary WS messages are never spoken."""
++        try:
++            from core.voice.output import AssistantOutput
++            if not isinstance(output, AssistantOutput):
++                raise TypeError("WS speech boundary accepts AssistantOutput only")
++            voice = getattr(self._settings, "voice", None)
++            if not getattr(voice, "tts_enabled", True):
++                return
++            if not getattr(voice, "tts_always_on", True):
++                return
++            tts = self._tts_queue()
++            if tts is None:
++                return
++            tts.add_output(output)
++        except Exception as exc:  # noqa: BLE001 — TTS не ломает ответы
++            log.debug("TTS-озвучка пропущена: %s", exc)
++
++    def _tts_interrupt(self) -> None:
++        """Barge-in (Sprint 5 STEP 5.3): прерывает текущую речь и очередь."""
++        try:
++            tts = self._tts_queue()
++            if tts is not None:
++                tts.interrupt()
++        except Exception as exc:  # noqa: BLE001
++            log.debug("TTS-interrupt пропущен: %s", exc)
++
++    def _send_startup_greeting(self) -> None:
++        """Приветствие при старте сессии (Sprint 5 STEP 3).
++
++        Условия: launcher.greeting_enabled, ещё не отправляли, профиль
++        читается для персонального обращения. Идёт через обычный WS
++        pipeline (event:jarvis:start/end) и озвучивается always-on TTS.
++        """
++        launcher = getattr(self._settings, "launcher", None)
++        if not getattr(launcher, "greeting_enabled", True):
++            return
++        try:
++            from core.voice.greeting import build_startup_greeting
++            return_context = None
++            try:
++                living = getattr(self._orch, "_living", None)
++                if living is not None:
++                    return_context = living.context.return_context(min_confidence=0.75)
++            except Exception as exc:  # context is optional; ordinary greeting remains
++                log.debug("Контекст прошлого сеанса недоступен: %s", exc)
++            text = build_startup_greeting(self._settings, return_context=return_context)
++        except Exception as exc:  # noqa: BLE001
++            log.warning("Приветствие не сформировано: %s", exc)
++            return
++        rid = uuid4().hex
++        log.info("Приветствие сессии: %s", text)
++        self._emit({
++            "type": "event",
++            "event": {
++                "type": "event:jarvis:start",
++                "payload": {"id": rid, "kind": "jarvis", "content": ""},
++                "timestamp": _now_ms(),
++            },
++        })
++        self._emit({
++            "type": "event",
++            "event": {
++                "type": "event:jarvis:end",
++                "payload": {"id": rid, "kind": "jarvis",
++                            "content": text, "model": "local"},
++                "timestamp": _now_ms(),
++            },
++        })
++        from core.voice.output import AssistantOutput
++        self._speak(AssistantOutput.natural(text))
+ 
+     # ----------------------------------------------------------------- #
+     #  Управление подключениями
+@@ -164,10 +308,33 @@ class JarvisWSServer:
+     async def _handler(self, ws):
+         peer = getattr(ws, "remote_address", "?")
+         log.info("WS клиент подключён: %s", peer)
++        if not self._origin_allowed(ws):
++            await ws.close(code=1008, reason="origin not allowed")
++            return
++        if self._auth_token and not await self._authenticate(ws):
++            await ws.close(code=1008, reason="authentication required")
++            return
+         with self._lock:
+             self._clients.add(ws)
++            if self._auth_token:
++                self._authorized_clients.add(ws)
++            # Sprint 5 STEP 3: приветствие — ОДИН раз за сессию сервера,
++            # при подключении первого клиента (не при каждом открытии окна).
++            first_client = len(self._clients) == 1 and not self._greeted
++            if first_client:
++                self._greeted = True
+         try:
+             await ws.send(json.dumps({"type": "state", "state": "idle"}))
++            try:
++                from core.memory.profile import load_profile
++                has_name = bool((load_profile(self._settings).get("name") or "").strip())
++            except Exception:
++                has_name = False
++            await ws.send(json.dumps({"type": "profile", "has_name": has_name}))
++            if first_client:
++                # Пауза, чтобы фронт успел подписаться на события.
++                await asyncio.sleep(0.5)
++                self._send_startup_greeting()
+             async for raw in ws:
+                 await self._on_message(ws, raw)
+         except websockets.exceptions.ConnectionClosed:  # type: ignore
+@@ -177,8 +344,46 @@ class JarvisWSServer:
+         finally:
+             with self._lock:
+                 self._clients.discard(ws)
++                self._authorized_clients.discard(ws)
++                self._message_times.pop(id(ws), None)
+             log.info("WS клиент отключён: %s", peer)
+ 
++    def _origin_allowed(self, ws: Any) -> bool:
++        if not self._allowed_origins:
++            return True
++        headers = getattr(ws, "request_headers", {}) or {}
++        origin = headers.get("Origin") if hasattr(headers, "get") else None
++        return bool(origin and origin in self._allowed_origins)
++
++    async def _authenticate(self, ws: Any) -> bool:
++        headers = getattr(ws, "request_headers", {}) or {}
++        auth = headers.get("Authorization", "") if hasattr(headers, "get") else ""
++        if auth == f"Bearer {self._auth_token}":
++            return True
++        raw_path = str(getattr(ws, "path", "") or "")
++        query_token = parse_qs(urlparse(raw_path).query).get("token", [""])[0]
++        if query_token == self._auth_token:
++            return True
++        await ws.send(json.dumps({"type": "auth_required"}))
++        try:
++            raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
++            message = json.loads(raw)
++        except Exception:
++            return False
++        return message.get("type") == "auth" and message.get("token") == self._auth_token
++
++    def _rate_allowed(self, ws: Any) -> bool:
++        now = time.monotonic()
++        key = id(ws)
++        with self._lock:
++            values = [stamp for stamp in self._message_times.get(key, []) if now - stamp < self._rate_window_sec]
++            if len(values) >= self._max_messages_per_window:
++                self._message_times[key] = values
++                return False
++            values.append(now)
++            self._message_times[key] = values
++        return True
++
+     def _cloud_settings_payload(self) -> Dict[str, Any]:
+         """Безопасное представление cloud-профиля для UI.
+ 
+@@ -196,6 +401,84 @@ class JarvisWSServer:
+             "api_key_masked": f"••••{suffix}" if key else "",
+         }
+ 
++    # ----------------------------------------------------------------- #
++    #  Sprint 5 — Launcher API (autostart / hotkey / greeting)
++    # ----------------------------------------------------------------- #
++
++    def _launcher_payload(self) -> Dict[str, Any]:
++        """Текущая конфигурация launcher для UI."""
++        launcher = getattr(self._settings, "launcher", None)
++        if launcher is None:
++            return {}
++        return {
++            "autostart": getattr(launcher, "autostart", False),
++            "hotkey": getattr(launcher, "hotkey", "Ctrl+Space"),
++            "backend_command": getattr(launcher, "backend_command", []),
++            "backend_workdir": getattr(launcher, "backend_workdir", ""),
++            "greeting_enabled": getattr(launcher, "greeting_enabled", True),
++        }
++
++    def _update_launcher(self, patch: Any) -> Dict[str, Any]:
++        """Валидирует и применяет allowlist-патч launcher config."""
++        if not isinstance(patch, dict):
++            raise ValueError("launcher должен быть объектом")
++        allowed = {"autostart", "hotkey", "greeting_enabled"}
++        unknown = set(patch) - allowed
++        if unknown:
++            raise ValueError(f"Недопустимые поля launcher: {', '.join(sorted(unknown))}")
++
++        launcher = self._settings.launcher
++        if "autostart" in patch:
++            v = patch["autostart"]
++            if not isinstance(v, bool):
++                raise ValueError("autostart должен быть boolean")
++            launcher.autostart = v
++            self._apply_autostart(v)
++
++        if "hotkey" in patch:
++            v = patch["hotkey"]
++            if not isinstance(v, str) or not v.strip():
++                raise ValueError("hotkey должен быть непустой строкой")
++            launcher.hotkey = v.strip()
++
++        if "greeting_enabled" in patch:
++            v = patch["greeting_enabled"]
++            if not isinstance(v, bool):
++                raise ValueError("greeting_enabled должен быть boolean")
++            launcher.greeting_enabled = v
++
++        self._settings.save_config()
++        return self._launcher_payload()
++
++    @staticmethod
++    def _apply_autostart(enable: bool) -> None:
++        """HKCU\\...\\Run — автозапуск Jarvis при логоне пользователя.
++
++        Запись/удаление через winreg; на других ОС — no-op (безопасно).
++        """
++        import sys
++        if sys.platform != "win32":
++            return
++        try:
++            import winreg  # type: ignore[import-untyped]
++            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
++            name = "JARVIS"
++            exe = sys.executable  # python.exe из текущего venv
++            # Команда: python -m core.ws_server из backend_workdir
++            cmd = f'"{exe}" -m core.ws_server'
++            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0,
++                                winreg.KEY_SET_VALUE) as hk:
++                if enable:
++                    winreg.SetValueEx(hk, name, 0, winreg.REG_SZ, cmd)
++                else:
++                    try:
++                        winreg.DeleteValue(hk, name)
++                    except FileNotFoundError:
++                        pass
++        except Exception as exc:  # noqa: BLE001
++            log.warning("HKCU autostart %s не удался: %s",
++                        "запись" if enable else "удаление", exc)
++
+     @staticmethod
+     def _validate_cloud_provider(value: Any) -> str:
+         if not isinstance(value, str):
+@@ -280,6 +563,12 @@ class JarvisWSServer:
+         return self._cloud_settings_payload()
+ 
+     async def _on_message(self, ws, raw: str) -> None:
++        if self._auth_token and ws not in self._authorized_clients:
++            await ws.send(json.dumps({"type": "error", "message": "authentication required"}))
++            return
++        if not self._rate_allowed(ws):
++            await ws.send(json.dumps({"type": "error", "message": "rate limit exceeded"}))
++            return
+         try:
+             msg = json.loads(raw)
+         except json.JSONDecodeError:
+@@ -287,6 +576,35 @@ class JarvisWSServer:
+             return
+ 
+         mtype = (msg.get("type") or "").lower()
++        command_channel = "text"
++        command_implicit_address = True
++        if mtype == "voice_input":
++            text = (msg.get("text") or "").strip()
++            confidence = msg.get("confidence", 1.0)
++            if isinstance(confidence, (int, float)) and confidence < 0.7:
++                await ws.send(json.dumps({"type": "event", "event": {"type": "event:system", "payload": {"content": "Не расслышал, повтори."}, "timestamp": _now_ms()}}))
++                return
++            mtype = "command"
++            msg["text"] = text
++            command_channel = "voice"
++            command_implicit_address = time.monotonic() <= self._voice_addressed_until
++        elif mtype == "wake_word_detected":
++            self._voice_addressed_until = time.monotonic() + 90.0
++            self._emit({"type": "event", "event": {"type": "event:wake_word_detected", "payload": {}, "timestamp": _now_ms()}})
++            return
++        elif mtype == "voice_listen":
++            if not getattr(getattr(self._settings, "stt", None), "enabled", False) and not getattr(getattr(self._settings, "voice", None), "stt_enabled", False):
++                return
++            loop = self._loop
++            def _listen() -> None:
++                try:
++                    if self._stt_engine is None: return
++                    text, confidence = self._stt_engine.transcribe_with_confidence_from_mic()
++                    self._emit({"type": "voice_input", "text": text, "confidence": confidence})
++                except Exception as exc:
++                    self._emit({"type": "error", "message": str(exc)})
++            if loop is not None: loop.call_soon_threadsafe(lambda: loop.run_in_executor(None, _listen))
++            return
+         if mtype == "settings:get":
+             await ws.send(json.dumps({"type": "settings", "settings": self._cloud_settings_payload()}))
+         elif mtype == "settings:update":
+@@ -302,6 +620,9 @@ class JarvisWSServer:
+             text = (msg.get("text") or "").strip()
+             if not text:
+                 return
++            # Sprint 5 STEP 5.3 (barge-in): новый ввод прерывает текущую
++            # речь Джарвиса — новая команда важнее договариваемой фразы.
++            self._tts_interrupt()
+             # Единый путь (P5 §5.7): тот же handle_input, что и в REPL.
+             # Гоним через executor, чтобы не блокировать asyncio-цикл
+             # во время модельного inference, и ловим возвращаемый state,
+@@ -310,9 +631,58 @@ class JarvisWSServer:
+             # эмитится в TaskEvent).
+             loop = self._loop
+ 
+-            def _dispatch(t: str) -> None:
++            def _dispatch(t: str, *, channel: str = "text",
++                          implicit_address: bool = True) -> None:
++                # Sprint 1 STEP 1/2: один correlation ID на весь логический
++                # ответ. Sink принимает кумулятивный текст реального SSE-потока
++                # модели и транслирует его в event:jarvis:token. Если бэкенд
++                # не поддерживает streaming — sink ни разу не вызовется и
++                # ответ пойдёт классическим start/end через _cb (fallback).
++                tls = self._tls
++                rid = uuid4().hex
++                tls.cid = rid
++                tls.started = False
++                tls.ended = False
++                tls.streamed = ""
++
++                def _sink(visible: str) -> None:
++                    tls.streamed = visible
++                    if not tls.started:
++                        tls.started = True
++                        self._emit({
++                            "type": "event",
++                            "event": {
++                                "type": "event:jarvis:start",
++                                "payload": {"id": tls.cid, "kind": "jarvis", "content": ""},
++                                "timestamp": _now_ms(),
++                            },
++                        })
++                    self._emit({
++                        "type": "event",
++                        "event": {
++                            "type": "event:jarvis:token",
++                            "payload": {"id": tls.cid, "token": visible},
++                            "timestamp": _now_ms(),
++                        },
++                    })
++
++                install = getattr(self._orch, "install_stream_sink", None)
+                 try:
+-                    state = self._orch.handle_input(t)
++                    if callable(install):
++                        install(_sink)
++                    if channel == "voice" and hasattr(self._orch, "cognitive"):
++                        state = self._orch.handle_input(
++                            t, channel="voice", implicit_address=implicit_address,
++                        )
++                    else:
++                        state = self._orch.handle_input(t)
++                    if isinstance(state, dict) and state.get("assistant_output"):
++                        # Typed diagnostics channel for Developer Mode. The
++                        # frontend has no speech synthesis path for this event.
++                        self._emit({
++                            "type": "assistant_output",
++                            "output": state["assistant_output"],
++                        })
+                     if isinstance(state, dict) and state.get("needs_confirmation"):
+                         self._emit({
+                             "type": "confirmation_required",
+@@ -325,19 +695,64 @@ class JarvisWSServer:
+                 except Exception as exc:
+                     log.error("Ошибка обработки команды из WS: %s", exc, exc_info=True)
+                     self._emit({"type": "error", "message": str(exc)})
++                finally:
++                    clear = getattr(self._orch, "clear_stream_sink", None)
++                    if callable(clear):
++                        try:
++                            clear()
++                        except Exception:  # pragma: no cover
++                            pass
++                    # Пузырь остался открытым (экзотический путь без _cb):
++                    # закрываем честно накопленным текстом.
++                    if getattr(tls, "started", False) and not getattr(tls, "ended", False):
++                        tls.ended = True
++                        self._emit({
++                            "type": "event",
++                            "event": {
++                                "type": "event:jarvis:end",
++                                "payload": {
++                                    "id": tls.cid,
++                                    "kind": "jarvis",
++                                    "content": tls.streamed or "Сэр, ответ не сформирован.",
++                                    "model": "local",
++                                },
++                                "timestamp": _now_ms(),
++                            },
++                        })
++                        self._emit({"type": "state", "state": "idle"})
++                    tls.cid = None
++                    tls.started = False
++                    tls.ended = False
++                    tls.streamed = ""
+ 
+             if loop is not None:
+                 loop.call_soon_threadsafe(
+-                    lambda t=text: loop.run_in_executor(None, _dispatch, t)
++                    lambda t=text, c=command_channel, a=command_implicit_address:
++                    loop.run_in_executor(
++                        None, lambda: _dispatch(t, channel=c, implicit_address=a)
++                    )
+                 )
+         elif mtype == "confirm":
+             cid = msg.get("confirmation_id")
+             approve = bool(msg.get("approve", False))
+             if cid:
+-                try:
+-                    self._orch.answer_confirmation(cid, approve)
+-                except Exception as exc:
+-                    log.error("Ошибка ответа на подтверждение из WS: %s", exc)
++                # Sprint 1 STEP 3: подтверждение запускает реальное выполнение
++                # инструмента — тоже через executor, чтобы не блокировать цикл.
++                loop = self._loop
++
++                def _dispatch_confirm(cid_: str, approve_: bool) -> None:
++                    try:
++                        self._orch.answer_confirmation(cid_, approve_)
++                    except Exception as exc:
++                        log.error("Ошибка ответа на подтверждение из WS: %s", exc)
++
++                if loop is not None:
++                    # Handler already runs on the server loop: await the
++                    # executor future so the confirmation is delivered before
++                    # the next client message can race it.
++                    await loop.run_in_executor(None, _dispatch_confirm, cid, approve)
++                else:
++                    _dispatch_confirm(cid, approve)
+         elif mtype == "interrupt":
+             # Отменяем все активные миссии (best-effort).
+             try:
+@@ -345,6 +760,57 @@ class JarvisWSServer:
+                     self._orch.cancel_mission(m.task_id)
+             except Exception as exc:  # pragma: no cover
+                 log.debug("interrupt error: %s", exc)
++        elif mtype == "hotkey_pressed":
++            # Sprint 5 STEP 4: overlay открыт глобальным hotkey — текущая
++            # речь прерывается (пользователь перебивает, чтобы ввести новое).
++            self._tts_interrupt()
++        elif mtype == "ambient_initiated":
++            # Sprint 6: system sources can ask the already-connected UI to
++            # present a proactive phrase.  It is deliberately an event, not
++            # a command: it never enters the action/conversation router.
++            text = (msg.get("text") or "").strip()
++            if text:
++                self._emit({
++                    "type": "event",
++                    "event": {
++                        "type": "event:system_initiated",
++                        "payload": {"text": text},
++                        "timestamp": _now_ms(),
++                    },
++                })
++                self._speak(text)
++        elif mtype == "screen_capture":
++            if msg.get("permission") is not True:
++                await ws.send(json.dumps({"type": "error", "message": "Screen capture requires explicit permission"}))
++                return
++            try:
++                from core.vision.screen import ScreenCapture
++                result = ScreenCapture().capture(permission=True)
++                await ws.send(json.dumps({"type": "screen_capture", "text": result.text, "active_window": result.active_window, "url": result.url}))
++            except Exception as exc:
++                await ws.send(json.dumps({"type": "error", "message": str(exc)}))
++        elif mtype == "first_launch":
++            # The ritual owns exactly one durable datum: the name.  Save it
++            # through the existing profile store instead of inventing a
++            # second onboarding database or changing command routing.
++            name = (msg.get("name") or "").strip()
++            if name:
++                try:
++                    from core.memory.profile import update_profile
++                    update_profile(self._settings, "name", name)
++                except Exception as exc:  # pragma: no cover - disk edge
++                    log.warning("Не удалось сохранить имя первого запуска: %s", exc)
++        elif mtype == "launcher:get":
++            await ws.send(json.dumps({"type": "launcher", "launcher": self._launcher_payload()}))
++        elif mtype == "launcher:update":
++            try:
++                updated = self._update_launcher(msg.get("launcher"))
++            except Exception as exc:
++                log.warning("Отклонено обновление launcher: %s", exc)
++                await ws.send(json.dumps({"type": "error", "message": str(exc)}))
++                return
++            await ws.send(json.dumps({"type": "launcher:saved", "ok": True,
++                                      "launcher": updated}))
+         elif mtype == "ping":
+             await ws.send(json.dumps({"type": "pong"}))
+ 
+@@ -357,8 +823,11 @@ class JarvisWSServer:
+             targets = list(self._clients)
+         for ws in targets:
+             try:
+-                await ws.send(data)
+-            except Exception:  # pragma: no cover - dropped client
++                # Sprint 1 STEP 3: один медленный/зависший клиент не должен
++                # задерживать рассылку остальным (стриминг не должен
++                # «замерзать» из-за backpressure одного соединения).
++                await asyncio.wait_for(ws.send(data), timeout=5.0)
++            except Exception:  # pragma: no cover - dropped/медленный клиент
+                 pass
+ 
+     def _emit(self, payload: Dict[str, Any]) -> None:
+@@ -370,8 +839,11 @@ class JarvisWSServer:
+             loop.call_soon_threadsafe(
+                 lambda p=payload: asyncio.ensure_future(self._broadcast(p))
+             )
+-        except Exception:  # pragma: no cover
+-            pass
++        except Exception:  # pragma: no cover - loop закрыт
++            # Sprint 1: потеря события больше не «тихая» — иначе UI слепнет
++            # без следа в логах.
++            log.warning("WS emit не удался (event loop закрыт?): type=%s",
++                        payload.get("type"))
+ 
+     def _on_task_event(self, event: TaskEvent) -> None:
+         """Подписка на TaskRuntime -> трансляция в WS."""
+@@ -384,6 +856,23 @@ class JarvisWSServer:
+             self._emit({"type": "state", "state": "idle"})
+         elif et == EVENT_TASK_FAILED:
+             self._emit({"type": "state", "state": "error"})
++            if event.task_id in self._streaming_started:
++                # Sprint 1 STEP 5: стримленный пузырь не должен висеть
++                # открытым — закрываем понятным текстом, детали в лог.
++                self._streaming_started.discard(event.task_id)
++                self._emit({
++                    "type": "event",
++                    "event": {
++                        "type": "event:jarvis:end",
++                        "payload": {
++                            "id": event.task_id,
++                            "kind": "jarvis",
++                            "content": "Сэр, задача не завершилась. Попробуйте ещё раз.",
++                            "model": "local",
++                        },
++                        "timestamp": _now_ms(),
++                    },
++                })
+ 
+         if et == EVENT_STREAM_CHUNK:
+             # Фронт создаёт пузырь ответа только после event:jarvis:start
+@@ -435,6 +924,26 @@ class JarvisWSServer:
+             self._emit({"type": "state", "state": "idle"})
+         elif et == EVENT_TASK_COMPLETED:
+             result = payload.get("result", "")
++            if event.task_id in self._streaming_started:
++                # Sprint 1: миссия стримилась — пузырь с этим task_id уже
++                # закрыт финальным output_callback (consume_streamed_mission).
++                # Карточку-дубль не создаём.
++                self._streaming_started.discard(event.task_id)
++                if payload.get("status") == "cancelled":
++                    self._emit({
++                        "type": "event",
++                        "event": {
++                            "type": "event:jarvis:end",
++                            "payload": {
++                                "id": event.task_id,
++                                "kind": "jarvis",
++                                "content": "Задача отменена.",
++                                "model": "local",
++                            },
++                            "timestamp": _now_ms(),
++                        },
++                    })
++                return
+             self._emit({
+                 "type": "event",
+                 "event": {
+@@ -459,13 +968,16 @@ class JarvisWSServer:
+             return
+         # Запускаем оркестратор (он поднимет фоновые сервисы)
+         self._orch.start()
++        if self._system_monitor is not None:
++            self._system_monitor.start()
+         self._unsub = self._orch.subscribe_events(self._on_task_event)
+         self._running = True
++        self._stop_event.clear()
+ 
+         def _run_loop() -> None:
+             asyncio.run(self._serve_forever())
+ 
+-        self._thread = threading.Thread(target=_run_loop, name="jarvis-ws", daemon=True)
++        self._thread = threading.Thread(target=_run_loop, name="jarvis-ws", daemon=False)
+         self._thread.start()
+         log.info("WS-сервер стартует на ws://%s:%s", self._host, self._port)
+ 
+@@ -476,18 +988,41 @@ class JarvisWSServer:
+         # asyncio.run, а self._loop указывал бы на другой, никогда не
+         # запущенный loop, и все call_soon_threadsafe/_emit терялись бы.
+         self._loop = asyncio.get_running_loop()
+-        async with serve(self._handler, self._host, self._port):  # type: ignore
++        self._ws_server = await serve(self._handler, self._host, self._port)  # type: ignore
++        async with self._ws_server:
+             log.info("WS-сервер слушает ws://%s:%s", self._host, self._port)
+-            await asyncio.Future()  # run forever
++            await self._stop_event_async()
++
++    async def _stop_event_async(self) -> None:
++        while not self._stop_event.is_set():
++            await asyncio.sleep(0.05)
+ 
+     def shutdown(self) -> None:
+         self._running = False
++        self._stop_event.set()
++        loop = self._loop
++        if loop is not None and self._ws_server is not None:
++            try:
++                loop.call_soon_threadsafe(self._ws_server.close)
++            except Exception:
++                pass
++        if self._system_monitor is not None:
++            self._system_monitor.stop()
+         if self._unsub is not None:
+             try:
+                 self._unsub()
+             except Exception:  # pragma: no cover
+                 pass
+         self._orch.shutdown()
++        thread = getattr(self, "_thread", None)
++        if thread and thread.is_alive() and thread is not threading.current_thread():
++            thread.join(timeout=3.0)
++
++    def join(self, timeout: float | None = None) -> bool:
++        thread = getattr(self, "_thread", None)
++        if thread and thread.is_alive():
++            thread.join(timeout=timeout)
++        return bool(thread is None or not thread.is_alive())
+ 
+ 
+ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+@@ -497,7 +1032,8 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+     settings: Settings = load_config()
+     settings.ensure_directories()
+     orch = Orchestrator(settings)
+-    server = JarvisWSServer(orch, host=host, port=port)
++    server = JarvisWSServer(orch, host=host, port=port,
++                            auth_token=os.environ.get("JARVIS_WS_TOKEN") or None)
+     server.start()
+     try:
+         while True:

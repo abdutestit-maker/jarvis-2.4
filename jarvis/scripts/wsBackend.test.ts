@@ -116,5 +116,8 @@ assert.deepEqual(JSON.parse(socket.sent[2]), {
   approve: false,
 });
 
+await transport.hotkeyPressed();
+assert.deepEqual(JSON.parse(socket.sent[3]), { type: 'hotkey_pressed' });
+
 unsubscribe();
 console.log('wsBackend: command, response, confirmation and masked settings passed');

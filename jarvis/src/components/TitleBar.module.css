@@ -23,12 +23,43 @@
 }
 
 .state {
+  display: inline-flex; align-items: center; gap: var(--space-2);
   font-family: var(--font-mono); font-size: 0.6rem;
   letter-spacing: 0.18em; color: var(--text-muted);
   text-transform: uppercase;
   border-left: 1px solid var(--border-glass);
   padding-left: var(--space-3);
 }
+.stateDot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-muted);
+  transition: background var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out);
+}
+.state[data-state='thinking'] .stateDot,
+.state[data-state='streaming'] .stateDot {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 8px var(--accent-cyan);
+  animation: statePulse 1.2s ease-in-out infinite;
+}
+.state[data-state='thinking'], .state[data-state='streaming'] { color: var(--accent-cyan); }
+.state[data-state='executing'] .stateDot {
+  background: var(--accent-green);
+  box-shadow: 0 0 8px var(--accent-green);
+  animation: statePulse 1.6s ease-in-out infinite;
+}
+.state[data-state='executing'] { color: var(--accent-green); }
+.state[data-state='error'] .stateDot {
+  background: var(--accent-red);
+  box-shadow: 0 0 8px var(--accent-red);
+}
+.state[data-state='error'] { color: var(--accent-red); }
+.state[data-state='cloud'] .stateDot {
+  background: var(--accent-gold);
+  box-shadow: 0 0 8px var(--accent-gold);
+}
+.state[data-state='cloud'] { color: var(--accent-gold); }
+@keyframes statePulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 
 .center { flex: 1; }
 

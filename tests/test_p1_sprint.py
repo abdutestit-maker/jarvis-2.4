@@ -93,14 +93,14 @@ def test_p1_runtime_cancel_queued():
 # --------------------------------------------------------------------------- #
 
 def test_p1_no_local_heavy_escalation(monkeypatch):
-    """Фабрика НЕ строит локальный бэкенд для coder/architect (П1 §1.1).
+    """Offline CODER keeps its role while reusing the configured local GGUF.
 
-    Локальный провайдер разрешён ТОЛЬКО для FAST-тира. Любая попытка
-    поднять тяжёлую локальную модель (7B) запрещена — совет мудрецов
-    должен честно деградировать до FAST, а не грузить 7B.
+    Sprint 9 separates task role from model availability: no legacy heavy
+    coder model is loaded, and the task does not become conversational FAST.
     """
     from config import load_config
-    from core.llm import BackendConfigError, get_llm_backend
+    from core.llm import get_llm_backend
+    from core.llm.factory import clear_backend_cache
     from core.llm.tiers import Tier
 
     settings = load_config()
@@ -108,18 +108,17 @@ def test_p1_no_local_heavy_escalation(monkeypatch):
     # для coder = 'local' через setattr (симуляция старой/сломанной конфигурации).
     monkeypatch.setattr(settings.tier_providers, "coder", "local")
     settings.model_tiers.coder = "qwen-coder-local"
-    # gguf_path пуст (как и должно быть после П1) — но сам факт local-провайдера
-    # для coder уже должен вызывать ошибку конфигурации.
-    with pytest.raises(BackendConfigError):
-        get_llm_backend(settings, Tier.CODER)
+    clear_backend_cache()
+    coder = get_llm_backend(settings, Tier.CODER)
+    assert coder.task_role == "coder"
+    assert coder.gguf_path == settings.local_model.resolved_gguf_path
 
     # FAST-тир с локальным провайдером — разрешён (лицо Qwen 4B).
     # (Не падает на BackendConfigError по причине local-provider;
     #  может упасть только если GGUF реально не найден — это норма офлайн-теста.)
-    try:
-        get_llm_backend(settings, Tier.FAST)
-    except BackendConfigError:
-        pytest.fail("FAST-тир с локальным провайдером не должен падать на local-provider")
+    fast = get_llm_backend(settings, Tier.FAST)
+    assert fast.task_role == "fast"
+    clear_backend_cache()
 
 
 def test_p1_council_escalate_no_local_heavy():
@@ -142,11 +141,11 @@ def test_p1_tts_sanitizer_blocks_raw_errors_and_secrets():
     from core.voice.tts_sanitizer import looks_unsafe_for_tts, sanitize_for_tts
 
     # Сырый traceback / исключение -> санитайзер НЕ читает сырьё вслух,
-    # а возвращает честный fallback без сырого Traceback.
+    # и остаётся тишиной: terminal phrase создаёт typed ErrorMapper.
     assert looks_unsafe_for_tts("Traceback (most recent call last):\n  File ...")
     cleaned_trace = sanitize_for_tts("Traceback (most recent call last):\n  File ...")
     assert "Traceback" not in cleaned_trace, "сырой traceback не должен попадать в голос"
-    assert "дозвониться до модели" in cleaned_trace or "техническая заминка" in cleaned_trace
+    assert cleaned_trace == ""
 
     # Внутренний JSON плана -> тоже fallback, без сырого JSON.
     assert looks_unsafe_for_tts('{"tool": "write_file", "arguments": {"path": "x"}}')
@@ -167,8 +166,8 @@ def test_p1_tts_sanitizer_blocks_raw_errors_and_secrets():
 def test_p1_tts_sanitizer_blocks_provider_http_errors():
     """Сырые HTTP-коды/ошибки провайдера НЕ читаются вслух (пункт 1 из live-теста).
 
-    Голос должен звучать по-человечески («сэр, сейчас не могу дозвониться до
-    модели…»), без кодов 401/404/429/503 и технических деталей. При этом живой
+    Голосовой sanitizer должен вернуть тишину без кодов 401/404/429/503 и
+    технических деталей. Естественную terminal phrase создаёт ErrorMapper. Живой
     язык модели (числа, время, суммы) НЕ должен глушиться ложными срабатываниями.
     """
     from core.voice.tts_sanitizer import looks_unsafe_for_tts, sanitize_for_tts
@@ -188,7 +187,7 @@ def test_p1_tts_sanitizer_blocks_provider_http_errors():
         # Никаких сырых кодов/деталей в голосе.
         assert "401" not in out and "404" not in out and "429" not in out and "503" not in out, \
             f"HTTP-код не должен попадать в голос: {out!r}"
-        assert "дозвониться до модели" in out, f"ожидали дружелюбную фразу: {out!r}"
+        assert out == "", f"технический сбой должен быть беззвучным: {out!r}"
 
     # Живой язык модели НЕ глушится (ложноположительные срабатывания недопустимы).
     safe_live = [

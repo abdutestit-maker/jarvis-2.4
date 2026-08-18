@@ -1,0 +1,128 @@
+{
+  "rolled_back": true,
+  "target_root": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817",
+  "kept_demo_app": true,
+  "actions": [
+    {
+      "action": "restore",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\capability_engine.py"
+    },
+    {
+      "action": "restore",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\platform\\__init__.py"
+    },
+    {
+      "action": "restore",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\platform\\browser.py"
+    },
+    {
+      "action": "restore",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\platform\\windows.py"
+    },
+    {
+      "action": "restore",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\pyproject.toml"
+    },
+    {
+      "action": "restore",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\requirements.txt"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\__init__.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\adapters.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\knowledge.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\mission.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\reference.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\semantic.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\session.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\software.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\core\\operator\\windows.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\tests\\test_sprint10_adapters.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\tests\\test_sprint10_browser.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\tests\\test_sprint10_mission.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\tests\\test_sprint10_reference.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\tests\\test_sprint10_software.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\tests\\test_sprint10_windows.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\scripts\\sprint10_live_demo.py"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\scripts\\rollback_sprint10.ps1"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\docs\\sprints\\SPRINT10_SPEC.md"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\tasks\\plan.md"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\tasks\\todo.md"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\data\\app_knowledge\\Notepad.json"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\data\\capabilities\\operator_Notepad.json"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\data\\capabilities\\episodes\\c610b6f38ab0488886b33a53d39e2c0a.json"
+    },
+    {
+      "action": "remove",
+      "path": "E:\\jarvis-project\\artifacts\\sprint10\\rollback_verification\\workspace_20260817\\data\\capabilities\\episodes\\24e13fdcb04740ccb4da39075afc1942.json"
+    }
+  ]
+}
+ROLLBACK_STAGE_VERIFIED=True

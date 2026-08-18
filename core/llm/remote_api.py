@@ -26,6 +26,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from core.llm import breaker
 from core.llm.backend import (
     BackendConfigError,
     BackendUnavailable,
@@ -276,6 +277,7 @@ class RemoteAPIBackend(LLMBackend):
             ):
                 with attempt:
                     response = self._request(payload, stream=stream)
+                    breaker.record_success(self.name)
                     log.info(
                         "LLM-вызов OK | модель=%s | latency=%.2f с | попытка=%d",
                         self.name, time.perf_counter() - started,
@@ -287,12 +289,14 @@ class RemoteAPIBackend(LLMBackend):
         except BackendUnavailable as exc:
             log.error("LLM-вызов ОШИБКА | модель=%s | latency=%.2f с | %s",
                       self.name, time.perf_counter() - started, exc)
+            breaker.record_failure(self.name)
             raise
 
         log.error(
             "LLM-вызов ПРОВАЛ | модель=%s | latency=%.2f с | попыток=%d | %s",
             self.name, time.perf_counter() - started, self._max_retries, last_error,
         )
+        breaker.record_failure(self.name)
         raise BackendUnavailable(
             f"Провайдер {self.provider} недоступен: исчерпаны {self._max_retries} "
             f"попыток. Последняя ошибка: {last_error}"
@@ -368,6 +372,11 @@ class RemoteAPIBackend(LLMBackend):
 
     def _iter_sse_lines(self, response: requests.Response) -> Generator[Dict[str, Any], None, None]:
         """Разбирает Server-Sent Events в словари JSON."""
+        # OpenAI-совместимые SSE всегда UTF-8, но charset в заголовке часто
+        # не приходит — без этого requests декодирует байты как latin-1 и
+        # кириллица превращается в mojibake (живой баг Sprint 4 smoke E).
+        if not response.encoding or response.encoding.lower() not in ("utf-8", "utf8"):
+            response.encoding = "utf-8"
         for raw_line in response.iter_lines(decode_unicode=True):
             if not raw_line:
                 continue
@@ -390,20 +399,43 @@ class RemoteAPIBackend(LLMBackend):
     def streaming(self, messages: List[Dict[str, Any]], system: Optional[str] = None,
                   max_tokens: Optional[int] = None,
                   temperature: Optional[float] = None) -> Generator[str, None, None]:
-        """Потоковая генерация через SSE."""
+        """Потоковая генерация через SSE.
+
+        Watchdog (Sprint 3 STEP 5): у стрима есть ДВА жёстких бюджета
+        wall-clock, чтобы «trickle» (провайдер капает по байту, держа
+        соединение живым) не растягивал простое «привет» на 30+ секунд:
+
+            * первый токен — ``self._timeout`` секунд (соединение есть,
+              но модель не начала отвечать -> провайдер мёртв);
+            * весь стрим — 1.5x таймаута (модель отвечает слишком медленно).
+
+        Нарушение бюджета — ``BackendUnavailable`` -> обычный фолбэк тира.
+        """
         normalized = normalize_messages(messages)
         if not normalized:
             raise ValueError("streaming(): пустой список сообщений")
 
         payload = self._build_payload(normalized, system, max_tokens, temperature, stream=True)
         response = self._request_with_retry(payload, stream=True)
+        first_token_deadline = self._timeout
+        total_budget = max(self._timeout * 1.5, self._timeout + 3.0)
+        started = time.perf_counter()
+        got_first = False
         try:
             for event in self._iter_sse_lines(response):
+                now = time.perf_counter() - started
+                if now > total_budget:
+                    breaker.record_failure(self.name)
+                    raise BackendUnavailable(
+                        f"Бюджет стрима {total_budget:.0f} с исчерпан для {self.provider} "
+                        f"(получено {now:.1f} с) — медленный/зависший поток"
+                    )
                 if self._is_anthropic:
                     if event.get("type") == "content_block_delta":
                         delta = event.get("delta") or {}
                         piece = delta.get("text")
                         if piece:
+                            got_first = True
                             yield str(piece)
                     continue
                 choices = event.get("choices") or []
@@ -412,6 +444,14 @@ class RemoteAPIBackend(LLMBackend):
                 delta = choices[0].get("delta") or {}
                 piece = delta.get("content")
                 if piece:
+                    if not got_first:
+                        got_first = True
+                        if time.perf_counter() - started > first_token_deadline:
+                            breaker.record_failure(self.name)
+                            raise BackendUnavailable(
+                                f"Первый токен от {self.provider} не пришёл за "
+                                f"{first_token_deadline:.0f} с — провайдер не отвечает"
+                            )
                     yield str(piece)
         except requests.RequestException as exc:
             raise BackendUnavailable(
@@ -419,6 +459,12 @@ class RemoteAPIBackend(LLMBackend):
             ) from exc
         finally:
             response.close()
+        if not got_first and time.perf_counter() - started > first_token_deadline:
+            breaker.record_failure(self.name)
+            raise BackendUnavailable(
+                f"Пустой стрим от {self.provider}: первый токен не пришёл за "
+                f"{first_token_deadline:.0f} с"
+            )
 
     def embed(self, text: str) -> List[float]:
         """Эмбеддинг через ``/embeddings`` (если провайдер поддерживает)."""
@@ -517,7 +563,9 @@ class RemoteAPIBackend(LLMBackend):
 
     @classmethod
     def from_settings(cls, settings: Any, provider: str,
-                      model_id: Optional[str] = None) -> "RemoteAPIBackend":
+                      model_id: Optional[str] = None, *,
+                      timeout: Optional[float] = None,
+                      max_retries: Optional[int] = None) -> "RemoteAPIBackend":
         """Создаёт бэкенд из объекта ``Settings``.
 
         Поддерживает ДВА режима (П1 §1.4 — ключ автора НЕ в клиенте):
@@ -531,12 +579,25 @@ class RemoteAPIBackend(LLMBackend):
           В заголовках клиента — только локальный ``proxy_token``, НЕ ключ
           провайдера. Включается, когда ``settings.proxy.enabled = True``.
 
+        ``timeout`` / ``max_retries`` опционально переопределяют значения
+        из ``settings.limits`` (например, короткая политика для FAST-тира);
+        ``None`` — использовать общие лимиты.
+
         Raises:
             BackendConfigError: нет endpoint / ключа / model-id.
         """
         name = (provider or "").strip().lower()
         proxy = getattr(settings, "proxy", None)
         use_proxy = bool(getattr(proxy, "enabled", False)) and bool(getattr(proxy, "endpoint", ""))
+        limits = getattr(settings, "limits", None)
+        eff_timeout = float(
+            timeout if timeout is not None
+            else getattr(limits, "response_timeout_sec", 15.0)
+        )
+        eff_retries = int(
+            max_retries if max_retries is not None
+            else getattr(limits, "max_retries", 3)
+        )
 
         if use_proxy:
             # ---- PROXY-РЕЖИМ: ключ автора НЕ попадает в клиент ----
@@ -568,8 +629,8 @@ class RemoteAPIBackend(LLMBackend):
                 model_id=model_id_resolved,
                 proxy_endpoint=endpoint,
                 proxy_token=proxy_token,
-                timeout=settings.limits.response_timeout_sec,
-                max_retries=settings.limits.max_retries,
+                timeout=eff_timeout,
+                max_retries=eff_retries,
                 temperature=0.7,
                 max_tokens=2048,
             )
@@ -592,6 +653,6 @@ class RemoteAPIBackend(LLMBackend):
             model_id=model_id or "",
             base_url=endpoint,
             api_key=api_key,
-            timeout=settings.limits.response_timeout_sec,
-            max_retries=settings.limits.max_retries,
+            timeout=eff_timeout,
+            max_retries=eff_retries,
         )

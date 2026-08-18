@@ -187,6 +187,7 @@ export type BackendEventType =
   | 'event:tool'
   | 'event:result'
   | 'event:system'
+  | 'event:system_initiated'
   | 'event:seed'
   | 'event:progress'
   | 'state:thinking'
@@ -197,6 +198,10 @@ export type BackendEventType =
   | 'state:cloud'
   | 'state:listening'
   | 'vitals:update'
+  | 'profile:status'
+  | 'screen:capture'
+  | 'event:wake_word_detected'
+  | 'event:voice_input'
   | 'model:status'
   | 'workspace:update'
   | 'confirmation:required';

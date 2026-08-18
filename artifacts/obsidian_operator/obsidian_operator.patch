@@ -1,0 +1,1039 @@
+--- a/jarvis/src/App.tsx
++++ b/jarvis/src/App.tsx
+@@ -3,57 +3,118 @@
+ import { getCurrentWindow } from '@tauri-apps/api/window';
+ import { StateMachine, presenceFromTransport, type PresenceState } from '@/bridge/StateMachine';
+ import { TTSController } from '@/bridge/TTSController';
++import { OperatorShell } from '@/operator/OperatorShell';
++import {
++  confirmationFromEvent, createMission, fixtureMission, reduceMission,
++  type OperatorMission, type UiMode,
++} from '@/operator/model';
++import { InputOverlay } from '@/overlay/InputOverlay';
+ import { TrayIcon } from '@/presence/TrayIcon';
+-import { InputOverlay } from '@/overlay/InputOverlay';
+-import { MainWindow } from '@/window/MainWindow';
++import { WebSocketBackend } from '@/integrations/wsBackend';
++import type { BackendEvent, PendingConfirmation } from '@/types';
+ import type { PresenceMessage } from '@/window/MessageStream';
+-import { WebSocketBackend } from '@/integrations/wsBackend';
+-import type { BackendEvent } from '@/types';
+ import './presence.css';
+ 
+ function isOverlayWindow(): boolean {
+   try { return getCurrentWindow().label === 'overlay'; } catch { return false; }
+ }
+ 
++function fixtureName(): string | null {
++  if (!import.meta.env.DEV) return null;
++  return new URLSearchParams(window.location.search).get('fixture');
++}
++
++function fixtureMessages(fixture: string | null): PresenceMessage[] {
++  if (!fixture) return [];
++  const now = Date.now();
++  return [
++    { id: 'fixture-user', role: 'user', text: 'Установи тестовую программу и настрой её.', timestamp: now - 32_000 },
++    { id: 'fixture-jarvis', role: 'jarvis', text: fixture === 'verified' ? 'Готово. Проверяйте, сэр.' : 'Сейчас разберусь, сэр.', timestamp: now - 24_000 },
++  ];
++}
++
++function initialMode(fixture: string | null): UiMode {
++  if (fixture && fixture !== 'compact') return 'command_center';
++  const saved = window.localStorage.getItem('jarvis.ui.mode');
++  return saved === 'command_center' ? 'command_center' : 'presence';
++}
++
+ function App() {
++  const fixture = useMemo(fixtureName, []);
+   const backend = useMemo(() => new WebSocketBackend('ws://127.0.0.1:8771'), []);
+   const machine = useMemo(() => new StateMachine(), []);
+   const tts = useMemo(() => new TTSController(), []);
+-  const [messages, setMessages] = useState<PresenceMessage[]>([]);
+-  const [state, setState] = useState<PresenceState>('idle');
++  const [messages, setMessages] = useState<PresenceMessage[]>(() => fixtureMessages(fixture));
++  const [state, setState] = useState<PresenceState>(fixture === 'verified' ? 'idle' : fixture ? 'thinking' : 'idle');
+   const [firstLaunch, setFirstLaunch] = useState(false);
++  const [mode, setMode] = useState<UiMode>(() => initialMode(fixture));
++  const [mission, setMission] = useState<OperatorMission | null>(() => fixture ? fixtureMission(fixture === 'verified' ? 'verified' : fixture === 'verify' ? 'verify' : 'download') : null);
++  const [confirmation, setConfirmation] = useState<PendingConfirmation | null>(() => fixture === 'verify' ? { id: 'fixture-confirmation', prompt: 'Разрешить установку приложения?', tool: 'software.install', risk: { level: 'low' } } : null);
+   const streaming = useRef<string | null>(null);
+   const overlay = isOverlayWindow();
+ 
+   const transition = useCallback((next: PresenceState) => setState(machine.transition(next)), [machine]);
+-  const append = useCallback((message: PresenceMessage) => setMessages((current) => [...current, message].slice(-20)), []);
+-  const closeOverlay = useCallback(() => { try { void getCurrentWindow().hide(); } catch { /* browser preview */ } }, []);
+-
+-  useEffect(() => backend.subscribeToEvents((event: BackendEvent) => {
+-    if (event.type.startsWith('state:')) { transition(presenceFromTransport(event.type.slice(6))); return; }
+-    if (event.type === 'profile:status') { setFirstLaunch(!(event.payload as { hasName: boolean }).hasName); return; }
+-    if (event.type === 'event:voice_input') {
+-      const payload = event.payload as { text: string; confidence: number };
+-      if (payload.confidence >= 0.7 && payload.text.trim()) { append({ id: `voice-${Date.now()}`, role: 'user', text: payload.text, timestamp: Date.now() }); transition('thinking'); void backend.sendCommand(payload.text, []); }
+-      return;
+-    }
+-    if (event.type === 'event:jarvis:start') {
+-      const payload = event.payload as { id: string }; streaming.current = payload.id;
+-      append({ id: payload.id, role: 'jarvis', text: '', timestamp: event.timestamp }); transition('thinking'); return;
+-    }
+-    if (event.type === 'event:jarvis:token' || event.type === 'event:jarvis:end') {
+-      const payload = event.payload as { id: string; content?: string; token?: string };
+-      const text = payload.content ?? payload.token ?? '';
+-      setMessages((current) => current.map((message) => message.id === (streaming.current ?? payload.id) ? { ...message, text } : message));
+-      if (event.type === 'event:jarvis:end') { streaming.current = null; tts.finish(); transition('idle'); }
+-    }
+-  }), [append, backend, transition, tts]);
++  const append = useCallback((message: PresenceMessage) => setMessages((current) => [...current, message].slice(-30)), []);
++  const closeOverlay = useCallback(() => { try { void getCurrentWindow().hide(); } catch { /* browser fixture */ } }, []);
++  const updateMode = useCallback((next: UiMode) => { window.localStorage.setItem('jarvis.ui.mode', next); setMode(next); }, []);
+ 
+   useEffect(() => {
++    if (fixture) return;
++    return backend.subscribeToEvents((event: BackendEvent) => {
++      if (event.type.startsWith('state:')) {
++        transition(presenceFromTransport(event.type.slice(6)));
++        setMission((current) => current ? reduceMission(current, event) : current);
++        return;
++      }
++      if (event.type === 'profile:status') {
++        setFirstLaunch(!(event.payload as { hasName: boolean }).hasName);
++        return;
++      }
++      if (event.type === 'confirmation:required') {
++        setConfirmation(confirmationFromEvent(event));
++        setMission((current) => current ? reduceMission(current, event) : current);
++        return;
++      }
++      if (event.type === 'event:voice_input') {
++        const payload = event.payload as { text: string; confidence: number };
++        if (payload.confidence >= 0.7 && payload.text.trim()) {
++          append({ id: `voice-${Date.now()}`, role: 'user', text: payload.text, timestamp: Date.now() });
++          setMission(createMission(payload.text));
++          transition('thinking');
++          void backend.sendCommand(payload.text, []).catch(() => transition('error'));
++        }
++        return;
++      }
++      if (event.type === 'event:jarvis:start') {
++        const payload = event.payload as { id: string };
++        streaming.current = payload.id;
++        append({ id: payload.id, role: 'jarvis', text: '', timestamp: event.timestamp });
++        transition('thinking');
++        return;
++      }
++      if (event.type === 'event:jarvis:token' || event.type === 'event:jarvis:end') {
++        const payload = event.payload as { id: string; content?: string; token?: string };
++        const text = payload.content ?? payload.token ?? '';
++        setMessages((current) => current.map((message) => message.id === (streaming.current ?? payload.id) ? { ...message, text } : message));
++        if (event.type === 'event:jarvis:end') {
++          streaming.current = null;
++          tts.finish();
++          transition('idle');
++        }
++        return;
++      }
++      if (event.type === 'event:action' || event.type === 'event:tool' || event.type === 'event:progress' || event.type === 'event:result' || event.type === 'event:system') {
++        setMission((current) => current ? reduceMission(current, event) : current);
++      }
++    });
++  }, [append, backend, fixture, transition, tts]);
++
++  useEffect(() => {
++    if (fixture) return;
+     let off: (() => void) | undefined;
+     void listen('jarvis://hotkey', () => { void backend.hotkeyPressed(); void backend.voiceListen(); }).then((unlisten) => { off = unlisten; });
+     return () => off?.();
+-  }, [backend]);
++  }, [backend, fixture]);
+ 
+   useEffect(() => {
+     const close = () => { if (overlay) closeOverlay(); };
+@@ -62,26 +123,76 @@
+   }, [closeOverlay, overlay]);
+ 
+   useEffect(() => {
+-    if (!firstLaunch || overlay) return;
++    if (!firstLaunch || overlay || fixture) return;
+     const timer = window.setTimeout(() => append({ id: 'ritual-hello', role: 'jarvis', text: 'Привет.\n\nЯ JARVIS.\n\nА ты кто?', timestamp: Date.now() }), 1000);
+     return () => window.clearTimeout(timer);
+-  }, [append, firstLaunch, overlay]);
++  }, [append, firstLaunch, fixture, overlay]);
+ 
+   const send = useCallback((text: string) => {
+-    // Overlay is input-only: close it before touching the backend. TTS and
+-    // the MainWindow remain available through the normal WS event stream.
+     if (overlay) closeOverlay();
+-    tts.interrupt(); void backend.interrupt(); append({ id: `user-${Date.now()}`, role: 'user', text, timestamp: Date.now() });
++    tts.interrupt();
++    if (!fixture) void backend.interrupt().catch(() => undefined);
++    append({ id: `user-${Date.now()}`, role: 'user', text, timestamp: Date.now() });
+     if (firstLaunch) {
+-      void backend.saveFirstLaunchName(text); setFirstLaunch(false); transition('thinking');
++      if (!fixture) void backend.saveFirstLaunchName(text).catch(() => transition('error'));
++      setFirstLaunch(false);
++      transition('thinking');
+       window.setTimeout(() => { append({ id: 'ritual-known', role: 'jarvis', text: `${text}.\n\nЗапомнил.\n\nДавай знакомиться.`, timestamp: Date.now() }); transition('idle'); }, 600);
+       return;
+     }
+-    transition('thinking'); void backend.sendCommand(text, []);
+-  }, [append, backend, closeOverlay, firstLaunch, overlay, transition, tts]);
++    setMission(createMission(text));
++    setConfirmation(null);
++    transition('thinking');
++    if (!fixture) void backend.sendCommand(text, []).catch(() => transition('error'));
++  }, [append, backend, closeOverlay, firstLaunch, fixture, overlay, transition, tts]);
++
++  const answerConfirmation = useCallback((approved: boolean) => {
++    const pending = confirmation;
++    if (!pending) return;
++    setConfirmation(null);
++    if (!fixture) void backend.answerConfirmation(pending.id, approved).catch(() => transition('error'));
++    if (approved) {
++      const event: BackendEvent = { type: 'state:executing', payload: null, timestamp: Date.now() };
++      setMission((current) => current ? reduceMission(current, event) : current);
++      transition('thinking');
++    }
++  }, [backend, confirmation, fixture, transition]);
++
++  const interrupt = useCallback(() => {
++    tts.interrupt();
++    if (!fixture) void backend.interrupt().catch(() => undefined);
++    transition('idle');
++  }, [backend, fixture, transition, tts]);
++
++  const voiceListen = useCallback(() => {
++    if (!fixture) void backend.voiceListen().catch(() => transition('error'));
++  }, [backend, fixture, transition]);
++
++  const newSession = useCallback(() => {
++    setMessages([]);
++    setMission(null);
++    setConfirmation(null);
++    transition('idle');
++  }, [transition]);
+ 
+   if (overlay) return <div className="overlayRoot"><InputOverlay onSend={send} onClose={closeOverlay} /></div>;
+-  return <><TrayIcon onHotkey={() => { void backend.hotkeyPressed(); void backend.voiceListen(); }} state={state} /><MainWindow messages={messages} state={state} onSend={send} firstLaunch={firstLaunch} /></>;
++  return <>
++    <TrayIcon onHotkey={() => { void backend.hotkeyPressed(); void backend.voiceListen(); }} state={state} />
++    <OperatorShell
++      messages={messages}
++      state={state}
++      mode={mode}
++      mission={mission}
++      confirmation={confirmation}
++      firstLaunch={firstLaunch}
++      onModeChange={updateMode}
++      onSend={send}
++      onInterrupt={interrupt}
++      onVoiceListen={voiceListen}
++      onConfirm={answerConfirmation}
++      onNewSession={newSession}
++    />
++  </>;
+ }
+ 
+ export default App;
+--- a/jarvis/src/presence.css
++++ b/jarvis/src/presence.css
+@@ -1 +1,118 @@
+-:root { --bg-primary:#0a0a0a; --text-primary:#e8e8e8; --text-secondary:#6a6a6a; --text-muted:#3a3a3a; --accent:#c9a962; --error:#c96262; } * { box-sizing:border-box; } body { margin:0; min-width:0; background:var(--bg-primary); color:var(--text-primary); font:400 15px/1.6 system-ui,sans-serif; } #root { width:100vw; height:100vh; }.jarvisWindow { height:100%; display:flex; flex-direction:column; background:var(--bg-primary); } .statusBar { height:40px; flex:0 0 40px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:0 12px; color:var(--text-secondary); font-size:12px; letter-spacing:4px; -webkit-app-region:drag; user-select:none; } .statusBar time { letter-spacing:0; font-variant-numeric:tabular-nums; } .presenceDot { justify-self:end; width:8px; height:8px; border-radius:50%; background:var(--accent); } .presenceDot.idle { animation:breathe 3s ease-in-out infinite; } .presenceDot.thinking { animation:breathe 1s ease-in-out infinite; } .presenceDot.speaking { opacity:1; } .presenceDot.error { background:var(--error); animation:breathe .5s linear infinite; } .presenceDot.proactive { animation:breathe 1.5s ease-in-out infinite; } @keyframes breathe { 50%{opacity:.3} }.messageStream { flex:1; overflow:auto; padding:12px; } .message { margin:0 0 16px; animation:messageIn 200ms ease-out both; } .message.user { text-align:right; } .messageText { white-space:pre-wrap; } .message.jarvis .messageText { display:flex; gap:10px; align-items:flex-start; } .message.jarvis i { flex:0 0 6px; height:6px; margin-top:9px; border-radius:50%; background:var(--accent); } .message time { display:block; margin-top:3px; color:var(--text-muted); font-size:9px; } @keyframes messageIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }.inputLine { height:48px; margin:0 12px; border-bottom:1px solid #2a2a2a; } .inputLine:focus-within { border-color:var(--accent); transition:border-color .3s; } .inputLine input,.overlayInput input { width:100%; height:100%; border:0; outline:0; background:transparent; color:var(--text-primary); font:400 14px system-ui,sans-serif; } input::placeholder { color:var(--text-muted); }.overlayRoot { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; background:transparent; } .overlayRoot.inline { position:fixed; inset:0; background:rgba(0,0,0,.25); } .overlayInput,.overlayResponse { width:480px; min-height:48px; padding:0 12px; background:rgba(10,10,10,.92); border:1px solid #1a1a1a; border-radius:4px; box-shadow:0 8px 32px rgba(0,0,0,.8); animation:overlayIn 80ms ease-out both; } .overlayInput { border-bottom-color:#2a2a2a; } .overlayInput:focus-within { border-bottom-color:var(--accent); } .overlayResponse { display:flex; align-items:center; white-space:pre-wrap; padding-block:10px; } @keyframes overlayIn { from { opacity:0; } to { opacity:1; } }
++:root {
++  color-scheme: dark;
++  --ink-0: #050608; --ink-1: #080b0f; --ink-2: #0d1116;
++  --glass: rgba(8, 11, 15, .82); --glass-strong: rgba(11, 15, 20, .94);
++  --line: rgba(220, 235, 244, .11); --line-strong: rgba(220, 235, 244, .2);
++  --text: #eef4f7; --text-2: #a7b0b7; --text-3: #67717a;
++  --cyan: #19d7ef; --cyan-soft: rgba(25, 215, 239, .12);
++  --lime: #9bee23; --lime-soft: rgba(155, 238, 35, .12);
++  --amber: #f4b515; --amber-soft: rgba(244, 181, 21, .12); --red: #ff5a67;
++  --radius-md: 16px; --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
++  --sans: "Space Grotesk", "Segoe UI Variable", "Segoe UI", sans-serif;
++}
++* { box-sizing: border-box; }
++html, body, #root { width: 100%; height: 100%; }
++html, body { background: transparent; }
++body { margin: 0; min-width: 0; overflow: hidden; color: var(--text); font: 400 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
++button, input { font: inherit; } button { color: inherit; } button, [role="button"] { cursor: pointer; }
++button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
++
++.compactShell, .commandShell { width: 100%; height: 100%; overflow: hidden; border: 1px solid var(--line-strong); background: linear-gradient(145deg, rgba(13,18,24,.92), rgba(5,7,10,.86)); box-shadow: inset 0 1px rgba(255,255,255,.035), 0 28px 90px rgba(0,0,0,.58); backdrop-filter: blur(24px) saturate(115%); -webkit-backdrop-filter: blur(24px) saturate(115%); }
++.compactShell { display: grid; grid-template-rows: 46px 176px minmax(0,1fr) auto 66px; border-radius: 18px; }
++.commandShell { display: grid; grid-template-columns: 224px minmax(520px,1fr) 286px; border-radius: 18px; }
++.iconButton { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 10px; display: inline-grid; place-items: center; background: transparent; }
++.iconButton.quiet { color: var(--text-2); } .iconButton.quiet:hover { color: var(--text); background: rgba(255,255,255,.055); }
++.iconButton.stop { border: 1px solid var(--line); color: var(--text-2); background: rgba(255,255,255,.035); }
++.closeButton:hover { color: white !important; background: rgba(255,70,86,.65) !important; }
++
++.compactTitlebar { display: grid; grid-template-columns: 1fr auto auto 40px; align-items: center; gap: 12px; padding: 0 8px 0 18px; border-bottom: 1px solid rgba(255,255,255,.055); user-select: none; }
++.compactTitlebar strong, .sideBrand strong { font-size: 13px; letter-spacing: .34em; font-weight: 650; }
++.compactTitlebar time, .operatorClock { color: var(--text-3); font: 12px var(--mono); font-variant-numeric: tabular-nums; }
++.titleStatusDot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 12px color-mix(in srgb, var(--cyan), transparent 38%); }
++.titleStatusDot[data-tone="lime"] { background: var(--lime); } .titleStatusDot[data-tone="amber"] { background: var(--amber); } .titleStatusDot[data-tone="error"] { background: var(--red); }
++.compactCore { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
++.signalCore { --signal: var(--cyan); position: relative; width: 112px; height: 112px; display: grid; place-items: center; border-radius: 50%; }
++.signalCore.compact { width: 34px; height: 34px; flex: 0 0 34px; } .signalCore[data-tone="lime"] { --signal: var(--lime); } .signalCore[data-tone="amber"] { --signal: var(--amber); } .signalCore[data-tone="error"] { --signal: var(--red); }
++.signalRing { position: absolute; inset: 8%; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--signal), transparent 72%); }
++.ringOne { clip-path: polygon(0 0,76% 0,76% 100%,0 100%); border-width: 2px; animation: signalOrbit 7s linear infinite; }
++.ringTwo { inset: 21%; border-color: color-mix(in srgb,var(--signal),transparent 45%); clip-path: polygon(22% 0,100% 0,100% 100%,22% 100%); animation: signalOrbit 5s linear infinite reverse; }
++.signalWave { display: flex; gap: 3px; align-items: center; height: 28%; }
++.signalWave i { display: block; width: 2px; height: 32%; border-radius: 3px; background: var(--signal); box-shadow: 0 0 8px color-mix(in srgb,var(--signal),transparent 30%); animation: signalWave 1.3s ease-in-out infinite; }
++.signalWave i:nth-child(2), .signalWave i:nth-child(6) { height: 66%; animation-delay: -.4s; } .signalWave i:nth-child(3), .signalWave i:nth-child(5) { height: 95%; animation-delay: -.75s; } .signalWave i:nth-child(4) { height: 52%; animation-delay: -.15s; }
++.signalCore.compact .signalWave { gap: 1px; } .signalCore.compact .signalWave i { width: 1px; }
++@keyframes signalOrbit { to { transform: rotate(360deg); } } @keyframes signalWave { 50% { transform: scaleY(.5); opacity: .55; } }
++.technicalLabel { color: var(--cyan); font: 600 10px/1 var(--mono); letter-spacing: .15em; }
++.technicalLabel[data-tone="lime"] { color: var(--lime); } .technicalLabel[data-tone="amber"] { color: var(--amber); } .technicalLabel[data-tone="error"] { color: var(--red); }
++
++.operatorMessages { display: grid; gap: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(6,8,11,.42); overflow: hidden; }
++.operatorMessages.compact { margin: 0 14px; border: 0; border-radius: 0; background: transparent; overflow-y: auto; }
++.operatorMessage { min-width: 0; display: grid; grid-template-columns: 34px 1fr; gap: 12px; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.055); animation: contentIn 180ms ease-out both; }
++.operatorMessage:last-child { border-bottom: 0; } .operatorMessages.compact .operatorMessage { grid-template-columns: 28px 1fr; padding: 9px 0; }
++.operatorMessage.user .messageMark { color: var(--text-3); } .messageMark { display: grid; place-items: start center; padding-top: 1px; }
++.operatorMessage p { margin: 0; color: var(--text); overflow-wrap: anywhere; } .operatorMessage time { display: block; margin-top: 4px; color: var(--text-3); font: 10px var(--mono); }
++.operatorMessages.compact p { font-size: 13px; line-height: 1.4; }
++.emptyConversation { min-height: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; color: var(--text-2); }
++.emptyConversation small { max-width: 430px; margin-top: 5px; color: var(--text-3); }
++.expandSuggestion { margin: 4px 14px 8px; min-height: 44px; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(25,215,239,.18); border-radius: 10px; background: var(--cyan-soft); color: var(--text-2); font-size: 11px; }
++.expandSuggestion strong { color: var(--cyan); font: 600 10px var(--mono); text-transform: uppercase; }
++.operatorComposer { height: 50px; display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 2px; margin: 8px 12px 12px; padding: 0 6px 0 16px; border: 1px solid var(--line); border-radius: 16px; background: rgba(12,16,21,.78); box-shadow: inset 0 1px rgba(255,255,255,.025); }
++.operatorComposer:focus-within { border-color: rgba(25,215,239,.45); box-shadow: 0 0 0 3px rgba(25,215,239,.055); }
++.operatorComposer input { min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text); } .operatorComposer input::placeholder { color: var(--text-3); }
++.sendButton { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid rgba(25,215,239,.22); border-radius: 10px; color: var(--cyan); background: var(--cyan-soft); } .sendButton:disabled { opacity: .35; cursor: default; }
++
++.operatorSidebar { min-width: 0; padding: 22px 14px 16px; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: rgba(5,7,10,.48); }
++.sideBrand { height: 58px; padding: 0 8px; display: flex; flex-direction: column; justify-content: center; } .sideBrand span { margin-top: 5px; color: var(--text-3); font: 8px var(--mono); letter-spacing: .17em; }
++.newSession { height: 44px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; padding: 0 13px; border: 1px solid rgba(25,215,239,.75); border-radius: 10px; color: var(--text); background: rgba(25,215,239,.035); } .newSession svg { color: var(--cyan); }
++.sessionSearch { height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text-3); background: rgba(255,255,255,.018); }
++.sessionSearch:focus-within { border-color: rgba(25,215,239,.38); } .sessionSearch input { min-width: 0; width: 100%; border: 0; outline: 0; color: var(--text); background: transparent; } .sessionSearch input::placeholder { color: var(--text-3); }
++.sideSection, .railTitle, .eyebrow { display: block; color: var(--text-3); font: 600 9px var(--mono); letter-spacing: .12em; } .sideSection { margin: 24px 8px 10px; }
++.sessionList { min-height: 0; overflow-y: auto; }
++.sessionRow { min-height: 62px; display: grid; grid-template-columns: 34px minmax(0,1fr); align-items: center; gap: 8px; padding: 9px; border-left: 2px solid transparent; border-radius: 0 8px 8px 0; }
++.sessionRow.active { border-left-color: var(--cyan); background: linear-gradient(90deg,rgba(25,215,239,.08),rgba(255,255,255,.025)); }
++.sessionRow strong { display: block; overflow: hidden; color: var(--text-2); font-size: 12px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; } .sessionRow time { color: var(--text-3); font: 10px var(--mono); }
++.noSessions { padding: 12px 8px; color: var(--text-3); font-size: 11px; }
++.settingsButton { height: 44px; margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid transparent; border-radius: 10px; color: var(--text-2); background: transparent; }
++.settingsButton:hover { border-color: var(--line); background: rgba(255,255,255,.025); }
++.quickSettings { margin-top: 8px; padding: 12px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--glass-strong); } .quickSettings span, .quickSettings small { color: var(--text-3); font-size: 10px; }
++
++.operatorMain { min-width: 0; display: grid; grid-template-rows: 58px minmax(0,1fr) 70px; }
++.operatorTitlebar { display: grid; grid-template-columns: auto 1fr auto auto auto auto auto auto; align-items: center; gap: 2px; padding: 0 8px 0 18px; border-bottom: 1px solid var(--line); user-select: none; }
++.operatorTitlebar .technicalLabel { margin-left: 8px; } .operatorClock { margin: 0 12px; } .mobileMenu { display: none; }
++.operatorContent { min-height: 0; overflow-y: auto; padding: 18px; } .operatorContent > .operatorMessages { margin-bottom: 16px; }
++.missionPanel { padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(6,8,11,.48); }
++.panelHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; } .panelHeading h1 { margin: 6px 0 0; font-size: clamp(17px,2vw,22px); line-height: 1.2; font-weight: 560; } .missionId { color: var(--text-3); font: 9px var(--mono); }
++.stepRail { margin: 26px 8px 24px; display: grid; grid-template-columns: repeat(4,1fr); }
++.missionStep { position: relative; display: grid; justify-items: start; gap: 8px; color: var(--text-3); }
++.missionStep::after { content: ""; position: absolute; top: 13px; left: 27px; right: 0; height: 1px; background: var(--line-strong); } .missionStep:last-child::after { display: none; }
++.missionStep > span { z-index: 1; width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--ink-1); }
++.missionStep > span i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; } .missionStep strong { font: 600 9px var(--mono); }
++.missionStep[data-state="active"], .missionStep[data-state="complete"] { color: var(--cyan); } .missionPanel[data-phase="verify"] .missionStep[data-state="active"] { color: var(--amber); } .missionPanel[data-phase="verified"] .missionStep { color: var(--lime); }
++.missionStep[data-state="active"] > span { border-color: currentColor; box-shadow: 0 0 0 5px color-mix(in srgb,currentColor,transparent 90%); }
++.missionStep[data-state="complete"] > span { border-color: var(--cyan); color: var(--ink-0); background: var(--cyan); } .missionPanel[data-phase="verified"] .missionStep[data-state="complete"] > span { border-color: var(--lime); background: var(--lime); } .missionStep[data-state="complete"]::after { background: currentColor; } .missionStep[data-state="failed"] { color: var(--red); }
++.activityList { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; }
++.activityRow { min-height: 62px; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--line); } .activityRow:last-child { border-bottom: 0; }
++.activityIcon { width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--cyan); } .activityRow[data-status="complete"] .activityIcon { color: var(--lime); } .activityRow[data-status="failed"] .activityIcon { color: var(--red); }
++.activityRow strong { display: block; color: var(--text-2); font-size: 12px; font-weight: 520; } .activityRow small { display: block; margin-top: 3px; color: var(--text-3); font: 10px var(--mono); overflow-wrap: anywhere; } .activityRow time { color: var(--text-3); font: 9px var(--mono); }
++.confirmationBar { margin-top: 10px; min-height: 72px; display: grid; grid-template-columns: 36px minmax(0,1fr) auto auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid rgba(244,181,21,.72); border-radius: 10px; background: linear-gradient(90deg,rgba(244,181,21,.13),rgba(244,181,21,.035)); }
++.confirmationIcon { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--amber); border-radius: 50%; color: var(--amber); font: 700 14px var(--mono); }
++.confirmationBar strong { display: block; color: var(--amber); } .confirmationBar small { display: block; color: var(--text-2); } .confirmationBar code { color: var(--text-3); font: 9px var(--mono); }
++.confirmPrimary, .confirmSecondary { min-height: 38px; padding: 0 15px; border-radius: 8px; font: 600 10px var(--mono); } .confirmPrimary { border: 1px solid var(--amber); color: #110d03; background: var(--amber); } .confirmSecondary { border: 1px solid var(--line-strong); background: rgba(255,255,255,.025); }
++.verifiedActions { margin-top: 10px; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; border: 1px solid rgba(155,238,35,.25); border-radius: 10px; color: var(--lime); background: var(--lime-soft); }
++.verifiedActions span { display: flex; align-items: center; gap: 8px; } .verifiedActions button { border: 0; color: var(--text-2); background: transparent; font: 600 9px var(--mono); }
++.welcomeMission { min-height: 330px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(6,8,11,.4); }
++.welcomeMission h1 { margin: 18px 0 5px; font-size: 20px; font-weight: 560; } .welcomeMission p { max-width: 500px; margin: 0; padding: 0 22px; color: var(--text-3); }
++
++.evidenceRail { min-width: 0; padding: 82px 16px 16px; display: flex; flex-direction: column; gap: 10px; border-left: 1px solid var(--line); background: rgba(5,7,10,.48); }
++.railTitle { margin: 0 4px 10px; color: var(--text-2); }
++.evidenceCard, .nextStepCard { min-height: 94px; display: grid; grid-template-columns: 42px 1fr; align-items: center; gap: 8px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.018); }
++.evidenceCard > span { width: 35px; height: 35px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--text-2); }
++.evidenceCard small, .nextStepCard small { display: block; color: var(--text-3); } .evidenceCard strong, .nextStepCard strong { display: block; margin-top: 4px; color: var(--text-2); font-size: 12px; font-weight: 520; overflow-wrap: anywhere; }
++.evidenceCard[data-tone="cyan"] strong { color: var(--cyan); } .evidenceCard[data-tone="amber"] strong { color: var(--amber); } .evidenceCard[data-tone="lime"] strong { color: var(--lime); }
++.nextStepCard { display: block; min-height: 74px; }
++
++.overlayRoot { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; background: transparent; }
++.overlayInput { width: 480px; height: 48px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 14px; background: rgba(5,8,11,.91); box-shadow: 0 18px 56px rgba(0,0,0,.65); backdrop-filter: blur(24px); }
++.overlayInput input { width: 100%; height: 100%; border: 0; outline: 0; color: var(--text); background: transparent; } .overlayInput input::placeholder { color: var(--text-3); } .overlayInput:focus-within { border-color: rgba(25,215,239,.5); }
++@keyframes contentIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
++@media (max-width: 1050px) { .commandShell { grid-template-columns: 196px minmax(500px,1fr) 244px; } .operatorSidebar, .evidenceRail { padding-inline: 10px; } .confirmationBar { grid-template-columns: 32px 1fr; } .confirmationBar button { grid-row: 2; } .confirmPrimary { grid-column: 2; } }
++@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+--- a/jarvis/package.json
++++ b/jarvis/package.json
+@@ -5,6 +5,8 @@
+   "scripts": {
+     "dev": "vite",
+     "build": "tsc && vite build",
++    "test:operator": "node --experimental-strip-types scripts/operatorModel.test.ts",
++    "test:frontend": "node --experimental-strip-types scripts/wsProtocol.test.ts && node --experimental-strip-types scripts/wsBackend.test.ts && node --experimental-strip-types scripts/operatorModel.test.ts",
+     "preview": "vite preview",
+     "tauri": "tauri",
+     "tauri:dev": "tauri dev",
+--- a/jarvis/src-tauri/tauri.conf.json
++++ b/jarvis/src-tauri/tauri.conf.json
+@@ -17,9 +17,9 @@
+         "height": 520,
+         "minWidth": 360,
+         "minHeight": 520,
+-        "transparent": false,
++        "transparent": true,
+         "decorations": false,
+-        "resizable": false,
++        "resizable": true,
+         "fullscreen": false,
+         "visible": false,
+         "center": true,
+--- a/jarvis/src-tauri/capabilities/default.json
++++ b/jarvis/src-tauri/capabilities/default.json
+@@ -2,10 +2,7 @@
+   "$schema": "../gen/schemas/desktop-schema.json",
+   "identifier": "jarvis-capabilities",
+   "description": "Capabilities for J.A.R.V.I.S. Oracle window",
+-  "windows": [
+-    "main",
+-    "overlay"
+-  ],
++  "windows": ["main", "overlay"],
+   "permissions": [
+     "core:default",
+     "core:window:allow-minimize",
+@@ -14,6 +11,10 @@
+     "core:window:allow-close",
+     "core:window:allow-start-dragging",
+     "core:window:allow-set-effects",
++    "core:window:allow-set-size",
++    "core:window:allow-set-min-size",
++    "core:window:allow-set-resizable",
++    "core:window:allow-center",
+     "core:event:default",
+     "dialog:default",
+     "fs:default",
+--- /dev/null
++++ b/jarvis/src/operator/model.ts
+@@ -0,0 +1,175 @@
++import type { BackendEvent, PendingConfirmation } from '@/types';
++
++export type UiMode = 'presence' | 'command_center';
++export type MissionPhase = 'research' | 'download' | 'verify' | 'install' | 'observe' | 'verified' | 'error';
++
++export interface MissionStep {
++  id: 'research' | 'download' | 'verify' | 'install';
++  label: string;
++  state: 'pending' | 'active' | 'complete' | 'failed';
++}
++
++export interface OperatorEvidence {
++  label: string;
++  value: string;
++  tone: 'neutral' | 'cyan' | 'amber' | 'lime';
++}
++
++export interface OperatorActivity {
++  id: string;
++  label: string;
++  detail?: string;
++  status: 'running' | 'complete' | 'failed';
++  timestamp: number;
++}
++
++export interface OperatorMission {
++  id: string;
++  title: string;
++  phase: MissionPhase;
++  steps: MissionStep[];
++  activities: OperatorActivity[];
++  evidence: OperatorEvidence[];
++  verified: boolean;
++}
++
++const STEP_LABELS: Record<MissionStep['id'], string> = {
++  research: 'RESEARCH',
++  download: 'DOWNLOAD',
++  verify: 'VERIFY',
++  install: 'INSTALL',
++};
++
++const ORDER: MissionStep['id'][] = ['research', 'download', 'verify', 'install'];
++
++function compactTitle(command: string): string {
++  const normalized = command.trim().replace(/\s+/g, ' ');
++  if (normalized.length <= 54) return normalized;
++  return `${normalized.slice(0, 51).trimEnd()}…`;
++}
++
++function stepState(step: MissionStep['id'], phase: MissionPhase): MissionStep['state'] {
++  if (phase === 'error') return 'failed';
++  if (phase === 'verified' || phase === 'observe') return 'complete';
++  const active = phase === 'research' ? 0 : phase === 'download' ? 1 : phase === 'verify' ? 2 : 3;
++  const index = ORDER.indexOf(step);
++  return index < active ? 'complete' : index === active ? 'active' : 'pending';
++}
++
++function stepsFor(phase: MissionPhase): MissionStep[] {
++  return ORDER.map((id) => ({ id, label: STEP_LABELS[id], state: stepState(id, phase) }));
++}
++
++export function createMission(command: string, now = Date.now()): OperatorMission {
++  return {
++    id: `mission-${now}`,
++    title: compactTitle(command),
++    phase: 'research',
++    steps: stepsFor('research'),
++    activities: [{ id: `activity-${now}`, label: 'Анализирую задачу и доступные инструменты', status: 'running', timestamp: now }],
++    evidence: [],
++    verified: false,
++  };
++}
++
++function recordOf(value: unknown): Record<string, unknown> | null {
++  return value !== null && typeof value === 'object' ? value as Record<string, unknown> : null;
++}
++
++function textFromPayload(value: unknown): string {
++  const record = recordOf(value);
++  if (!record) return '';
++  for (const key of ['content', 'result', 'message', 'detail', 'tool']) {
++    if (typeof record[key] === 'string' && record[key]) return record[key] as string;
++  }
++  return '';
++}
++
++function explicitlyVerified(value: unknown): boolean {
++  const record = recordOf(value);
++  if (!record) return false;
++  if (record.verified === true || record.status === 'verified') return true;
++  const verification = recordOf(record.verification);
++  return verification?.verified === true || verification?.status === 'verified';
++}
++
++function nextPhase(current: MissionPhase, event: BackendEvent): MissionPhase {
++  if (event.type === 'state:error') return 'error';
++  if (event.type === 'confirmation:required') return 'verify';
++  if (event.type === 'state:executing') {
++    if (current === 'research') return 'download';
++    if (current === 'download') return 'verify';
++    if (current === 'verify') return 'install';
++  }
++  if (event.type === 'event:result') return explicitlyVerified(event.payload) ? 'verified' : 'observe';
++  return current;
++}
++
++export function reduceMission(current: OperatorMission, event: BackendEvent): OperatorMission {
++  const phase = nextPhase(current.phase, event);
++  const text = textFromPayload(event.payload);
++  const relevant = event.type === 'event:action' || event.type === 'event:tool' || event.type === 'event:progress' || event.type === 'event:result' || event.type === 'event:system';
++  const activities = relevant && text
++    ? [...current.activities.map((item) => item.status === 'running' ? { ...item, status: 'complete' as const } : item), {
++        id: `activity-${event.timestamp}-${current.activities.length}`,
++        label: text,
++        status: event.type === 'event:result' ? 'complete' as const : event.type === 'event:system' && phase === 'error' ? 'failed' as const : 'running' as const,
++        timestamp: event.timestamp,
++      }].slice(-5)
++    : current.activities;
++
++  const evidence = explicitlyVerified(event.payload)
++    ? [
++        { label: 'Статус', value: 'VERIFIED', tone: 'lime' as const },
++        { label: 'Проверка', value: 'Результат подтверждён backend', tone: 'lime' as const },
++      ]
++    : current.evidence;
++
++  return { ...current, phase, steps: stepsFor(phase), activities, evidence, verified: phase === 'verified' };
++}
++
++export function confirmationFromEvent(event: BackendEvent): PendingConfirmation | null {
++  if (event.type !== 'confirmation:required') return null;
++  const payload = recordOf(event.payload);
++  if (!payload) return null;
++  const id = typeof payload.confirmationId === 'string' ? payload.confirmationId : '';
++  if (!id) return null;
++  return {
++    id,
++    prompt: typeof payload.prompt === 'string' ? payload.prompt : 'Подтвердите действие',
++    tool: typeof payload.tool === 'string' ? payload.tool : '',
++    risk: recordOf(payload.risk) ?? {},
++  };
++}
++
++export function fixtureMission(phase: MissionPhase): OperatorMission {
++  const base = createMission('Установка тестовой программы', 1_725_000_000_000);
++  const evidence: OperatorEvidence[] = phase === 'verified'
++    ? [
++        { label: 'Статус', value: 'VERIFIED', tone: 'lime' },
++        { label: 'Проверок', value: '4 из 4', tone: 'lime' },
++        { label: 'Версия', value: '3.0.21', tone: 'neutral' },
++      ]
++    : [
++        { label: 'Источник', value: 'Официальный сайт издателя', tone: 'cyan' },
++        { label: 'Риск', value: 'LOW', tone: 'cyan' },
++        { label: 'Подпись', value: phase === 'verify' ? 'Действительна' : 'Ожидает проверки', tone: phase === 'verify' ? 'cyan' : 'neutral' },
++      ];
++  return {
++    ...base,
++    phase,
++    steps: stepsFor(phase),
++    verified: phase === 'verified',
++    evidence,
++    activities: phase === 'verified'
++      ? [
++          { id: 'a1', label: 'Приложение установлено', detail: 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe', status: 'complete', timestamp: Date.now() },
++          { id: 'a2', label: 'Процесс успешно запущен', detail: 'Версия 3.0.21', status: 'complete', timestamp: Date.now() },
++          { id: 'a3', label: 'Настройки применены и проверены', status: 'complete', timestamp: Date.now() },
++        ]
++      : [
++          { id: 'a1', label: 'Найден официальный источник', detail: 'Официальный сайт издателя подтверждён', status: 'complete', timestamp: Date.now() },
++          { id: 'a2', label: phase === 'verify' ? 'Цифровая подпись действительна' : 'Начинаю загрузку установочного файла', detail: phase === 'verify' ? 'Publisher: VideoLAN · SHA-256 6f78a5e4…91c0e823' : 'Загрузка через защищённое соединение', status: phase === 'verify' ? 'complete' : 'running', timestamp: Date.now() },
++        ],
++  };
++}
+--- /dev/null
++++ b/jarvis/src/operator/OperatorShell.tsx
+@@ -0,0 +1,300 @@
++import { useEffect, useMemo, useRef, useState } from 'react';
++import { LogicalSize } from '@tauri-apps/api/dpi';
++import { getCurrentWindow } from '@tauri-apps/api/window';
++import {
++  Check, ChevronRight, Circle, Download, Expand, Globe2, Menu,
++  Mic, Minus, Paperclip, Plus, Search, Settings, ShieldCheck,
++  Shrink, Square, X,
++} from 'lucide-react';
++import type { PresenceState } from '@/bridge/StateMachine';
++import type { PendingConfirmation } from '@/types';
++import type { PresenceMessage } from '@/window/MessageStream';
++import type { OperatorMission, UiMode } from './model';
++
++interface Props {
++  messages: PresenceMessage[];
++  state: PresenceState;
++  mode: UiMode;
++  mission: OperatorMission | null;
++  confirmation: PendingConfirmation | null;
++  firstLaunch: boolean;
++  onModeChange: (mode: UiMode) => void;
++  onSend: (text: string) => void;
++  onInterrupt: () => void;
++  onVoiceListen: () => void;
++  onConfirm: (approved: boolean) => void;
++  onNewSession: () => void;
++}
++
++const CLOCK = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
++
++function useClock(): string {
++  const [value, setValue] = useState(() => CLOCK.format(new Date()));
++  useEffect(() => {
++    const timer = window.setInterval(() => setValue(CLOCK.format(new Date())), 1000);
++    return () => window.clearInterval(timer);
++  }, []);
++  return value;
++}
++
++function windowAction(action: 'minimize' | 'close' | 'maximize') {
++  try {
++    const window = getCurrentWindow();
++    if (action === 'minimize') void window.minimize();
++    if (action === 'close') void window.close();
++    if (action === 'maximize') void window.toggleMaximize();
++  } catch { /* browser fixture */ }
++}
++
++export function syncWindowMode(mode: UiMode): void {
++  try {
++    const window = getCurrentWindow();
++    const expanded = mode === 'command_center';
++    void window.setResizable(expanded);
++    void window.setMinSize(new LogicalSize(expanded ? 960 : 360, expanded ? 640 : 520));
++    void window.setSize(new LogicalSize(expanded ? 1180 : 360, expanded ? 760 : 520));
++    if (expanded) void window.center();
++  } catch { /* browser fixture */ }
++}
++
++function statusLabel(state: PresenceState, mission: OperatorMission | null, confirmation: PendingConfirmation | null): string {
++  if (confirmation) return 'CONFIRMATION';
++  if (mission?.verified) return 'VERIFIED';
++  if (mission?.phase === 'verify' || mission?.phase === 'observe') return 'VERIFYING';
++  if (state === 'thinking') return 'EXECUTING';
++  if (state === 'speaking') return 'SPEAKING';
++  if (state === 'error') return 'ERROR';
++  return 'READY';
++}
++
++function SignalCore({ tone, compact = false }: { tone: string; compact?: boolean }) {
++  return (
++    <div className={`signalCore ${compact ? 'compact' : ''}`} data-tone={tone} aria-hidden="true">
++      <span className="signalRing ringOne" />
++      <span className="signalRing ringTwo" />
++      <span className="signalWave"><i /><i /><i /><i /><i /><i /><i /></span>
++    </div>
++  );
++}
++
++function Composer({ onSend, onInterrupt, onVoiceListen, busy, placeholder }: {
++  onSend: (text: string) => void;
++  onInterrupt: () => void;
++  onVoiceListen: () => void;
++  busy: boolean;
++  placeholder: string;
++}) {
++  const [value, setValue] = useState('');
++  const input = useRef<HTMLInputElement>(null);
++  const submit = () => {
++    const text = value.trim();
++    if (!text) return;
++    onSend(text);
++    setValue('');
++  };
++  return (
++    <form className="operatorComposer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
++      <input ref={input} value={value} onChange={(event) => setValue(event.target.value)} placeholder={placeholder} aria-label="Сообщение для JARVIS" />
++      <button type="button" className="iconButton quiet" aria-label="Прикрепить файл"><Paperclip size={18} /></button>
++      <button type="button" className="iconButton quiet" onClick={onVoiceListen} aria-label="Голосовой ввод"><Mic size={18} /></button>
++      {busy
++        ? <button type="button" className="iconButton stop" onClick={onInterrupt} aria-label="Остановить"><Square size={12} fill="currentColor" /></button>
++        : <button type="submit" className="sendButton" disabled={!value.trim()} aria-label="Отправить"><ChevronRight size={18} /></button>}
++    </form>
++  );
++}
++
++function MessageTimeline({ messages, compact = false }: { messages: PresenceMessage[]; compact?: boolean }) {
++  const visible = messages.slice(compact ? -3 : -5);
++  if (visible.length === 0) return (
++    <div className="emptyConversation">
++      <span>JARVIS готов к работе</span>
++      <small>Сформулируйте задачу — интерфейс покажет только подтверждённые действия.</small>
++    </div>
++  );
++  return (
++    <div className={`operatorMessages ${compact ? 'compact' : ''}`} role="log" aria-live="polite">
++      {visible.map((message) => (
++        <article className={`operatorMessage ${message.role}`} key={message.id}>
++          <span className="messageMark">{message.role === 'jarvis' ? <SignalCore tone="cyan" compact /> : <Circle size={18} />}</span>
++          <div><p>{message.text}</p><time>{CLOCK.format(new Date(message.timestamp))}</time></div>
++        </article>
++      ))}
++    </div>
++  );
++}
++
++function CompactPresence(props: Props) {
++  const clock = useClock();
++  const tone = props.confirmation ? 'amber' : props.mission?.verified ? 'lime' : props.state === 'error' ? 'error' : 'cyan';
++  const label = statusLabel(props.state, props.mission, props.confirmation);
++  return (
++    <main className="compactShell">
++      <header className="compactTitlebar" data-tauri-drag-region>
++        <strong>JARVIS</strong><time>{clock}</time>
++        <span className="titleStatusDot" data-tone={tone} />
++        <button className="iconButton quiet" onClick={() => props.onModeChange('command_center')} aria-label="Открыть командный центр"><Expand size={17} /></button>
++      </header>
++      <section className="compactCore">
++        <SignalCore tone={tone} />
++        <span className="technicalLabel" data-tone={tone}>{label}</span>
++      </section>
++      <MessageTimeline messages={props.messages} compact />
++      {props.mission && props.state === 'thinking' && (
++        <button className="expandSuggestion" onClick={() => props.onModeChange('command_center')}>
++          <span>Задача выполняется в несколько этапов</span><strong>Открыть центр</strong>
++        </button>
++      )}
++      <Composer
++        onSend={props.onSend}
++        onInterrupt={props.onInterrupt}
++        onVoiceListen={props.onVoiceListen}
++        busy={props.state === 'thinking'}
++        placeholder={props.firstLaunch ? 'Как тебя зовут?' : 'Сообщение для JARVIS…'}
++      />
++    </main>
++  );
++}
++
++function StepRail({ mission }: { mission: OperatorMission }) {
++  return (
++    <div className="stepRail" aria-label="Этапы миссии">
++      {mission.steps.map((step) => (
++        <div className="missionStep" data-state={step.state} key={step.id}>
++          <span>{step.state === 'complete' ? <Check size={15} /> : step.state === 'failed' ? <X size={15} /> : <i />}</span>
++          <strong>{step.label}</strong>
++        </div>
++      ))}
++    </div>
++  );
++}
++
++function MissionPanel({ mission, confirmation, onConfirm }: {
++  mission: OperatorMission;
++  confirmation: PendingConfirmation | null;
++  onConfirm: (approved: boolean) => void;
++}) {
++  return (
++    <section className="missionPanel" data-phase={mission.phase}>
++      <div className="panelHeading"><div><span className="eyebrow">АКТИВНАЯ МИССИЯ</span><h1>{mission.title}</h1></div><span className="missionId">{mission.id.slice(-8)}</span></div>
++      <StepRail mission={mission} />
++      <div className="activityList">
++        {mission.activities.map((activity) => (
++          <article className="activityRow" data-status={activity.status} key={activity.id}>
++            <span className="activityIcon">{activity.status === 'complete' ? <Check size={15} /> : activity.status === 'failed' ? <X size={15} /> : <Download size={15} />}</span>
++            <div><strong>{activity.label}</strong>{activity.detail && <small>{activity.detail}</small>}</div>
++            <time>{CLOCK.format(new Date(activity.timestamp))}</time>
++          </article>
++        ))}
++      </div>
++      {confirmation && (
++        <div className="confirmationBar" role="alert">
++          <span className="confirmationIcon">!</span>
++          <div><strong>Требуется подтверждение</strong><small>{confirmation.prompt}</small>{confirmation.tool && <code>{confirmation.tool}</code>}</div>
++          <button className="confirmPrimary" onClick={() => onConfirm(true)}>ПОДТВЕРДИТЬ</button>
++          <button className="confirmSecondary" onClick={() => onConfirm(false)}>ОТМЕНА</button>
++        </div>
++      )}
++      {mission.verified && (
++        <div className="verifiedActions">
++          <span><ShieldCheck size={18} /> Результат подтверждён</span>
++          <button>ПОКАЗАТЬ ДЕТАЛИ</button>
++        </div>
++      )}
++    </section>
++  );
++}
++
++function EvidenceRail({ mission, confirmation }: { mission: OperatorMission | null; confirmation: PendingConfirmation | null }) {
++  const items = mission?.evidence.length ? mission.evidence : [
++    { label: 'Состояние', value: mission ? 'Собираю доказательства' : 'Ожидание задачи', tone: 'neutral' as const },
++    { label: 'Риск', value: confirmation ? String(confirmation.risk.level ?? 'HIGH').toUpperCase() : 'LOW', tone: confirmation ? 'amber' as const : 'cyan' as const },
++    { label: 'Приватность', value: 'Локальный runtime', tone: 'cyan' as const },
++  ];
++  return (
++    <aside className="evidenceRail">
++      <span className="railTitle">{mission?.verified ? 'ИТОГ МИССИИ' : confirmation ? 'ДОКАЗАТЕЛЬСТВА' : 'КОНТЕКСТ МИССИИ'}</span>
++      {items.slice(0, 3).map((item, index) => (
++        <article className="evidenceCard" data-tone={item.tone} key={`${item.label}-${index}`}>
++          <span>{index === 0 ? <Globe2 size={20} /> : <ShieldCheck size={20} />}</span>
++          <div><small>{item.label}</small><strong>{item.value}</strong></div>
++        </article>
++      ))}
++      {mission && !mission.verified && (
++        <article className="nextStepCard"><small>Следующий шаг</small><strong>{mission.phase === 'verify' ? 'Проверить разрешение' : mission.phase === 'install' ? 'Наблюдать установку' : 'Проверить результат'}</strong></article>
++      )}
++    </aside>
++  );
++}
++
++function Sidebar({ messages, mission, onNewSession }: { messages: PresenceMessage[]; mission: OperatorMission | null; onNewSession: () => void }) {
++  const [query, setQuery] = useState('');
++  const [settings, setSettings] = useState(false);
++  const sessions = useMemo(() => {
++    const commands = messages.filter((message) => message.role === 'user').slice(-6).reverse();
++    const rows = commands.map((message) => ({ id: message.id, title: message.text, time: CLOCK.format(new Date(message.timestamp)) }));
++    if (mission && rows.length === 0) {
++      rows.unshift({ id: mission.id, title: mission.title, time: 'сейчас' });
++    }
++    return rows.filter((row) => row.title.toLowerCase().includes(query.toLowerCase()));
++  }, [messages, mission, query]);
++  return (
++    <aside className="operatorSidebar">
++      <div className="sideBrand"><strong>JARVIS</strong><span>LOCAL OPERATOR</span></div>
++      <button className="newSession" onClick={onNewSession}><Plus size={17} /> Новая сессия</button>
++      <label className="sessionSearch"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск сессий" /></label>
++      <span className="sideSection">НЕДАВНИЕ СЕССИИ</span>
++      <div className="sessionList">
++        {sessions.map((session, index) => <article className={`sessionRow ${index === 0 ? 'active' : ''}`} key={session.id}><span><SignalCore tone="cyan" compact /></span><div><strong>{session.title}</strong><time>{session.time}</time></div></article>)}
++        {sessions.length === 0 && <p className="noSessions">История появится после первой команды.</p>}
++      </div>
++      <button className="settingsButton" onClick={() => setSettings((value) => !value)}><Settings size={17} /> Настройки</button>
++      {settings && <div className="quickSettings"><strong>Интерфейс</strong><span>Obsidian Operator</span><small>Данные и вычисления остаются локальными.</small></div>}
++    </aside>
++  );
++}
++
++function CommandCenter(props: Props) {
++  const clock = useClock();
++  const tone = props.confirmation ? 'amber' : props.mission?.verified ? 'lime' : props.state === 'error' ? 'error' : 'cyan';
++  const label = statusLabel(props.state, props.mission, props.confirmation);
++  return (
++    <main className="commandShell">
++      <Sidebar messages={props.messages} mission={props.mission} onNewSession={props.onNewSession} />
++      <section className="operatorMain">
++        <header className="operatorTitlebar" data-tauri-drag-region>
++          <button className="iconButton quiet mobileMenu" aria-label="Меню"><Menu size={18} /></button>
++          <SignalCore tone={tone} compact /><span className="technicalLabel" data-tone={tone}>{label}</span>
++          <span className="operatorClock">{clock}</span><span className="titleStatusDot" data-tone={tone} />
++          <button className="iconButton quiet" onClick={() => props.onModeChange('presence')} aria-label="Компактный режим"><Shrink size={17} /></button>
++          <button className="iconButton quiet" onClick={() => windowAction('minimize')} aria-label="Свернуть"><Minus size={17} /></button>
++          <button className="iconButton quiet" onClick={() => windowAction('maximize')} aria-label="Развернуть"><Square size={13} /></button>
++          <button className="iconButton quiet closeButton" onClick={() => windowAction('close')} aria-label="Закрыть"><X size={17} /></button>
++        </header>
++        <div className="operatorContent">
++          <MessageTimeline messages={props.messages} />
++          {props.mission ? <MissionPanel mission={props.mission} confirmation={props.confirmation} onConfirm={props.onConfirm} /> : (
++            <section className="welcomeMission"><SignalCore tone={tone} /><h1>Готов к следующей задаче</h1><p>Диалог остаётся главным. Миссия, инструменты и доказательства появятся только когда они действительно нужны.</p></section>
++          )}
++        </div>
++        <Composer onSend={props.onSend} onInterrupt={props.onInterrupt} onVoiceListen={props.onVoiceListen} busy={props.state === 'thinking'} placeholder={props.firstLaunch ? 'Как тебя зовут?' : 'Сообщение для JARVIS…'} />
++      </section>
++      <EvidenceRail mission={props.mission} confirmation={props.confirmation} />
++    </main>
++  );
++}
++
++export function OperatorShell(props: Props) {
++  useEffect(() => syncWindowMode(props.mode), [props.mode]);
++  useEffect(() => {
++    const hotkey = (event: KeyboardEvent) => {
++      if (event.ctrlKey && event.shiftKey && event.code === 'Space') {
++        event.preventDefault();
++        props.onModeChange(props.mode === 'presence' ? 'command_center' : 'presence');
++      }
++    };
++    window.addEventListener('keydown', hotkey);
++    return () => window.removeEventListener('keydown', hotkey);
++  }, [props]);
++  return props.mode === 'presence' ? <CompactPresence {...props} /> : <CommandCenter {...props} />;
++}
+--- /dev/null
++++ b/jarvis/scripts/operatorModel.test.ts
+@@ -0,0 +1,39 @@
++import assert from 'node:assert/strict';
++import type { BackendEvent } from '../src/types/index.ts';
++import {
++  confirmationFromEvent, createMission, fixtureMission, reduceMission,
++} from '../src/operator/model.ts';
++
++const mission = createMission('  Установи   тестовую программу  ', 100);
++assert.equal(mission.title, 'Установи тестовую программу');
++assert.equal(mission.phase, 'research');
++assert.deepEqual(mission.steps.map((step) => step.state), ['active', 'pending', 'pending', 'pending']);
++
++const executing: BackendEvent = { type: 'state:executing', payload: null, timestamp: 101 };
++const downloading = reduceMission(mission, executing);
++assert.equal(downloading.phase, 'download');
++assert.deepEqual(downloading.steps.map((step) => step.state), ['complete', 'active', 'pending', 'pending']);
++
++const unverifiedResult = reduceMission(downloading, {
++  type: 'event:result', payload: { success: true, result: 'installer exited with code 0' }, timestamp: 102,
++});
++assert.equal(unverifiedResult.phase, 'observe');
++assert.equal(unverifiedResult.verified, false, 'success/exit code must not become verified UI success');
++
++const verifiedResult = reduceMission(downloading, {
++  type: 'event:result', payload: { success: true, verification: { status: 'verified' }, result: 'desired state observed' }, timestamp: 103,
++});
++assert.equal(verifiedResult.phase, 'verified');
++assert.equal(verifiedResult.verified, true);
++assert.deepEqual(verifiedResult.steps.map((step) => step.state), ['complete', 'complete', 'complete', 'complete']);
++
++const confirmation = confirmationFromEvent({
++  type: 'confirmation:required',
++  payload: { confirmationId: 'grant-1', prompt: 'Разрешить установку?', tool: 'software.install', risk: { level: 'high' } },
++  timestamp: 104,
++});
++assert.equal(confirmation?.id, 'grant-1');
++assert.equal(confirmation?.risk.level, 'high');
++
++assert.equal(fixtureMission('verified').evidence[0].value, 'VERIFIED');
++console.log('operatorModel: 13 assertions passed');
+--- /dev/null
++++ b/scripts/capture_obsidian_operator.py
+@@ -0,0 +1,45 @@
++from __future__ import annotations
++
++import argparse
++from pathlib import Path
++
++from playwright.sync_api import sync_playwright
++
++
++FIXTURES = (
++    ("compact", 360, 520, "01-compact-live.png"),
++    ("download", 1180, 760, "02-command-center-live.png"),
++    ("verify", 1180, 760, "03-verification-live.png"),
++    ("verified", 1180, 760, "04-verified-live.png"),
++)
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--base-url", default="http://127.0.0.1:1420")
++    parser.add_argument("--output", default="_shots/obsidian-operator")
++    parser.add_argument("--browser", default=r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
++    args = parser.parse_args()
++
++    output = Path(args.output).resolve()
++    output.mkdir(parents=True, exist_ok=True)
++    browser_path = Path(args.browser).resolve()
++    if not browser_path.is_file():
++        raise FileNotFoundError(browser_path)
++
++    with sync_playwright() as playwright:
++        browser = playwright.chromium.launch(executable_path=str(browser_path), headless=True)
++        try:
++            for fixture, width, height, filename in FIXTURES:
++                page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
++                page.goto(f"{args.base_url}/?fixture={fixture}", wait_until="networkidle")
++                page.locator("#root").screenshot(path=str(output / filename))
++                print(f"{filename}: {width}x{height}")
++                page.close()
++        finally:
++            browser.close()
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- /dev/null
++++ b/scripts/rollback_obsidian_operator.ps1
+@@ -0,0 +1,57 @@
++param(
++    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot)
++)
++
++$ErrorActionPreference = 'Stop'
++$root = [System.IO.Path]::GetFullPath($ProjectRoot)
++$baseline = Join-Path $root 'artifacts\obsidian_operator\baseline'
++
++if (-not (Test-Path -LiteralPath (Join-Path $baseline 'App.tsx'))) {
++    throw "Obsidian Operator baseline is missing: $baseline"
++}
++
++$restore = @{
++    (Join-Path $baseline 'App.tsx') = (Join-Path $root 'jarvis\src\App.tsx')
++    (Join-Path $baseline 'presence.css') = (Join-Path $root 'jarvis\src\presence.css')
++    (Join-Path $baseline 'package.json') = (Join-Path $root 'jarvis\package.json')
++    (Join-Path $baseline 'tauri.conf.json') = (Join-Path $root 'jarvis\src-tauri\tauri.conf.json')
++    (Join-Path $baseline 'default.json') = (Join-Path $root 'jarvis\src-tauri\capabilities\default.json')
++}
++
++foreach ($entry in $restore.GetEnumerator()) {
++    Copy-Item -LiteralPath $entry.Key -Destination $entry.Value -Force
++}
++
++$remove = @(
++    'jarvis\src\operator\model.ts',
++    'jarvis\src\operator\OperatorShell.tsx',
++    'jarvis\scripts\operatorModel.test.ts',
++    'scripts\capture_obsidian_operator.py',
++    '_shots\obsidian-operator\01-compact-live.png',
++    '_shots\obsidian-operator\02-command-center-live.png',
++    '_shots\obsidian-operator\03-verification-live.png',
++    '_shots\obsidian-operator\04-verified-live.png',
++    'design\obsidian-operator\mockups\01-compact-presence.png',
++    'design\obsidian-operator\mockups\02-command-center.png',
++    'design\obsidian-operator\mockups\03-installation-verification.png',
++    'design\obsidian-operator\mockups\04-verified-success.png'
++)
++
++foreach ($relative in $remove) {
++    $target = [System.IO.Path]::GetFullPath((Join-Path $root $relative))
++    if (-not $target.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
++        throw "Rollback target escaped project root: $target"
++    }
++    Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
++}
++
++Push-Location (Join-Path $root 'jarvis')
++try {
++    npm run build
++    if ($LASTEXITCODE -ne 0) { throw "Restored frontend build failed: $LASTEXITCODE" }
++}
++finally {
++    Pop-Location
++}
++
++Write-Host 'Obsidian Operator rollback verified.'

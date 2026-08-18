@@ -5,10 +5,15 @@
 2. Профиль пользователя (``get_profile_context``)
 3. Найденный контекст памяти (``RetrievedContext``)
 в единый system prompt для передачи в LLM.
+
+Sprint 4 добавляет ``build_agent_system_prompt`` — сборку для агентного
+WS-пути (``Agent._answer_conversation``): персона по тирам, факты
+профиля, тон разговора, время суток, degraded-режим TIER 4.
 """
 
 from __future__ import annotations
 
+import datetime as _dt
 from pathlib import Path
 from typing import Optional
 
@@ -18,7 +23,13 @@ from core.state import RetrievedContext
 from core.utils.logger import get_logger
 from core.utils.paths import PROJECT_ROOT
 
-__all__ = ["build_system_prompt", "load_persona_text"]
+__all__ = [
+    "build_system_prompt",
+    "load_persona_text",
+    "persona_core",
+    "build_agent_system_prompt",
+    "time_of_day_hint",
+]
 
 log = get_logger(__name__)
 
@@ -27,6 +38,37 @@ PERSONA_PATH = PROJECT_ROOT / "persona" / "persona.md"
 
 # Кэш персоны
 _PERSONA_CACHE: Optional[str] = None
+
+#: Компактное ядро персоны для FAST-тира (TIER 1 бюджет — 2000 токенов,
+#: полный persona.md туда не влезает вместе с историей).
+_PERSONA_CORE = (
+    "Ты — АТЛАС, единый непрерывный цифровой разум пользователя: точный, "
+    "надёжный и профессионально-дружелюбный. В обычном разговоре звучишь "
+    "естественно и знакомо, как давний собеседник из Discord, но без навязчивого "
+    "театра. Длина, подробность, структура, обращение и уровень юмора задаются "
+    "структурированным профилем стиля ниже; следуй ему. Сначала результат и "
+    "точность; не выдумывай факты; при ошибке сохраняй спокойствие; при риске "
+    "исключай юмор. Прежнее имя «Джарвис» распознавай как совместимый alias, "
+    "но представляйся как АТЛАС."
+)
+
+#: Persona-строка для планировщика (TIER 2) — тон без размытия фокуса на JSON.
+_PERSONA_PLANNER = (
+    "Ты — АТЛАС (legacy alias: Джарвис): единый когнитивный координатор. Сейчас твоя задача — "
+    "точное решение с инструментом: строго валидный JSON, без лишних слов."
+)
+
+#: Persona-строка для глубоких тиров (TIER 3).
+_PERSONA_DEEP = (
+    "Ты — АТЛАС (legacy alias: Джарвис). Задача серьёзная (код/анализ): собранный режим, максимум "
+    "структуры и точности; юмор — по остаточному принципу."
+)
+
+#: TIER 4 (офлайн, ограниченный режим).
+_PERSONA_OFFLINE = (
+    "Ты — АТЛАС (legacy alias: Джарвис), работаешь в ограниченном офлайн-режиме. Скажи об этом "
+    "коротко и всё равно помоги, чем можешь."
+)
 
 
 def load_persona_text() -> str:
@@ -43,12 +85,91 @@ def load_persona_text() -> str:
     except Exception as exc:
         log.error("Не удалось загрузить персону из %s: %s", PERSONA_PATH, exc)
         # Фоллбэк — минимальная персона
-        fallback = (
-            "Ты — Джарвис, локальный ИИ-ассистент. Обращение: «сёр». "
-            "Стиль: саркастичный, лояльный, лаконичный. Отвечай кратко, по делу."
-        )
+        fallback = _PERSONA_CORE
         _PERSONA_CACHE = fallback
         return fallback
+
+
+def persona_core() -> str:
+    """Компактное ядро персоны (для быстрых тиров с малым бюджетом)."""
+    return _PERSONA_CORE
+
+
+def time_of_day_hint(now: Optional[_dt.datetime] = None) -> str:
+    """Подсказка времени суток для живого приветствия («Доброе утро» и пр.)."""
+    hour = (now or _dt.datetime.now()).hour
+    if 5 <= hour < 12:
+        return "Сейчас утро."
+    if 12 <= hour < 18:
+        return "Сейчас день."
+    if 18 <= hour < 23:
+        return "Сейчас вечер."
+    return "Сейчас ночь."
+
+
+def build_agent_system_prompt(
+    settings: Settings,
+    tier: str = "fast",
+    profile_ctx: str = "",
+    memory_ctx: str = "",
+    tone: str = "default",
+    offline: bool = False,
+    personality_context: str = "",
+) -> str:
+    """Собирает system prompt для агентного пути (Sprint 4, STEP 3).
+
+    Персона по тирам (STEP 3.2):
+        fast     — максимум персоны (компактное ядро + факты + тон);
+        plan     — persona-строка + фокус на точность JSON;
+        deep     — persona-строка + собранность;
+        offline  — persona + честная пометка об ограниченном режиме.
+
+    Args:
+        settings: конфигурация (persona.name/address/language).
+        tier: 'fast' | 'plan' | 'deep' | 'offline'.
+        profile_ctx: выжимка профиля пользователя (``get_profile_context``).
+        memory_ctx: контекст из графа-памяти (agento ``_retrieve_context``).
+        tone: 'casual' | 'serious' | 'default' (``core.memory.facts.detect_tone``).
+        offline: TIER 4 — офлайн-режим.
+    """
+    persona_cfg = getattr(settings, "persona", None)
+    name = getattr(persona_cfg, "name", "АТЛАС")
+    language = getattr(persona_cfg, "language", "ru")
+
+    if tier == "plan":
+        return f"{_PERSONA_PLANNER}\nЯзык ответа: {language}."
+    if tier == "deep":
+        return f"{_PERSONA_DEEP}\nЯзык ответа: {language}."
+
+    parts: list[str] = [_PERSONA_CORE]
+    if offline:
+        parts.append(_PERSONA_OFFLINE)
+
+    parts.append(f"Язык ответа: {language}.")
+
+    if profile_ctx:
+        parts.append(f"Что ты знаешь о пользователе: {profile_ctx}")
+    else:
+        parts.append(
+            "Имени пользователя ты ещё не знаешь — если уместно, можешь "
+            "один раз коротко спросить, как его зовут."
+        )
+
+    if memory_ctx:
+        parts.append(f"Контекст из памяти: {memory_ctx}")
+
+    if tone == "casual":
+        parts.append("Пользователь настроен неформально — подыграй, можно подколоть.")
+    elif tone == "serious":
+        parts.append("Пользователь настроен серьёзно — по делу, юмор минимизируй.")
+
+    if not offline:
+        parts.append(time_of_day_hint())
+
+    if personality_context:
+        parts.append(personality_context[:1200])
+
+    return "\n".join(parts)
 
 
 def build_system_prompt(
@@ -71,7 +192,7 @@ def build_system_prompt(
     parts.append(persona_text.strip())
 
     # 2. Имя и обращение из настроек
-    persona_name = getattr(getattr(settings, "persona", None), "name", "Джарвис")
+    persona_name = getattr(getattr(settings, "persona", None), "name", "АТЛАС")
     address = getattr(getattr(settings, "persona", None), "address", "сёр")
     language = getattr(getattr(settings, "persona", None), "language", "ru")
 

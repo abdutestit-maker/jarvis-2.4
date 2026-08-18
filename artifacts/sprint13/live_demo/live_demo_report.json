@@ -1,0 +1,130 @@
+{
+  "scenario": "address -> compose -> interrupt -> resume -> execute -> observe -> verify -> learn -> restart",
+  "address_recognition": [
+    {
+      "text": "Атлас, открой проект",
+      "addressed": true,
+      "confidence": 0.99,
+      "evidence": [
+        "string_similarity=0.96",
+        "phonetic_match",
+        "sentence_initial",
+        "address_punctuation",
+        "command_or_dialogue_follows"
+      ]
+    },
+    {
+      "text": "Атла, открой проект",
+      "addressed": true,
+      "confidence": 0.79,
+      "evidence": [
+        "string_similarity=0.80",
+        "sentence_initial",
+        "address_punctuation",
+        "command_or_dialogue_follows"
+      ]
+    },
+    {
+      "text": "Атласик, ты тут?",
+      "addressed": true,
+      "confidence": 0.856,
+      "evidence": [
+        "string_similarity=0.92",
+        "sentence_initial",
+        "address_punctuation",
+        "command_or_dialogue_follows"
+      ]
+    },
+    {
+      "text": "Атласшо, глянь сюда",
+      "addressed": true,
+      "confidence": 0.856,
+      "evidence": [
+        "string_similarity=0.92",
+        "sentence_initial",
+        "address_punctuation",
+        "command_or_dialogue_follows"
+      ]
+    },
+    {
+      "text": "эй Атлас",
+      "addressed": true,
+      "confidence": 0.808,
+      "evidence": [
+        "string_similarity=0.96",
+        "phonetic_match",
+        "call_marker"
+      ]
+    },
+    {
+      "text": "слушай Атлас",
+      "addressed": true,
+      "confidence": 0.808,
+      "evidence": [
+        "string_similarity=0.96",
+        "phonetic_match",
+        "call_marker"
+      ]
+    },
+    {
+      "text": "Атлас?",
+      "addressed": true,
+      "confidence": 0.99,
+      "evidence": [
+        "string_similarity=0.96",
+        "phonetic_match",
+        "sentence_initial",
+        "address_punctuation",
+        "direct_question"
+      ]
+    }
+  ],
+  "false_wakes": [
+    {
+      "text": "В книге есть географический атлас мира",
+      "addressed": false,
+      "confidence": 0.0
+    },
+    {
+      "text": "Атласная ткань лежит на столе",
+      "addressed": false,
+      "confidence": 0.0
+    },
+    {
+      "text": "Катлас выглядит как случайное слово",
+      "addressed": false,
+      "confidence": 0.258
+    },
+    {
+      "text": "Обсудим план проекта завтра",
+      "addressed": false,
+      "confidence": 0.0
+    }
+  ],
+  "initial_action": "execute",
+  "acquisition": "composed",
+  "interruption_action": "conversation",
+  "resume_action": "continue",
+  "resumed_goal": "организуй локальные файлы по расширению",
+  "execution_trace": [
+    "discover: list_files -> ok",
+    "move: file_move -> ok",
+    "verify: list_files_recursive -> ok"
+  ],
+  "observed": {
+    "organized_by_extension": true
+  },
+  "verified": true,
+  "actual_files": [
+    "md/beta.md",
+    "txt/alpha.txt",
+    "txt/gamma.txt"
+  ],
+  "capability_episode": "69f447d7232343aeb812a18ef8c3f5d3",
+  "cognitive_episode_count": 1,
+  "second_run_acquisition": "learned",
+  "restart_goal": "организуй локальные файлы по расширению",
+  "restart_last_verified": true,
+  "followup": "Последняя задача «организуй локальные файлы по расширению» завершена, результат проверен.",
+  "final_response": "Готово. Проверил — работает."
+}

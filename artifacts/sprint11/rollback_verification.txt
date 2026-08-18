@@ -1,0 +1,26 @@
+{
+    "sprint":  11,
+    "workspace":  "E:\\jarvis-project\\artifacts\\sprint11\\rollback_stage_verified",
+    "restored":  [
+                     "core\\agent.py",
+                     "core\\orchestrator.py",
+                     "core\\shadow\\backlog.py",
+                     "core\\shadow\\engine.py"
+                 ],
+    "removed":  [
+                    "core\\living",
+                    "tests\\test_sprint11_context.py",
+                    "tests\\test_sprint11_workflow.py",
+                    "tests\\test_sprint11_proactive.py",
+                    "tests\\test_sprint11_resources.py",
+                    "tests\\test_sprint11_service.py",
+                    "scripts\\sprint11_live_demo.py",
+                    "docs\\sprints\\SPRINT11_SPEC.md",
+                    "tasks\\sprint11_plan.md",
+                    "tasks\\sprint11_todo.md",
+                    "data\\living"
+                ],
+    "voice_hotfix_preserved":  true,
+    "sprint10_preserved":  true,
+    "verified":  true
+}

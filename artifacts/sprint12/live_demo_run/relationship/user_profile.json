@@ -1,0 +1,13 @@
+{
+  "communication_style": "detailed",
+  "delegation_counts": {
+    "report_automation": {
+      "accepted": 3,
+      "rejected": 0,
+      "ignored": 0
+    }
+  },
+  "delegation_affinity": {
+    "report_automation": 0.8
+  }
+}

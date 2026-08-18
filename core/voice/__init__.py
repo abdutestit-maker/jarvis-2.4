@@ -8,14 +8,30 @@
 from __future__ import annotations
 
 from core.voice.notifications import show_toast
-from core.voice.stt import STTEngine, STT_DISABLED_MSG
+from core.voice.stt import STTEngine, STT_DISABLED_MSG, VoiceActivityDetector
+from core.voice.wake_word import WakeWordDetector, NoOpWakeWord
 from core.voice.tts import PiperTTS
 from core.voice.tts_queue import TTSQueue
+from core.voice.output import (
+    AssistantOutput, ErrorCategory, ErrorInfo, UserFriendlyErrorMapper,
+    assistant_output_from_outcome,
+)
+from core.voice.speech_renderer import RenderedSpeech, SpeechRenderer
 
 __all__ = [
     "PiperTTS",
     "TTSQueue",
     "STTEngine",
     "STT_DISABLED_MSG",
+    "VoiceActivityDetector",
+    "WakeWordDetector",
+    "NoOpWakeWord",
+    "AssistantOutput",
+    "ErrorCategory",
+    "ErrorInfo",
+    "UserFriendlyErrorMapper",
+    "RenderedSpeech",
+    "SpeechRenderer",
+    "assistant_output_from_outcome",
     "show_toast",
 ]

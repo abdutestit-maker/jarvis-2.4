@@ -1,0 +1,206 @@
+[
+  {
+    "path": "config/settings.example.json",
+    "role": "modified",
+    "original_sha256": "5d1f3f8be15a567324952c770b165a43e50f78225cd8b66ad5f19cbf24fdd82f",
+    "current_sha256": "1fc4b24d42f06658947aa89e05cc40e06c28ba148199a3716694c90a06830a63"
+  },
+  {
+    "path": "config/settings.json",
+    "role": "modified",
+    "original_sha256": "f36bc68be1c9aaece2f3f6e07a7f9b1908ec69a98e38e9d956ca410b9e068ad7",
+    "current_sha256": "9f42660da5e231fcca8999dcee0a44e7dbdf4fd57ffc6f4a59a02573bba6376e"
+  },
+  {
+    "path": "config/settings.py",
+    "role": "modified",
+    "original_sha256": "307a1d085cb335c3747470b9bb8838f2fb8a9530d1c4d636f12899f6996dd9d8",
+    "current_sha256": "a2e76cc2b8ef6577b928239a155a5a7090bba9990a814bed3846c6891d5aadc7"
+  },
+  {
+    "path": "core/agent.py",
+    "role": "modified",
+    "original_sha256": "c1268e179c118a94031636f8c594b3db0d13842e0c66f9c4b6a195ee319565a0",
+    "current_sha256": "da0034219a8cee9f7044379711967ed9f059bb0452cc7df532cb8aa745430fd6"
+  },
+  {
+    "path": "core/memory/retrieval.py",
+    "role": "modified",
+    "original_sha256": "85814d5d15b03585b3dc1e605053d6e6c43a3f7f5365fd0c37fd7ddbf5c55efa",
+    "current_sha256": "e570b59bf9d06b26a173c6b86952c2f41f037661e94d3d6be95e7af6c0bf416e"
+  },
+  {
+    "path": "core/orchestrator.py",
+    "role": "modified",
+    "original_sha256": "578a5e86c50c5766e47b9d74db8bd80be49885e5c84d7cc433ff277ff4bd4649",
+    "current_sha256": "59dc9ff3bf4779b8a7fcdd234a95983b330df096c0a87d644babb738580bc0b4"
+  },
+  {
+    "path": "core/personality/models.py",
+    "role": "modified",
+    "original_sha256": "c63b2a1f5014dba9ac9ac8b0b4ac7b00fab5bdcfb6f5c6191b15130efba6525f",
+    "current_sha256": "570c3041c5e3a39bac3057ad236e6172bb3a7c955c771b7c7f7514a1070c97a4"
+  },
+  {
+    "path": "core/research.py",
+    "role": "modified",
+    "original_sha256": "31b56ed6ac39105faf553715e178be5188b108cb344e136972b46b6727fe91f5",
+    "current_sha256": "77432289f2f93519ab5236fd5a30102616500aef81a4682fdce48236f862b6f4"
+  },
+  {
+    "path": "core/router/local_face.py",
+    "role": "modified",
+    "original_sha256": "d3436dc7209a2df1b8405e98847b3bd5d590d3c193868e7154b8b3e8bd0d0087",
+    "current_sha256": "3f6ecbc06d2b4de6faeb897855c655641076a84a6663be79b4e16735328b4dbd"
+  },
+  {
+    "path": "core/shadow/generator.py",
+    "role": "modified",
+    "original_sha256": "d1a55589446f92d779c1f8cd967d18924ec0688de57fd63f4eb30d2ed0ae6e2b",
+    "current_sha256": "89e38037b771a536b7f9730482f89c20906395331e676a0b1d735d5619c2b9f2"
+  },
+  {
+    "path": "core/voice/wake_word.py",
+    "role": "modified",
+    "original_sha256": "07ac93c9952b15b2a770bcc8d1bee5374f41a55142b9dffae3f238a071458c03",
+    "current_sha256": "7dfaa2bd778f7d7f01599caab43f753f7c79daa2cd29e25d10ed68ad7855569c"
+  },
+  {
+    "path": "core/ws_server.py",
+    "role": "modified",
+    "original_sha256": "7c1fbbdfd39b67877fe95abb4a3f801a60a5dae994e1fdc741ff74d13fb0efe0",
+    "current_sha256": "5ca3ad84feb28ae3f567a273ac7160c1107bb6a1fa9a2eadf09ce1442e6772cf"
+  },
+  {
+    "path": "persona/identity.json",
+    "role": "modified",
+    "original_sha256": "51779dae2bdb6ffa23597d9b09a835ac94742cb09616c10db6e567beab450f4f",
+    "current_sha256": "ca11b12915b14171fdc3cb9c29333a11da2d49d400d0302fad9fe26c307818d0"
+  },
+  {
+    "path": "persona/persona.md",
+    "role": "modified",
+    "original_sha256": "e404d491cb2626e51d8e15937d8301bb77564aec19b1a6aae3c4095ddec19edf",
+    "current_sha256": "d5984cd5f7c95cb3f27ba7b481bb5a2e04af7e8c758ac4d2273866fcfe8eb79b"
+  },
+  {
+    "path": "persona/personality.json",
+    "role": "modified",
+    "original_sha256": "81216a4a091c4a4f5675bbc2a8004d381fca5c0b452e34c33bf6cacf7faa6dfc",
+    "current_sha256": "c6120a2f960577d376f03d893ea514013f6df01bfe798d2bd66f827ac7dba845"
+  },
+  {
+    "path": "persona/system_prompt.py",
+    "role": "modified",
+    "original_sha256": "9be7b9976a4b48e50a6db074eebd8bce4d43a4fec0a2e99983cd40df686a0252",
+    "current_sha256": "bb7b1aa892efa0bd7e906453412a93e1728bc1306426c15572bad977bf3bf1b1"
+  },
+  {
+    "path": "scripts/voice_runtime_smoke.py",
+    "role": "modified",
+    "original_sha256": "a173a5f32a28f4d0bc20894e98ad51b27995e3e7aead14093825176b450fde15",
+    "current_sha256": "a203c632d4b976b92a61dba46d1d13e014c434dc20639f454bb9dfbbdcb6786f"
+  },
+  {
+    "path": "tests/test_sprint12_integration.py",
+    "role": "modified",
+    "original_sha256": "dc030eadf26053c8c194abdc8eada3f2657305685b45e7d5ca301c25781b2676",
+    "current_sha256": "90ed04f141e52828056dfeb1edd8f5a6d2206f0faaa8842dde5ab9c6562725d7"
+  },
+  {
+    "path": "tests/test_sprint12_personality.py",
+    "role": "modified",
+    "original_sha256": "9720f5e944674506dd456b305227e36b46ed8dc8769ecad5ef6e9058f3d1c576",
+    "current_sha256": "3a8e8c9d9ce2d9e3d1d503b3901d8a3645b79fc009e7de505325d8d2347ca8be"
+  },
+  {
+    "path": "core/cognitive/__init__.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "3d5521b024b4cd637b7ba95fcdb2455270544d501b92b6f7b923297fd509c6ba"
+  },
+  {
+    "path": "core/cognitive/addressing.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "f95b11423091231f024fc347fd93e15ac3d4df9853b9d65b12f7e3732473bfa1"
+  },
+  {
+    "path": "core/cognitive/continuity.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "eb0418a374ce7c9533ad8f76eb4b769ad6241a26d52f382264fa92984e9f8eac"
+  },
+  {
+    "path": "core/cognitive/identity.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "a142ec19725c26d7b2960b55350684d7ad3736a62031ae334820966688331e8d"
+  },
+  {
+    "path": "core/cognitive/models.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "94455896b37bc030adaa394d06069671d6880fb40fa0d696db87ea90abf3d0d4"
+  },
+  {
+    "path": "core/cognitive/orchestrator.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "29f6baa0de54ce594fc7e262c06a919dd0b5a215a531b01fb478f7b2da75e0b9"
+  },
+  {
+    "path": "core/cognitive/self_model.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "97da1e33dfafa7812d1ce4c78877439fa3bcd8ff534c264799e9e13ac5c68a56"
+  },
+  {
+    "path": "core/cognitive/state.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "3070c9c8bd8870f21487361363723cbb7094f01355174d34a7fc9840126564a4"
+  },
+  {
+    "path": "docs/sprints/SPRINT13_SPEC.md",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "c21a236ab03af49f77ebffe3c412de17fcd75aefc80c3ff07b609a3e97b3f850"
+  },
+  {
+    "path": "scripts/rollback_sprint13.ps1",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "c4921219ad991dec33bbae19a806048ca4f6f8be3af89f236489ffb2a3b7509d"
+  },
+  {
+    "path": "scripts/sprint13_live_demo.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "d3fcfb634dba6600be875b869213afc67080df6b988f6c00fd843bfc5d053d30"
+  },
+  {
+    "path": "tests/test_sprint13_cognitive_orchestrator.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "6fcc8198d017385cded4797863f74700003f49e49f70409f66601a2009bc76f5"
+  },
+  {
+    "path": "tests/test_sprint13_identity_addressing.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "8653ab4336dce38255d13e8ad64b3dee6ec72bee810f0374677e53ed3f1af148"
+  },
+  {
+    "path": "tests/test_sprint13_live_demo.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "34c2620559df2a27d99127f848a28810480d6c847b985204cc6276386b6ec121"
+  },
+  {
+    "path": "tests/test_sprint13_mind_state.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "2bdf1f126aec82d69dd24b2a3ee4c21f3435acb95596c6e12fe12d78e5e171f1"
+  }
+]

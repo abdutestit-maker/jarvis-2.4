@@ -1,0 +1,137 @@
+{
+  "live": true,
+  "offline": true,
+  "records": [
+    {
+      "command": "Который час",
+      "intent": "system",
+      "response": "Сейчас 04:00:58 (Кызылорда (зима)), 2026-08-18.",
+      "executive": {
+        "active_goal": null,
+        "open_goals": 0,
+        "open_commitments": 0,
+        "world_facts": 0,
+        "eval": {
+          "total": 0,
+          "verified": 0,
+          "verified_rate": 0.0,
+          "repairs": 0,
+          "stale_memory_uses": 0,
+          "second_run_reuse": 0,
+          "questions": 0,
+          "rollback_verified": 0,
+          "accepted_suggestions": 0,
+          "rejected_suggestions": 0
+        },
+        "capabilities": 22
+      },
+      "reminder_tool_used": false,
+      "tool": "current_time",
+      "verified": true,
+      "latency_ms": 26.526,
+      "evidence": [
+        {
+          "claim": "request completed",
+          "source": "orchestrator",
+          "observed_at": "2026-08-17T23:00:58.095+00:00",
+          "confidence": 0.0,
+          "expected_state": {},
+          "observed_state": {},
+          "latency_ms": 26.472,
+          "freshness": "fresh",
+          "path": "fast",
+          "evidence_id": "510c5d79d7734fc5a14a7e522908e18e"
+        }
+      ]
+    },
+    {
+      "command": "Поставь музыку, настроения нет",
+      "intent": "media",
+      "response": "Для поиска трека в сети нужно явно разрешить сетевой источник",
+      "executive": {
+        "active_goal": {
+          "title": "Поставь музыку, настроения нет",
+          "id": "goal_8e1c0da54122",
+          "status": "active",
+          "parent_id": null,
+          "dependencies": [],
+          "desired_state": {},
+          "constraints": [],
+          "next_action": "повторно проверить способ",
+          "deadline": null,
+          "source": "user",
+          "confidence": 0.9,
+          "priority": 0.5,
+          "last_verified": null,
+          "created_at": "2026-08-17T23:00:58+00:00",
+          "updated_at": "2026-08-17T23:00:59+00:00"
+        },
+        "open_goals": 1,
+        "open_commitments": 0,
+        "world_facts": 1,
+        "eval": {
+          "total": 1,
+          "verified": 1,
+          "verified_rate": 1.0,
+          "repairs": 0,
+          "stale_memory_uses": 0,
+          "second_run_reuse": 0,
+          "questions": 0,
+          "rollback_verified": 0,
+          "accepted_suggestions": 0,
+          "rejected_suggestions": 0
+        },
+        "capabilities": 22
+      },
+      "reminder_tool_used": false,
+      "tool": "play_music",
+      "verified": false,
+      "latency_ms": 1066.131,
+      "evidence": [
+        {
+          "claim": "request completed",
+          "source": "orchestrator",
+          "observed_at": "2026-08-17T23:00:59.163+00:00",
+          "confidence": 0.0,
+          "expected_state": {},
+          "observed_state": {},
+          "latency_ms": 1066.074,
+          "freshness": "fresh",
+          "path": "fast",
+          "evidence_id": "0b196e4e851a45d8adfed548f8200592"
+        }
+      ]
+    }
+  ],
+  "runtime_diagnostics": {
+    "warmup": {
+      "backend": "unknown",
+      "model": "local-qwen",
+      "n_gpu_layers": 0,
+      "warmup_ms": 0.0,
+      "ready_before_first_request": false
+    },
+    "warmup_ready": false,
+    "budgets": {
+      "fast": {
+        "p50_ms": 600.0,
+        "p95_ms": 1000.0,
+        "hard_max_ms": 1500.0
+      },
+      "deliberate": {
+        "first_progress_p95_ms": 2500.0,
+        "p50_ms": 8000.0,
+        "p95_ms": 15000.0
+      },
+      "research": {
+        "first_progress_p95_ms": 3000.0,
+        "source_timeout_ms": 8000.0
+      },
+      "background": {
+        "enqueue_p95_ms": 100.0
+      }
+    }
+  },
+  "second_run_reuse": true,
+  "pass": true
+}

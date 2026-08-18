@@ -1,0 +1,26 @@
+{
+  "current_goal": "enable fixture feature again",
+  "active_task": "expect, act, observe and compare",
+  "subgoals": [],
+  "relevant_context_refs": [],
+  "recalled_memory_refs": [],
+  "mission_state": "completed",
+  "uncertainties": [],
+  "pending_verification": [],
+  "interaction_mode": "conversation",
+  "confidence": 0.0,
+  "last_verified_result": "desired state verified by atomic_config",
+  "pending_user_question": "",
+  "active_mission_id": "",
+  "known": [
+    "goal.outcome.753c943212aa70d3",
+    "goal.outcome.1eb7c23d092b3e03",
+    "fixture.version"
+  ],
+  "unknown": [],
+  "uncertain": [],
+  "conflicted": [],
+  "needs_verification": [],
+  "active_epistemic_key": "goal.outcome.1eb7c23d092b3e03",
+  "updated_at": "2026-08-17T14:52:38.109984+00:00"
+}

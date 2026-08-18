@@ -63,6 +63,19 @@
 .kJarvis .tag { color: var(--accent-cyan); }
 .prose { font-size: var(--text-base); color: var(--text-primary); line-height: var(--leading-relaxed); }
 .cursor { display: inline-block; width: 2px; height: 1.1em; background: var(--accent-cyan); margin-left: 2px; vertical-align: text-bottom; animation: blink 1s steps(2) infinite; }
+/* пустой стримящийся пузырь — «печатает» */
+.typing { display: inline-flex; align-items: center; gap: 5px; height: 20px; }
+.typing span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent-cyan); opacity: 0.9;
+  animation: typingWave 1.1s ease-in-out infinite;
+}
+.typing span:nth-child(2) { animation-delay: 0.14s; }
+.typing span:nth-child(3) { animation-delay: 0.28s; }
+@keyframes typingWave {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50%      { opacity: 1;   transform: translateY(-3px); }
+}
 @keyframes blink { 50% { opacity: 0; } }
 
 /* ---- ANALYSIS: soft cyan ---- */
@@ -111,4 +124,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .spin, .cursor { animation: none; }
+  .typing span { animation: none; opacity: 0.7; }
 }

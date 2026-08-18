@@ -212,6 +212,6 @@ const WS_ENDPOINT = 'ws://127.0.0.1:8771';
  * established (e.g. vite preview without the Python core), so the UI stays
  * fully functional.
  */
-export function createRealBackend(): BackendAdapter {
+export function createRealBackend(): WebSocketBackend {
   return new WebSocketBackend(WS_ENDPOINT);
 }

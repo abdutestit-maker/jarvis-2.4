@@ -41,9 +41,90 @@ __all__ = [
     "validate_tool_call",
     "ToolCallDecision",
     "PLAN_SCHEMA_HINT",
+    "AnswerStreamExtractor",
 ]
 
 log = get_logger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+#  Инкрементальное извлечение «answer» из ПОТОКА сырых дельт модели
+#  (Sprint 1: progressive streaming без fake-чанков)
+# --------------------------------------------------------------------------- #
+
+class AnswerStreamExtractor:
+    """Собирает значение поля ``answer`` из нарастающего сырого JSON-потока.
+
+    План-промпт (§13) требует от модели один JSON-объект, где видимый
+    пользователю текст лежит в ``"answer"``. Этот класс по мере прихода
+    SSE-дельт возвращает БЕЗОПАСНЫЙ КУМУЛЯТИВНЫЙ префикс этого поля:
+    обрезает незавершённые escape-последовательности и не закрывает
+    строку раньше закрывающей кавычки. Если поля ещё нет (план с
+    инструментом, markdown-забор, чистый текст) — возвращает ``""``.
+
+    Детерминированный, без LLM; используется только для отображения —
+    финальный текст всегда берётся из полного parse_structured.
+    """
+
+    _KEY_RE = re.compile(r'"answer"\s*:\s*"')
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._start: Optional[int] = None  # позиция после открывающей кавычки
+        self._last = ""
+
+    def feed(self, delta: str) -> str:
+        """Добавляет дельту и возвращает текущий безопасный кумулятивный текст."""
+        self._buf += delta
+        if self._start is None:
+            m = self._KEY_RE.search(self._buf)
+            if m is None:
+                return ""
+            self._start = m.end()
+        content = self._content_fragment()
+        visible = self._decode_prefix(content)
+        if visible is not None and len(visible) >= len(self._last):
+            # монотонность: при повторных вызовах не «откатываем» текст
+            self._last = visible
+        return self._last
+
+    # ------------------------------------------------------------------ #
+
+    def _content_fragment(self) -> str:
+        """Подстрока от открывающей кавычки до незакрытой ``"`` (или до конца)."""
+        assert self._start is not None
+        i = self._start
+        n = len(self._buf)
+        while i < n:
+            ch = self._buf[i]
+            if ch == "\\":
+                i += 2  # пропускаем escape-символ целиком
+                continue
+            if ch == '"':
+                return self._buf[self._start:i]  # строка закрыта
+            i += 1
+        return self._buf[self._start:]  # ещё открыта
+
+    @staticmethod
+    def _decode_prefix(content: str) -> Optional[str]:
+        """JSON-декодирует возможно-незавершённое содержимое строки.
+
+        Обрезает до 6 хвостовых символов, если декод падает из-за
+        незавершённого ``\\uXXXX``/одиночного бэкслэша в конце. Сырые
+        переводы строк (некоторые модели кладут их внутрь значения)
+        экранируются перед декодом — финальный parse_structured чинит
+        их так же (_repair_json).
+        """
+        for cut in range(0, 7):
+            frag = content[: len(content) - cut] if cut else content
+            if not frag:
+                return ""
+            for candidate in (frag, frag.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")):
+                try:
+                    return json.loads('"' + candidate + '"')
+                except (ValueError, json.JSONDecodeError):
+                    continue
+        return None
 
 
 @dataclass

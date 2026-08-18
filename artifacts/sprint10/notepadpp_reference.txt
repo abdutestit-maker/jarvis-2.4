@@ -1,0 +1,3 @@
+application: Notepad++
+remember_last_session: false
+word_wrap: true

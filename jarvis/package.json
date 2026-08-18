@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:operator": "node --experimental-strip-types scripts/operatorModel.test.ts",
+    "test:frontend": "node --experimental-strip-types scripts/wsProtocol.test.ts && node --experimental-strip-types scripts/wsBackend.test.ts && node --experimental-strip-types scripts/operatorModel.test.ts",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

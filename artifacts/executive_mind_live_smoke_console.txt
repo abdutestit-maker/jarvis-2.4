@@ -1,0 +1,94 @@
+2026-08-18 03:01:37 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture', 'browser_automation', 'browser_bridge', 'play_music', 'current_time']
+2026-08-18 03:01:37 | INFO     | jarvis.core.memory.knowledge_graph | Граф знаний инициализирован: C:\Users\WwW\AppData\Local\Temp\jarvis-executive-smoke-6svmhfk3\graph\jarvis_graph.db
+2026-08-18 03:01:37 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\jarvis-project\data\runtime\piper\piper.exe, voices=[ru_RU-dmitri-medium]
+2026-08-18 03:01:37 | INFO     | jarvis.core.orchestrator     | TTS отключен или недоступен
+2026-08-18 03:01:37 | INFO     | jarvis.core.proactive.proactor | Proactor запущен (cooldown=30 мин, interval=60 сек)
+2026-08-18 03:01:37 | INFO     | jarvis.core.proactive.background_tasks | Запуск ночной консолидации...
+2026-08-18 03:01:37 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler запущен (nightly=03:00)
+2026-08-18 03:01:37 | INFO     | jarvis.core.orchestrator     | Ночная консолидация: запуск...
+2026-08-18 03:01:37 | INFO     | jarvis.core.orchestrator     | Оркестратор запущен
+2026-08-18 03:01:37 | INFO     | jarvis.core.orchestrator     | Ночная консолидация завершена: {'expired': 0, 'hooks': [], 'external_actions': 0}
+2026-08-18 03:01:37 | INFO     | jarvis.core.memory.profile   | Файл профиля не найден (C:\Users\WwW\AppData\Local\Temp\jarvis-executive-smoke-6svmhfk3\profile\profile.json) — использую дефолтный пустой профиль
+2026-08-18 03:01:37 | INFO     | jarvis.core.agent            | FAST PATH: current_time({})
+2026-08-18 03:01:38 | INFO     | jarvis.core.memory.long_term | Долгая память инициализирована: C:\Users\WwW\AppData\Local\Temp\jarvis-executive-smoke-6svmhfk3\memory
+2026-08-18 03:01:38 | INFO     | jarvis.core.memory.document_rag | RAG-документы инициализированы: C:\Users\WwW\AppData\Local\Temp\jarvis-executive-smoke-6svmhfk3\documents
+2026-08-18 03:01:38 | INFO     | jarvis.core.memory.knowledge_graph | Граф знаний инициализирован: C:\Users\WwW\AppData\Local\Temp\jarvis-executive-smoke-6svmhfk3\graph\jarvis_graph.db
+2026-08-18 03:01:39 | INFO     | jarvis.core.memory.profile   | Файл профиля не найден (C:\Users\WwW\AppData\Local\Temp\jarvis-executive-smoke-6svmhfk3\profile\profile.json) — использую дефолтный пустой профиль
+2026-08-18 03:01:39 | INFO     | jarvis.core.agent            | FAST PATH: play_music({'mood': 'нет'})
+2026-08-18 03:01:40 | INFO     | jarvis.core.proactive.proactor | Proactor остановлен
+2026-08-18 03:01:40 | INFO     | jarvis.core.proactive.background_tasks | BackgroundScheduler остановлен
+2026-08-18 03:01:40 | INFO     | jarvis.core.orchestrator     | Оркестратор остановлен
+{
+  "live": true,
+  "offline": true,
+  "records": [
+    {
+      "command": "Который час",
+      "intent": "system",
+      "response": "Сейчас 03:01:37 (Кызылорда (зима)), 2026-08-18.",
+      "executive": {
+        "active_goal": null,
+        "open_goals": 0,
+        "open_commitments": 0,
+        "world_facts": 1,
+        "eval": {
+          "total": 1,
+          "verified": 1,
+          "verified_rate": 1.0,
+          "repairs": 0,
+          "stale_memory_uses": 0,
+          "second_run_reuse": 0,
+          "questions": 0,
+          "rollback_verified": 0,
+          "accepted_suggestions": 0,
+          "rejected_suggestions": 0
+        },
+        "capabilities": 22
+      },
+      "reminder_tool_used": false
+    },
+    {
+      "command": "Поставь музыку, настроения нет",
+      "intent": "media",
+      "response": "Для поиска трека в сети нужно явно разрешить сетевой источник",
+      "executive": {
+        "active_goal": {
+          "title": "Поставь музыку, настроения нет",
+          "id": "goal_2d537081d8d2",
+          "status": "active",
+          "parent_id": null,
+          "dependencies": [],
+          "desired_state": {},
+          "constraints": [],
+          "next_action": "повторно проверить способ",
+          "deadline": null,
+          "source": "user",
+          "confidence": 0.9,
+          "priority": 0.5,
+          "last_verified": null,
+          "created_at": "2026-08-17T22:01:39+00:00",
+          "updated_at": "2026-08-17T22:01:40+00:00"
+        },
+        "open_goals": 1,
+        "open_commitments": 0,
+        "world_facts": 2,
+        "eval": {
+          "total": 2,
+          "verified": 1,
+          "verified_rate": 0.5,
+          "repairs": 0,
+          "stale_memory_uses": 0,
+          "second_run_reuse": 0,
+          "questions": 0,
+          "rollback_verified": 0,
+          "accepted_suggestions": 0,
+          "rejected_suggestions": 0
+        },
+        "capabilities": 22
+      },
+      "reminder_tool_used": false
+    }
+  ],
+  "second_run_reuse": true,
+  "pass": true
+}

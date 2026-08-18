@@ -120,8 +120,14 @@ export function ActivityEventCard({ event, isStreaming, isLastJarvis, onRetry }:
 
         {event.kind === 'jarvis' && (
           <div className={styles.prose}>
-            <Markdown text={event.content} />
-            {isStreaming && <span className={styles.cursor} />}
+            {event.content.trim() ? (
+              <Markdown text={event.content} />
+            ) : isStreaming ? (
+              <span className={styles.typing} aria-label="J.A.R.V.I.S. печатает" role="status">
+                <span /><span /><span />
+              </span>
+            ) : null}
+            {isStreaming && event.content.trim() && <span className={styles.cursor} />}
           </div>
         )}
 

@@ -1,0 +1,255 @@
+{
+  "generated_at": "2026-08-18",
+  "changed_files": [
+    ".gitignore",
+    "README.md",
+    "config/settings.example.json",
+    "config/settings.py",
+    "config/settings.json",
+    "core/actions/__init__.py",
+    "core/actions/executor.py",
+    "core/agent.py",
+    "core/capabilities.py",
+    "core/llm/local_qwen.py",
+    "core/memory/__init__.py",
+    "core/memory/profile.py",
+    "core/memory/retrieval.py",
+    "core/orchestrator.py",
+    "core/router/intent_router.py",
+    "core/state.py",
+    "core/verifier.py"
+  ],
+  "new_files": [
+    "core/executive",
+    "core/actions/media.py",
+    "core/actions/time.py",
+    "tests/test_executive_mind.py",
+    "tests/test_audit_fixes.py",
+    "docs/EXECUTIVE_MIND_VERIFICATION.md",
+    "scripts/executive_mind_live_smoke.py",
+    "scripts/rollback_executive_mind.ps1"
+  ],
+  "hashes": [
+    {
+      "path": ".gitignore",
+      "sha256": "737526fee2847f054cf57d170763a7590915e4422038118491ad4dab15fcd252"
+    },
+    {
+      "path": "README.md",
+      "sha256": "336f4db6935b1d4e47f84fdf2f7744e32b33a871d277b9ffdaf26afbecf123e4"
+    },
+    {
+      "path": "config/settings.example.json",
+      "sha256": "f13018f6a9a953e3a0b64cca31b3cb80aea9db26f30853d003435f0465ca51ea"
+    },
+    {
+      "path": "config/settings.py",
+      "sha256": "fc6666053f114cceb5b6a9d7fdd052887cecf29fdb2c22c9dbea56bb91c26077"
+    },
+    {
+      "path": "config/settings.json",
+      "sha256": "6ed36f7456aaf22ed84ecd33f7cf25804de43333bdab2b23f619bf075138292b"
+    },
+    {
+      "path": "core/actions/__init__.py",
+      "sha256": "719544bf4cba7ae5a2e3f3650ac297f13f2b371e9f05d42f464acaa2c9539a82"
+    },
+    {
+      "path": "core/actions/executor.py",
+      "sha256": "5e6f540541b491a245addefaf90ef4b3af2a762c166df2d5efdc0ad10ef6819e"
+    },
+    {
+      "path": "core/agent.py",
+      "sha256": "4d92fb241394c75769bfd7714af20bdaf7b1000c2833b14206d6ec2ac5607dff"
+    },
+    {
+      "path": "core/capabilities.py",
+      "sha256": "6bb3debaa7ec24a08624dcba51571214e276e7c860c0562499bd6b0cd5d59f3e"
+    },
+    {
+      "path": "core/llm/local_qwen.py",
+      "sha256": "c791c13538dc07bbe227088e81de36e114df7e6c891ef3e8f6974b05f20d296c"
+    },
+    {
+      "path": "core/memory/__init__.py",
+      "sha256": "f513173aa0e6f2b1cc2a01fd023b35d18a4defa3e1e2ec1c6c83a145268bb77c"
+    },
+    {
+      "path": "core/memory/profile.py",
+      "sha256": "b7585084fb822765aa54b92faf61ee302bfa942836c116c970ea300253383fe5"
+    },
+    {
+      "path": "core/memory/retrieval.py",
+      "sha256": "e1fbddeab0ca49742d4d0a9850ebd250844aa56068c2a75170d5f7d46a580ec4"
+    },
+    {
+      "path": "core/orchestrator.py",
+      "sha256": "05c378fd532b760c27ea775252dd65b74e113db899fc7a1cf1c6a4e9180e4e3d"
+    },
+    {
+      "path": "core/router/intent_router.py",
+      "sha256": "8df662e5cb918cc060ce9faac8cacae7d4ee963bf8bb1c46d19893a5d0746629"
+    },
+    {
+      "path": "core/state.py",
+      "sha256": "82a1949465f9e3cfb0a668f4ef9c226ff0336649cb28362ba420d366f1479ee0"
+    },
+    {
+      "path": "core/verifier.py",
+      "sha256": "7b95c1eb5cd53e505516a8b89542efe67b7745067769fadae6e9c4dcf641403e"
+    },
+    {
+      "path": "core\\executive\\__init__.py",
+      "sha256": "82993b73590658b5aedc705017d2decc64859b97cb8ff35f9b4394e40f9650bc"
+    },
+    {
+      "path": "core\\executive\\capability_graph.py",
+      "sha256": "329e42f41184b77be49b3d6986aa106608d4739c17f9e058a720611a1de867ff"
+    },
+    {
+      "path": "core\\executive\\cognition.py",
+      "sha256": "4a4a145fe38a7bc61a8b3142b193d6411eaded335b184901144f4b81edb2595d"
+    },
+    {
+      "path": "core\\executive\\command_os.py",
+      "sha256": "5e7f24ec27995b8ad639bb0933de9a9808d5b9d8f8427125104041b338d6cdfa"
+    },
+    {
+      "path": "core\\executive\\commands.py",
+      "sha256": "0fe8982a664573bed127a6c508dbb0ca9fd4ffa3b697ae5453005b2f99d2378a"
+    },
+    {
+      "path": "core\\executive\\commitments.py",
+      "sha256": "0ecf25c5c3b245219a66805340b542e2f1e9a3626f9e04d1079e7432f40dbd7b"
+    },
+    {
+      "path": "core\\executive\\goal_graph.py",
+      "sha256": "f5396d2bf93938ebcf1ded3fa20f9d1f375f064090193007e018244bcc6cc0ac"
+    },
+    {
+      "path": "core\\executive\\goals.py",
+      "sha256": "6dadfbde9e3ab1d26deda45e6f2da7a0528c45fecd6dc542f407174ea0479924"
+    },
+    {
+      "path": "core\\executive\\learning.py",
+      "sha256": "032919a4039c766e785092748670fdcb3d3fb92376b937ed312ac5d1fc97253f"
+    },
+    {
+      "path": "core\\executive\\mind.py",
+      "sha256": "298f95b0af055e680b3fc9dbac423df52a270f8a342bd1dd07f9eeef4fe6340d"
+    },
+    {
+      "path": "core\\executive\\models.py",
+      "sha256": "d9fefb9699a288c49270ca250e531c194532c0c9d67db179f64b9b1346feaea3"
+    },
+    {
+      "path": "core\\executive\\presence.py",
+      "sha256": "c5038e842c3beed466e471f51be5e9f1ab491ea41624834966937b2892221c44"
+    },
+    {
+      "path": "core\\executive\\promise_engine.py",
+      "sha256": "65a95341aec6301342cf68c66064160717e212605e57a70cb842663fe83fe2ca"
+    },
+    {
+      "path": "core\\executive\\store.py",
+      "sha256": "4fb0181f8831fa5905208142e4678879564efe4c3a94f7dc0df1f1a7973c3342"
+    },
+    {
+      "path": "core\\executive\\world_state.py",
+      "sha256": "40813c47d73b7bc24349b933765d38c28c183becc9fee6183ba12e83649876b6"
+    },
+    {
+      "path": "core\\executive\\world.py",
+      "sha256": "31dfdf2c14cd473ad54037854f004fbc4113de97fd76e8002ef76702431f4581"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\__init__.cpython-311.pyc",
+      "sha256": "bd4f95129e2cbb55a1134f9022f880a6d3179277bf44abf3728a4f8e5b79f9d6"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\capability_graph.cpython-311.pyc",
+      "sha256": "801acddcb78f4fc6e7461fc3302cc1516462e61e922eed15fd7ace18e97b6bf9"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\cognition.cpython-311.pyc",
+      "sha256": "6143f49f85f78f25924eaba68ce412aaf0972bd654aabe9f9912145efb7e07dc"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\command_os.cpython-311.pyc",
+      "sha256": "96ac6105703c0d1b833c354bd06b7d6a0e946e2e1577bc89bb4a89fa602e50b4"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\commands.cpython-311.pyc",
+      "sha256": "9dbd79678b4a5c9c114c6fe784c862f9d2d1671a6a56d95c6900e47265d703d8"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\commitments.cpython-311.pyc",
+      "sha256": "9038bcac836b2fc067cff7def9d6dff1c49b0913ce90311834a86d2224730862"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\goal_graph.cpython-311.pyc",
+      "sha256": "6524ea23fa80efbd791349f1a8cdb8a4201b1ad9bd6d31186e1fd650ab858ce3"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\goals.cpython-311.pyc",
+      "sha256": "ed5dae191b30dc1e90a70cff5fd3294561ff7bd235fcf028266e106e769f097f"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\learning.cpython-311.pyc",
+      "sha256": "da1b772a99715f5c74f9cd7cdf026e068bcb3db2e01217ae6b6cbeeb1afdfd4a"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\mind.cpython-311.pyc",
+      "sha256": "4a088f64d7479ebdc032e6760d9514779dffeb0024f083e61ad2aa3c5ee2a9fa"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\models.cpython-311.pyc",
+      "sha256": "8e4f1b476a88bf08a2a5f963b374a38856e9da770ef8500c4bb42ab688f6bda5"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\promise_engine.cpython-311.pyc",
+      "sha256": "f38f9e980edefb3ff8a46904ef6f0119a4bb4d957f82f5cbb456f20cbfdb3043"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\store.cpython-311.pyc",
+      "sha256": "c0cde27b5bbb64115c9d50214bfe4a7b8d163c38c29efab5b1741f47b57ae608"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\world_state.cpython-311.pyc",
+      "sha256": "a6e7faa226c393f88b13052b64f28e45fa15777697c40756cb1c5ce272f02e22"
+    },
+    {
+      "path": "core\\executive\\__pycache__\\world.cpython-311.pyc",
+      "sha256": "eeb1d1359054b6d94b334ad4b662f93ba2f5c10df265ca3e64db9d3407a6ce16"
+    },
+    {
+      "path": "core/actions/media.py",
+      "sha256": "0c3a8a74886d9f485976f0c4341ef1397fe419e6fb085c49252d1141e9a8a75f"
+    },
+    {
+      "path": "core/actions/time.py",
+      "sha256": "2d449eab5e4ddcce73acf8df1a53969a1c5242ee4daef20a3a2ed29a920243c5"
+    },
+    {
+      "path": "tests/test_executive_mind.py",
+      "sha256": "73f03240618076e4d06ac5d61ba367bf9733a57b93200a3ed1e4fb6105e1a476"
+    },
+    {
+      "path": "tests/test_audit_fixes.py",
+      "sha256": "5e764a314c9ace9ba14adf2818f7449717ccd851bf7aaa29039824491eac83e0"
+    },
+    {
+      "path": "docs/EXECUTIVE_MIND_VERIFICATION.md",
+      "sha256": "aa8e482e6507594be46ec8313a19cc32f89912016701ac1df1c6e2d5a7904319"
+    },
+    {
+      "path": "scripts/executive_mind_live_smoke.py",
+      "sha256": "13491c8b34ab5d4472bce46217c936129089a82f9f829052de8a767f6605cea2"
+    },
+    {
+      "path": "scripts/rollback_executive_mind.ps1",
+      "sha256": "0549b5edf2c0edb4d2b2a94513849d851afdc98c0c2db0bcc483d21e96a18835"
+    }
+  ],
+  "note": "Selected diff includes pre-existing working-tree edits; rollback uses the pre-change backup manifest and targeted inverse fragments."
+}

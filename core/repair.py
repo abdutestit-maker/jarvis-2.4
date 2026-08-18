@@ -42,6 +42,12 @@ log = get_logger(__name__)
 # Reasoner — опциональный LLM-колбэк: (error_text, args, context) -> новые args
 Reasoner = Callable[[str, Dict[str, Any], ToolContext], Optional[Dict[str, Any]]]
 
+#: Risk gate — (tool, args) -> причина блокировки или None, если вызов разрешён.
+#: Sprint 3 STEP 4: КАЖДАЯ повторная попытка repair (патч аргументов,
+#: fallback-инструмент, повтор) проходит тот же риск-гейт, что и первый
+#: вызов (§21). Переформулировка НЕ должна обходить подтверждение.
+RiskGate = Callable[[str, Dict[str, Any]], Optional[str]]
+
 
 @dataclass
 class RepairResult:
@@ -107,6 +113,7 @@ class RepairLoop:
         context: ToolContext,
         mission: Optional[Mission] = None,
         verification: Optional[Callable[[ActionResult], bool]] = None,
+        risk_gate: Optional[RiskGate] = None,
     ) -> RepairResult:
         """Прогоняет EXECUTE -> ERROR -> DIAGNOSE -> PATCH -> RETRY -> VERIFY.
 
@@ -116,6 +123,10 @@ class RepairLoop:
             context: контекст выполнения.
             mission: опциональная Mission для публикации событий (repairing).
             verification: опциональный предикат "результат успешно проверен".
+            risk_gate: опциональный повторный риск-гейт (Sprint 3 STEP 4):
+                ``(tool, args) -> причина блокировки | None``. Вызывается
+                перед КАЖДОЙ попыткой (включая патч/fallback); HIGH-risk
+                повтор останавливает цикл с запросом решения человека.
 
         Returns:
             RepairResult со следом действий.
@@ -124,17 +135,48 @@ class RepairLoop:
         last_result: Optional[ActionResult] = None
         current_tool = tool_name
         current_args = dict(args)
+        mission_id = getattr(mission, "task_id", "-")
 
         if mission is not None and mission.status.is_active:
             mission.set_status(MissionStatus.REPAIRING, "вход в repair loop")
 
         for attempt in range(1, self._max + 1):
+            # ---- Sprint 3 STEP 4: повторный риск-гейт ----
+            if risk_gate is not None:
+                try:
+                    blocked_reason = risk_gate(current_tool, current_args)
+                except Exception as exc:  # гейт не должен ронять repair
+                    log.warning("risk_gate упал (пропускаю проверку): %s", exc)
+                    blocked_reason = None
+                if blocked_reason:
+                    trace.append(
+                        f"RISK GATE: попытка {attempt} заблокирована — {blocked_reason}"
+                    )
+                    log.warning(
+                        "Repair [%s] попытка %d/%d заблокирована риск-гейтом: %s",
+                        mission_id, attempt, self._max, blocked_reason,
+                    )
+                    return RepairResult(
+                        ok=False, attempts=attempt, final_result=last_result,
+                        trace=trace, needs_human=True,
+                        human_message=(
+                            "Первая попытка не удалась, но повторение (с изменёнными "
+                            f"аргументами или другим инструментом) заблокировано контролём "
+                            f"безопасности: {blocked_reason}. Требуется ваше решение."
+                        ),
+                    )
+
             if mission is not None:
                 mission.emit(EVENT_ERROR if attempt == 1 else EVENT_ERROR,
                              payload={"repair_attempt": attempt, "tool": current_tool})
-            log.info("Repair [%d/%d]: %s(%s)", attempt, self._max, current_tool, redact_args(current_args))
+            log.info("Repair [%d/%d] [%s]: %s(%s)", attempt, self._max, mission_id,
+                     current_tool, redact_args(current_args))
 
-            result = execute_tool(self._registry, current_tool, current_args, context)
+            # Sprint 3: repair loop САМ является механизмом повторов —
+            # executor-retry внутри попытки умножал бы вызовы (3 repair ×
+            # 3 retry = 9 обращений к падающему инструменту).
+            result = execute_tool(self._registry, current_tool, current_args,
+                                  context, max_retries=0)
             last_result = result
             trace.append(f"попытка {attempt}: {current_tool}({current_args}) -> ok={result.ok}")
 

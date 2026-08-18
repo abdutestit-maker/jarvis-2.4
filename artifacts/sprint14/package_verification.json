@@ -1,0 +1,145 @@
+{
+  "success": true,
+  "artifact": "E:\\jarvis-project\\artifacts\\sprint14\\atlas_sprint14_modified.zip",
+  "artifact_sha256": "a8aa0d68c8b1288a8584b51183f637d06bc58a541e38fe6c62eaeb528ded5fe8",
+  "entry_count": 22,
+  "expected_count": 22,
+  "current_files_match": true,
+  "archived_files_match": true,
+  "extra_entries": [],
+  "missing_entries": [],
+  "checks": [
+    {
+      "path": "core/cognitive/models.py",
+      "present": true,
+      "sha256": "7253fb87e6f4f150d2e50e55dd5c6f727c57f6c9d1c4c518b9b7787d2ba2d2ec",
+      "match": true
+    },
+    {
+      "path": "core/cognitive/state.py",
+      "present": true,
+      "sha256": "c8409c70c5d9add8c51e743a8a37f18c42e7f78b58b4f0cfab84032487672ab5",
+      "match": true
+    },
+    {
+      "path": "core/cognitive/orchestrator.py",
+      "present": true,
+      "sha256": "abefd1f3565948f93a68c984844b3ff991293e92b5223fdcb582007a67181a31",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/__init__.py",
+      "present": true,
+      "sha256": "f41f25a87a5f4b0fa74d00d7b7487b5650931dd1c095e7095b0a7ad76f97b822",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/audit.py",
+      "present": true,
+      "sha256": "ad96f1299a2a586aca133f495dbcdba4e3df8d3e93d8a11311c512d4a238c1c1",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/calibration.py",
+      "present": true,
+      "sha256": "badc32917a463b228234e4fa911301d0d266cfa10312303c140363a63facc8c9",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/correction.py",
+      "present": true,
+      "sha256": "52364aec74dcfcb43c5f1a56f50f648b14f9e06bea9f85573e22dfb7c063e35c",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/engine.py",
+      "present": true,
+      "sha256": "f075bce56f5298947527b17aea56525c50f168dd9cf59ea43a07028f1db057af",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/expectation.py",
+      "present": true,
+      "sha256": "41cf0b8ac9c866e43fbc33a16c312a37e026f881c1c093332394369e4d0daf12",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/failures.py",
+      "present": true,
+      "sha256": "fab9ee9b8367b993799ebdb07bdef8ad3544a3121de683f8db3414e47e6a6482",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/freshness.py",
+      "present": true,
+      "sha256": "4d99fdcb9452bdd53a70acc7492fa67819fb3922ea8f3b3dfd0f498e8d81bb1e",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/models.py",
+      "present": true,
+      "sha256": "c03b7b745970e63d0902c8ba845bcc9307a08f1efd20514f9eb95b6bb06278d1",
+      "match": true
+    },
+    {
+      "path": "core/metacognition/store.py",
+      "present": true,
+      "sha256": "bf7bd112e2b4543b87aea858c279bcdfff368bca2bee3d50875260badf4e59e6",
+      "match": true
+    },
+    {
+      "path": "docs/sprints/SPRINT14_SPEC.md",
+      "present": true,
+      "sha256": "78b7a642c4c1053ff87f92bc464c566aff352821e275a69ea2e6bac03b37b6aa",
+      "match": true
+    },
+    {
+      "path": "scripts/rollback_sprint14.ps1",
+      "present": true,
+      "sha256": "2975b9aecb7db8035a08cf8039d215f151aa206c6955a2f1ab77caa53cddf45d",
+      "match": true
+    },
+    {
+      "path": "scripts/sprint14_live_demo.py",
+      "present": true,
+      "sha256": "b4f20d43ad0d4f9260e0b8898c8c6c5936665aa797d2a50aaedd4a4d9462a272",
+      "match": true
+    },
+    {
+      "path": "tests/test_sprint14_adversarial.py",
+      "present": true,
+      "sha256": "e5280489f6dc4167b3f2c4fc6d2c0326f8b65870d2c93829d8362818a88ea50c",
+      "match": true
+    },
+    {
+      "path": "tests/test_sprint14_correction.py",
+      "present": true,
+      "sha256": "f301fb53b8ead59a3117549797b2371f9c1bf551a650248ed5d214bdca78513b",
+      "match": true
+    },
+    {
+      "path": "tests/test_sprint14_epistemic.py",
+      "present": true,
+      "sha256": "eab50cbf123b66ae2a4bc01ada3c4ee2f2b760fc2782574fc6fb969ff92bf551",
+      "match": true
+    },
+    {
+      "path": "tests/test_sprint14_integration.py",
+      "present": true,
+      "sha256": "81d589d62f69ab1063806eb5428e20e8d9ef1970a34158b4d705d475455b6449",
+      "match": true
+    },
+    {
+      "path": "tests/test_sprint14_knowledge.py",
+      "present": true,
+      "sha256": "257025972f226004e37195e17ac76940621fe110e4c6cc83495c2b2661540bb9",
+      "match": true
+    },
+    {
+      "path": "tests/test_sprint14_live_demo.py",
+      "present": true,
+      "sha256": "82e183f7ba56229e61c5a8c76312a56f59f5028facbaf31b79709d755076cd18",
+      "match": true
+    }
+  ]
+}

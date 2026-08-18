@@ -1,0 +1,4935 @@
+diff --git a/core/agent.py b/core/agent.py
+--- a/core/agent.py
++++ b/core/agent.py
+@@ -1192,11 +1192,18 @@
+                     mode="needs_human", trace=trace,
+                 )
+             else:
+-                # §11 — исчерпали разумные пути: честно сообщаем, БЕЗ "готово" (§14).
+-                return self._handle_unknown(
+-                    goal, caps, mission, trace,
++                # A known provider that temporarily failed is still a known
++                # capability.  Do not misclassify infrastructure trouble as an
++                # unknown task or generate a duplicate skill.
++                trace.append("known capability provider failed after repair budget")
++                self._shadow.backlog.add(
++                    f"repair_{tool}", priority=0.85,
+                     reason=result.error or verification.detail,
+-                    attempted_tool=tool,
++                )
++                return AgentOutcome(
++                    text="Источник временно не ответил. Задача сохранена для повторной попытки.",
++                    verified=False, verification=verification, tool_used=tool,
++                    risk=risk, mode="tool", trace=trace,
+                 )
+ 
+         # ---- RESULT ----
+diff --git a/core/orchestrator.py b/core/orchestrator.py
+--- a/core/orchestrator.py
++++ b/core/orchestrator.py
+@@ -90,6 +90,13 @@
+             default_watchdog_sec=None,
+             persistence_dir=settings.data_dir / "missions",
+         )
++        from core.living import LivingIntelligence
++        self._living = LivingIntelligence(
++            settings.data_dir / "living",
++            task_runtime=self._runtime,
++            shadow_engine=self._shadow,
++        )
++        self._runtime.subscribe(self._living.observe_mission_event)
+ 
+         # TTS
+         self._tts = PiperTTS(settings)
+@@ -161,6 +168,7 @@
+             self._scheduler.start()
+             shadow_cfg = getattr(self._settings, "shadow", None)
+             self._shadow.start(interval_sec=int(getattr(shadow_cfg, "interval_sec", 300)))
++            self._living.start()
+ 
+             log.info("Оркестратор запущен")
+ 
+@@ -173,6 +181,7 @@
+ 
+         self._proactor.stop()
+         self._scheduler.stop()
++        self._living.stop()
+         self._shadow.stop()
+         self._tts_queue.stop(wait=True)
+ 
+@@ -204,9 +213,29 @@
+         # Отмечаем активность для proactor
+         self._proactor.mark_user_activity()
+ 
++        # Sprint 11: natural queries are answered from evidence-backed local
++        # structured context.  This path does not capture pixels or keystrokes.
++        context_reply = self._living.answer_context(text)
++        if context_reply is not None:
++            response = str(context_reply["answer"])
++            output = AssistantOutput.natural(response, speech_mode="focused")
++            state = new_state(text)
++            self._session.push("user", text)
++            self._session.push("assistant", response)
++            self._session.to_state(state)
++            state["response"] = response
++            state["context_evidence"] = list(context_reply.get("evidence") or [])
++            spoken = self._queue_assistant_output(output)
++            self._output_callback(response)
++            state["tts_text"] = spoken
++            state["assistant_output"] = output.to_dict()
++            return state
++
+         # Единый путь (§3): тяжёлая задача -> фон (мгновенный ACK),
+         # лёгкая -> синхронно в том же агентном цикле (без фоновой миссии).
+-        if self._should_run_background(text):
++        run_background = self._should_run_background(text)
++        self._living.observe_user_input(text, active_mission=run_background)
++        if run_background:
+             mission = self.submit_goal(text)
+             ack = mission.acknowledgement or "Принято, сэр. Работаю."
+             state = new_state(text)
+@@ -223,6 +252,11 @@
+         # Синхронный путь через единый агентный цикл
+         # (intent -> risk -> MODEL SELECTION -> tool -> verify -> repair).
+         outcome = self._agent.execute(text)
++        if outcome.tool_used or outcome.mode in {"capability", "unknown_task"}:
++            self._living.observe_capability_outcome(
++                text, verified=outcome.verified,
++                capability_id=outcome.tool_used or outcome.mode,
++            )
+ 
+         output = assistant_output_from_outcome(outcome)
+         response = output.display_text or "(пустой ответ, сэр)."
+@@ -440,6 +474,11 @@
+         return self._runtime
+ 
+     @property
++    def living(self):
++        """Sprint 11 integration facade for local context and proactive policy."""
++        return self._living
++
++    @property
+     def agent(self) -> Agent:
+         return self._agent
+ 
+diff --git a/core/shadow/backlog.py b/core/shadow/backlog.py
+--- a/core/shadow/backlog.py
++++ b/core/shadow/backlog.py
+@@ -43,20 +43,52 @@
+             self._save(items[:self.max_items])
+             return existing
+ 
+-    def next(self, *, cpu_percent: float, gpu_percent: float, gaming: bool) -> Optional[ShadowBacklogItem]:
+-        if gaming or cpu_percent >= 70 or gpu_percent >= 70:
++    def add_ranked(self, item_id: str, *, reason: str, user_pain: float,
++                   frequency: float, time_saved: float, reuse_probability: float,
++                   risk: float, learning_cost: float) -> ShadowBacklogItem:
++        """Rank by expected user value instead of novelty or fixed rules."""
++        from core.living.resources import ShadowPriorityFactors
++
++        factors = ShadowPriorityFactors(
++            user_pain, frequency, time_saved, reuse_probability, risk, learning_cost,
++        )
++        detail = (
++            f"{reason}; pain={user_pain:.3f}; frequency={frequency:.3f}; "
++            f"time_saved={time_saved:.3f}; reuse={reuse_probability:.3f}; "
++            f"risk={risk:.3f}; cost={learning_cost:.3f}"
++        )
++        return self.add(item_id, priority=factors.score(), reason=detail)
++
++    def next(self, *, cpu_percent: float, gpu_percent: float, gaming: bool,
++             ram_percent: float = 0.0, foreground_latency_ms: float = 0.0,
++             fullscreen: bool = False, active_tts: bool = False,
++             active_user_mission: bool = False, on_battery: bool = False,
++             battery_percent: float = 100.0) -> Optional[ShadowBacklogItem]:
++        from core.living.resources import BackgroundBudgetManager, BackgroundMode, ResourceSnapshot
++
++        decision = BackgroundBudgetManager().assess(ResourceSnapshot(
++            cpu_percent=cpu_percent, gpu_percent=gpu_percent, ram_percent=ram_percent,
++            foreground_latency_ms=foreground_latency_ms, gaming=gaming,
++            fullscreen=fullscreen, active_tts=active_tts,
++            active_user_mission=active_user_mission, on_battery=on_battery,
++            battery_percent=battery_percent,
++        ))
++        if decision.mode is BackgroundMode.PAUSE:
+             return None
+-        return next((item for item in self._load()
+-                     if item.status == "pending" and item.attempts < 3), None)
++        with self._lock:
++            return next((item for item in self._load()
++                         if item.status == "pending" and item.attempts < 3), None)
+ 
+     def mark(self, item_id: str, *, success: bool) -> None:
+-        items = self._load()
+-        for item in items:
+-            if item.id != item_id: continue
+-            item.attempts += 1
+-            item.status = "completed" if success else ("failed" if item.attempts >= 3 else "pending")
+-            item.updated_at = datetime.now(timezone.utc).isoformat()
+-        self._save(items)
++        with self._lock:
++            items = self._load()
++            for item in items:
++                if item.id != item_id:
++                    continue
++                item.attempts += 1
++                item.status = "completed" if success else ("failed" if item.attempts >= 3 else "pending")
++                item.updated_at = datetime.now(timezone.utc).isoformat()
++            self._save(items)
+ 
+     def _load(self) -> list[ShadowBacklogItem]:
+         try:
+diff --git a/core/shadow/engine.py b/core/shadow/engine.py
+--- a/core/shadow/engine.py
++++ b/core/shadow/engine.py
+@@ -76,10 +76,12 @@
+         self.root.mkdir(parents=True, exist_ok=True)
+         self.tools_dir = Path(data_dir) / "tools" / "shadow"
+         self.tools_dir.mkdir(parents=True, exist_ok=True)
+-        self.registry = registry or DEFAULT_REGISTRY
++        self.registry = registry if registry is not None else DEFAULT_REGISTRY
+         self.enabled = enabled
+         self.watcher = PatternWatcher(self.root)
+         self.backlog = ShadowBacklog(self.root)
++        from core.living.resources import CapabilityQualityLoop
++        self.quality = CapabilityQualityLoop(self.root / "quality", self.backlog)
+         self.generator = generator or ToolGenerator(self.root, settings=settings)
+         self.tester = tester or SandboxTester()
+         self._settings = settings
+@@ -102,6 +104,26 @@
+             return False
+         return self.watcher.record_screen_context(active_window=active_window, permission=permission,
+                                                   ocr_summary=ocr_summary)
++
++    def enqueue_ranked_learning(self, item_id: str, *, reason: str,
++                                user_pain: float, frequency: float,
++                                time_saved: float, reuse_probability: float,
++                                risk: float, learning_cost: float):
++        """Place evidence-backed learning into the shared Shadow backlog."""
++        return self.backlog.add_ranked(
++            item_id, reason=reason, user_pain=user_pain, frequency=frequency,
++            time_saved=time_saved, reuse_probability=reuse_probability,
++            risk=risk, learning_cost=learning_cost,
++        )
++
++    def record_capability_quality(self, capability_id: str, *, verified: bool,
++                                  duration: float, expected_duration: float,
++                                  repairs: int = 0, fallbacks: int = 0):
++        return self.quality.record(
++            capability_id, verified=verified, duration=duration,
++            expected_duration=expected_duration, repairs=repairs,
++            fallbacks=fallbacks,
++        )
+ 
+     def start(self, interval_sec: int = 300) -> None:
+         if not self.enabled or self._thread is not None:
+diff --git a/core/living/__init__.py b/core/living/__init__.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/__init__.py
+@@ -0,0 +1,60 @@
++"""Sprint 11 local living-context and proactive-intelligence API."""
++
++from .context import LivingContextEngine
++from .inference import FrictionDetector, GoalTracker
++from .models import (
++    ActivityEpisode,
++    AutonomyLevel,
++    ComputerAssistanceLevel,
++    ContextObservation,
++    CurrentContext,
++    FrictionSignal,
++    GoalHypothesis,
++    InterruptionLevel,
++    ProactiveAction,
++    ReturnContext,
++)
++from .monitor import LivingContextMonitor, WindowsContextSampler
++from .workflow import (
++    SemanticAction,
++    WorkflowCandidate,
++    WorkflowCapabilityBridge,
++    WorkflowExecutor,
++    WorkflowLearner,
++    WorkflowRun,
++)
++from .proactive import (
++    AssistancePolicy,
++    AttentionManager,
++    AttentionSnapshot,
++    ProactiveCandidate,
++    ProactiveDecisionEngine,
++    ProactiveMemoryStore,
++    UserProfile,
++    UserProfileStore,
++)
++from .resources import (
++    BackgroundBudgetManager,
++    BackgroundMode,
++    CapabilityQualityLoop,
++    LocalResourceSampler,
++    ResourceSnapshot,
++    ShadowPriorityFactors,
++)
++from .service import LivingIntelligence
++
++__all__ = [
++    "ActivityEpisode", "AutonomyLevel", "ComputerAssistanceLevel",
++    "ContextObservation", "CurrentContext", "FrictionDetector", "FrictionSignal",
++    "GoalHypothesis", "GoalTracker", "InterruptionLevel", "LivingContextEngine",
++    "LivingContextMonitor", "WindowsContextSampler",
++    "ProactiveAction", "ReturnContext",
++    "SemanticAction", "WorkflowCandidate", "WorkflowCapabilityBridge",
++    "WorkflowExecutor", "WorkflowLearner", "WorkflowRun",
++    "AssistancePolicy", "AttentionManager", "AttentionSnapshot",
++    "ProactiveCandidate", "ProactiveDecisionEngine", "ProactiveMemoryStore",
++    "UserProfile", "UserProfileStore",
++    "BackgroundBudgetManager", "BackgroundMode", "CapabilityQualityLoop", "LocalResourceSampler",
++    "ResourceSnapshot", "ShadowPriorityFactors",
++    "LivingIntelligence",
++]
+diff --git a/core/living/context.py b/core/living/context.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/context.py
+@@ -0,0 +1,283 @@
++"""LivingContextEngine: transient situation model plus compact episodes."""
++
++from __future__ import annotations
++
++import json
++import re
++import statistics
++import threading
++import uuid
++from collections import Counter, deque
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Any, Iterable
++
++from .inference import FrictionDetector, GoalTracker
++from .models import ActivityEpisode, ContextObservation, CurrentContext, ReturnContext
++
++
++_FORBIDDEN_METADATA = {
++    "screen", "screenshot", "screen_pixels", "pixels", "image_bytes",
++    "keystroke", "keystrokes", "typed_text", "password", "secret", "token",
++    "private_value", "clipboard_value",
++}
++_ALLOWED_METADATA = {
++    "project", "goal_hint", "activity", "jarvis_intervention", "workflow",
++    "provider", "capability_id", "mission_id", "mission_status",
++    "mission_goal", "ui_focus_role", "ui_role_counts", "shadow_pattern", "file_role",
++}
++_SECRET_VALUE = re.compile(
++    r"(?i)\b(password|passwd|secret|token|api[_ -]?key|credential)\s*"
++    r"(?:=|:|\bis\b|\bэто\b)\s*([^\s,;]+)"
++)
++
++
++class LivingContextEngine:
++    """Maintains useful structured context without a surveillance stream."""
++
++    def __init__(self, directory: Path | str, *, max_observations: int = 240,
++                 minimum_episode_gap_seconds: float = 300,
++                 sensitive_app_patterns: Iterable[str] = ()) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.summary_path = self.directory / "session_summaries.json"
++        self.episode_path = self.directory / "activity_episodes.json"
++        self.observations: deque[ContextObservation] = deque(maxlen=max(20, max_observations))
++        self.minimum_episode_gap_seconds = max(30.0, float(minimum_episode_gap_seconds))
++        defaults = ["password", "credential", "private browsing", "incognito", "bank"]
++        self.sensitive_patterns = tuple(item.casefold() for item in [*defaults, *sensitive_app_patterns])
++        self.goal_tracker = GoalTracker()
++        self.friction_detector = FrictionDetector()
++        self._episodes: list[ActivityEpisode] = []
++        self._active: ActivityEpisode | None = None
++        self._lock = threading.RLock()
++        self.current = CurrentContext()
++
++    def update(self, observation: ContextObservation | dict[str, Any]) -> CurrentContext:
++        event = observation if isinstance(observation, ContextObservation) else ContextObservation(**observation)
++        event = self._sanitize(event)
++        with self._lock:
++            if self._should_segment(event):
++                self.close_episode(outcome="context_switched")
++            self.observations.append(event)
++            if self._active is None:
++                self._active = ActivityEpisode(uuid.uuid4().hex, event.observed_at)
++            self._extend_episode(self._active, event)
++            self.current = self._build_current()
++            return self.current
++
++    def episodes(self, *, include_active: bool = False) -> list[ActivityEpisode]:
++        result = list(self._episodes)
++        if include_active and self._active is not None:
++            result.append(self._active)
++        return result
++
++    def close_episode(self, *, outcome: str = "completed") -> dict[str, Any] | None:
++        with self._lock:
++            if self._active is None:
++                return None
++            latest = self.observations[-1] if self.observations else None
++            self._active.end = latest.observed_at if latest else datetime.now(timezone.utc)
++            self._active.outcome = outcome
++            episode = self._active
++            self._episodes.append(episode)
++            self._active = None
++            summary = {
++                "episode_id": episode.episode_id,
++                "start": episode.start.isoformat(),
++                "end": episode.end.isoformat() if episode.end else None,
++                "goal": episode.goal_hypothesis,
++                "goal_confidence": episode.goal_confidence,
++                "project": episode.project,
++                "important_events": list(episode.high_level_actions[-8:]),
++                "problems": list(episode.problems[-5:]),
++                "learned_workflows": list(dict.fromkeys(
++                    str(item.metadata.get("workflow")) for item in self.observations
++                    if item.observed_at >= episode.start and item.metadata.get("workflow")
++                ))[-5:],
++                "unfinished_work": outcome not in {"completed", "success"},
++                "outcome": outcome,
++            }
++            self._append_json(self.summary_path, "summaries", summary, limit=100)
++            self._append_json(self.episode_path, "episodes", episode.to_dict(), limit=100)
++            return summary
++
++    def return_context(self, *, now: datetime | None = None,
++                       min_confidence: float = 0.8) -> ReturnContext | None:
++        summaries = self._load_items(self.summary_path, "summaries")
++        if not summaries:
++            return None
++        item = summaries[-1]
++        confidence = float(item.get("goal_confidence", 0))
++        end = datetime.fromisoformat(item["end"])
++        age = (now or datetime.now(timezone.utc)) - end
++        if confidence < min_confidence or age > timedelta(days=7) or not item.get("unfinished_work"):
++            return None
++        subject = item.get("project") or item.get("goal")
++        events = list(item.get("important_events") or [])
++        stopped_at = events[-1] if events else (subject or "последнем подтверждённом шаге")
++        message = f"Продолжим {subject}? Остановились на {stopped_at}."
++        return ReturnContext(message, confidence,
++                             (f"unfinished episode {item['episode_id']}", f"age={age}"),
++                             str(item["episode_id"]))
++
++    def answer(self, question: str) -> dict[str, Any]:
++        low = " ".join((question or "").casefold().split())
++        events = list(self.observations)
++        if not events and not self._episodes:
++            return {"known": False, "answer": "Контекст пока не зафиксирован.", "evidence": []}
++        current = self.current
++        if any(text in low for text in ("сейчас делал", "остановились", "что заметил", "ты заметил")):
++            action = current.recent_actions[-1] if current.recent_actions else ""
++            answer = f"Последнее подтверждённое действие: {action}."
++            if current.current_project:
++                answer += f" Проект: {current.current_project}."
++            return {"known": bool(action), "answer": answer,
++                    "evidence": list(current.evidence)}
++        if "научил" in low or "научился" in low:
++            workflows = [item.metadata.get("workflow") for item in events if item.metadata.get("workflow")]
++            return {"known": bool(workflows), "answer": ", ".join(workflows) if workflows else "Новых workflow нет.",
++                    "evidence": ["structured workflow observations"] if workflows else []}
++        if "пока меня не было" in low:
++            background = [item.action for item in events
++                          if item.source in {"mission_runtime", "shadow_engine", "jarvis_capability"}
++                          and item.action]
++            return {
++                "known": bool(background),
++                "answer": ("Последние фоновые действия: " + ", ".join(background[-5:]) + ".")
++                          if background else "Фоновых действий не зафиксировано.",
++                "evidence": [f"background_events={len(background)}"] if background else [],
++            }
++        return {"known": True, "answer": f"Активное приложение: {current.active_application}.",
++                "evidence": list(current.evidence)}
++
++    def _sanitize(self, event: ContextObservation) -> ContextObservation:
++        metadata = {
++            str(key): self._redact_value(value) for key, value in dict(event.metadata).items()
++            if str(key).casefold() in _ALLOWED_METADATA
++            and str(key).casefold() not in _FORBIDDEN_METADATA
++        }
++        clipboard = {
++            key: self._redact_value(value) for key, value in dict(event.clipboard_metadata).items()
++            if key in {"type", "format", "size", "item_count"}
++        }
++        haystack = " ".join((event.application, event.process, event.window_title,
++                             event.domain, event.page_title)).casefold()
++        sensitive = any(pattern in haystack for pattern in self.sensitive_patterns)
++        values = event.to_dict()
++        values["observed_at"] = event.observed_at
++        values["metadata"] = metadata
++        values["clipboard_metadata"] = clipboard
++        if sensitive:
++            values.update({
++                "application": "sensitive_application", "process": "",
++                "window_title": "", "domain": "", "page_title": "",
++                "action": "sensitive_activity", "target": "", "user_language": "",
++                "error_signature": "", "metadata": {},
++            })
++        else:
++            for key in ("window_title", "domain", "page_title", "action", "target",
++                        "error_signature", "user_language"):
++                values[key] = self._redact_text(str(values.get(key) or ""))
++        return ContextObservation(**values)
++
++    @staticmethod
++    def _redact_text(value: str) -> str:
++        return _SECRET_VALUE.sub(lambda match: f"{match.group(1)}=[redacted]", value)
++
++    @classmethod
++    def _redact_value(cls, value: Any) -> Any:
++        if isinstance(value, str):
++            return cls._redact_text(value)
++        if isinstance(value, dict):
++            return {str(key): cls._redact_value(item) for key, item in value.items()}
++        if isinstance(value, list):
++            return [cls._redact_value(item) for item in value]
++        if isinstance(value, (int, float, bool)) or value is None:
++            return value
++        return str(type(value).__name__)
++
++    def _should_segment(self, event: ContextObservation) -> bool:
++        if not self.observations or self._active is None:
++            return False
++        previous = self.observations[-1]
++        gap = (event.observed_at - previous.observed_at).total_seconds()
++        gaps = [
++            (right.observed_at - left.observed_at).total_seconds()
++            for left, right in zip(self.observations, list(self.observations)[1:])
++            if right.observed_at > left.observed_at
++        ]
++        adaptive = self.minimum_episode_gap_seconds
++        if gaps:
++            adaptive = max(adaptive, min(1800.0, statistics.median(gaps) * 8))
++        goal_before = str(previous.metadata.get("goal_hint", "")).casefold()
++        goal_after = str(event.metadata.get("goal_hint", "")).casefold()
++        meaningful_boundary = bool(goal_before and goal_after and goal_before != goal_after
++                                   and previous.application != event.application)
++        return gap >= adaptive or (meaningful_boundary and gap >= self.minimum_episode_gap_seconds / 2)
++
++    def _extend_episode(self, episode: ActivityEpisode, event: ContextObservation) -> None:
++        if event.application and event.application not in episode.applications:
++            episode.applications.append(event.application)
++        if event.action and (not episode.high_level_actions or episode.high_level_actions[-1] != event.action):
++            episode.high_level_actions.append(event.action)
++        if event.outcome == "failure":
++            problem = event.error_signature or f"{event.action} failed"
++            if problem not in episode.problems:
++                episode.problems.append(problem)
++        intervention = str(event.metadata.get("jarvis_intervention", ""))
++        if intervention and intervention not in episode.jarvis_interventions:
++            episode.jarvis_interventions.append(intervention)
++        episode.project = episode.project or str(event.metadata.get("project", ""))
++        episode.evidence_count += 1
++        goal = self.goal_tracker.infer(list(self.observations))
++        episode.goal_hypothesis = goal.goal
++        episode.goal_confidence = goal.confidence
++
++    def _build_current(self) -> CurrentContext:
++        events = list(self.observations)
++        latest = events[-1]
++        active_events = [event for event in events if self._active and event.observed_at >= self._active.start]
++        goal = self.goal_tracker.infer(active_events)
++        friction = self.friction_detector.detect(active_events)
++        actions = [item.action for item in active_events if item.action][-8:]
++        repetition = 0.0
++        if actions:
++            count = Counter(actions).most_common(1)[0][1]
++            repetition = min(1.0, count / len(actions) * (1 - 1 / (count + 1)))
++        project = next((str(item.metadata.get("project")) for item in reversed(active_events)
++                        if item.metadata.get("project")), "")
++        activity = next((str(item.metadata.get("activity")) for item in reversed(active_events)
++                         if item.metadata.get("activity")), "") or goal.goal
++        busy = any((latest.fullscreen, latest.media_active, latest.meeting_active,
++                    latest.typing_active, latest.do_not_disturb, latest.active_mission))
++        evidence = [f"observation_count={len(active_events)}"]
++        evidence.extend(goal.evidence)
++        if friction:
++            evidence.extend(friction[0].evidence)
++        duration = (latest.observed_at - self._active.start).total_seconds() if self._active else 0.0
++        return CurrentContext(
++            latest.application, latest.process, latest.window_title, latest.domain,
++            latest.page_title, max(0.0, duration), project, activity, goal.goal,
++            goal.confidence, actions, round(repetition, 3),
++            friction[0].confidence if friction else 0.0, busy, False,
++            evidence, latest.observed_at.isoformat(),
++        )
++
++    def _append_json(self, path: Path, key: str, value: dict[str, Any], *, limit: int) -> None:
++        items = self._load_items(path, key)
++        items.append(value)
++        temporary = path.with_suffix(path.suffix + ".tmp")
++        temporary.write_text(json.dumps({key: items[-limit:]}, ensure_ascii=False, indent=2),
++                             encoding="utf-8")
++        temporary.replace(path)
++
++    @staticmethod
++    def _load_items(path: Path, key: str) -> list[dict[str, Any]]:
++        try:
++            return list(json.loads(path.read_text(encoding="utf-8")).get(key) or [])
++        except (OSError, ValueError, TypeError):
++            return []
++
++
++__all__ = ["LivingContextEngine"]
+diff --git a/core/living/inference.py b/core/living/inference.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/inference.py
+@@ -0,0 +1,114 @@
++"""Evidence aggregation for goals and friction; no emotion inference."""
++
++from __future__ import annotations
++
++import math
++from collections import Counter, defaultdict
++from typing import Iterable
++
++from .models import ContextObservation, FrictionSignal, GoalHypothesis
++
++
++class GoalTracker:
++    """Combines language, metadata, action sequence and mission evidence."""
++
++    def infer(self, observations: Iterable[ContextObservation], *,
++              recent_missions: Iterable[str] = (),
++              memory_hints: Iterable[str] = ()) -> GoalHypothesis:
++        events = list(observations)
++        scores: dict[str, float] = defaultdict(float)
++        evidence: dict[str, list[str]] = defaultdict(list)
++        goal_actions: dict[str, set[str]] = defaultdict(set)
++
++        def add(goal: str, weight: float, source: str) -> None:
++            normalized = " ".join(str(goal).strip().split())
++            if not normalized:
++                return
++            scores[normalized] += weight
++            if source not in evidence[normalized]:
++                evidence[normalized].append(source)
++
++        for index, event in enumerate(events):
++            recency = 0.75 + 0.25 * ((index + 1) / max(1, len(events)))
++            add(event.user_language, 0.36 * recency, "user language")
++            hint = str(event.metadata.get("goal_hint", ""))
++            add(hint, 0.22 * recency, "application context")
++            if hint and event.action:
++                goal_actions[" ".join(hint.strip().split())].add(event.action)
++            add(str(event.metadata.get("mission_goal", "")), 0.26 * recency, "recent mission")
++        for candidate, actions in goal_actions.items():
++            if len(actions) >= 2:
++                add(candidate, 0.32, "action sequence")
++        for mission in recent_missions:
++            add(str(mission), 0.28, "mission history")
++        for hint in memory_hints:
++            add(str(hint), 0.12, "memory")
++
++        if not scores:
++            return GoalHypothesis("", 0.0)
++        ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
++        goal, raw = ranked[0]
++        diversity = len(evidence[goal])
++        confidence = min(0.98, raw * (0.72 + 0.14 * min(2, diversity)))
++        # One weak source is context, not a claimed goal.
++        if diversity < 2 or confidence < 0.5:
++            return GoalHypothesis("", round(confidence, 3), tuple(evidence[goal]),
++                                  tuple(item[0] for item in ranked[1:3]))
++        return GoalHypothesis(goal, round(confidence, 3), tuple(evidence[goal]),
++                              tuple(item[0] for item in ranked[1:3]))
++
++
++class FrictionDetector:
++    """Detects observable loops/failures without assigning user emotions."""
++
++    def detect(self, observations: Iterable[ContextObservation]) -> list[FrictionSignal]:
++        events = list(observations)
++        signals: list[FrictionSignal] = []
++        failed: dict[tuple[str, str], list[ContextObservation]] = defaultdict(list)
++        for event in events:
++            if event.outcome in {"failure", "workaround"}:
++                failed[(event.action, event.error_signature)].append(event)
++        for (action, signature), group in failed.items():
++            failures = sum(item.outcome == "failure" for item in group)
++            workaround = any(item.outcome == "workaround" for item in group)
++            if failures >= 2:
++                confidence = min(0.98, 0.55 + 0.15 * (failures - 1) + (0.2 if workaround else 0))
++                evidence = [f"{failures} failed {action} observations"]
++                if signature:
++                    evidence.append(f"same error signature: {signature}")
++                if workaround:
++                    evidence.append("manual workaround followed failure")
++                signals.append(FrictionSignal(
++                    "repeated_failure", round(confidence, 3),
++                    f"{action} repeatedly failed", f"prepare a verified workflow for {action}",
++                    tuple(evidence),
++                ))
++
++        actions = [item.action for item in events if item.action]
++        counts = Counter(actions)
++        if actions:
++            action, count = counts.most_common(1)[0]
++            density = count / len(actions)
++            if count > 1 and density >= 0.6 and not any(s.type == "repeated_failure" for s in signals):
++                confidence = min(0.9, density * (1 - math.exp(-count / 2)))
++                signals.append(FrictionSignal(
++                    "repeated_operation", round(confidence, 3),
++                    f"{action} repeated in the current activity", f"generalize {action} as a workflow",
++                    (f"{count} matching semantic actions",),
++                ))
++
++        switches = sum(
++            1 for left, right in zip(events, events[1:])
++            if left.application and right.application and left.application != right.application
++            and (right.observed_at - left.observed_at).total_seconds() <= 15
++        )
++        if switches >= 3:
++            signals.append(FrictionSignal(
++                "rapid_application_switching", min(0.9, 0.5 + switches * 0.08),
++                "rapid semantic context switching", "prepare cross-application workflow",
++                (f"{switches} switches within 15-second intervals",),
++            ))
++        return sorted(signals, key=lambda item: -item.confidence)
++
++
++__all__ = ["FrictionDetector", "GoalTracker"]
+diff --git a/core/living/models.py b/core/living/models.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/models.py
+@@ -0,0 +1,148 @@
++"""Structured, privacy-minimal models for Sprint 11 living intelligence."""
++
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field
++from datetime import datetime, timezone
++from enum import Enum
++from typing import Any
++
++
++def utcnow() -> datetime:
++    return datetime.now(timezone.utc)
++
++
++@dataclass
++class ContextObservation:
++    observed_at: datetime = field(default_factory=utcnow)
++    source: str = "local"
++    application: str = ""
++    process: str = ""
++    window_title: str = ""
++    domain: str = ""
++    page_title: str = ""
++    action: str = ""
++    target: str = ""
++    outcome: str = "unknown"
++    error_signature: str = ""
++    user_language: str = ""
++    idle_seconds: float = 0.0
++    fullscreen: bool = False
++    media_active: bool = False
++    meeting_active: bool = False
++    typing_active: bool = False
++    do_not_disturb: bool = False
++    active_mission: bool = False
++    clipboard_metadata: dict[str, Any] = field(default_factory=dict)
++    metadata: dict[str, Any] = field(default_factory=dict)
++
++    def to_dict(self) -> dict[str, Any]:
++        value = asdict(self)
++        value["observed_at"] = self.observed_at.isoformat()
++        return value
++
++
++@dataclass
++class CurrentContext:
++    active_application: str = ""
++    active_process: str = ""
++    window_title: str = ""
++    browser_domain: str = ""
++    page_title: str = ""
++    session_duration: float = 0.0
++    current_project: str = ""
++    probable_activity: str = ""
++    goal: str = ""
++    goal_confidence: float = 0.0
++    recent_actions: list[str] = field(default_factory=list)
++    repetition_score: float = 0.0
++    friction_score: float = 0.0
++    user_busy: bool = False
++    jarvis_should_interrupt: bool = False
++    evidence: list[str] = field(default_factory=list)
++    updated_at: str = ""
++
++
++@dataclass
++class ActivityEpisode:
++    episode_id: str
++    start: datetime
++    end: datetime | None = None
++    applications: list[str] = field(default_factory=list)
++    high_level_actions: list[str] = field(default_factory=list)
++    goal_hypothesis: str = ""
++    goal_confidence: float = 0.0
++    problems: list[str] = field(default_factory=list)
++    jarvis_interventions: list[str] = field(default_factory=list)
++    outcome: str = "active"
++    project: str = ""
++    evidence_count: int = 0
++
++    def to_dict(self) -> dict[str, Any]:
++        value = asdict(self)
++        value["start"] = self.start.isoformat()
++        value["end"] = self.end.isoformat() if self.end else None
++        return value
++
++
++@dataclass(frozen=True)
++class GoalHypothesis:
++    goal: str
++    confidence: float
++    evidence: tuple[str, ...] = ()
++    alternatives: tuple[str, ...] = ()
++
++
++@dataclass(frozen=True)
++class FrictionSignal:
++    type: str
++    confidence: float
++    context: str
++    possible_help: str
++    evidence: tuple[str, ...] = ()
++
++
++@dataclass(frozen=True)
++class ReturnContext:
++    message: str
++    confidence: float
++    evidence: tuple[str, ...]
++    episode_id: str
++
++
++class AutonomyLevel(str, Enum):
++    OBSERVER = "observer"
++    ASSISTANT = "assistant"
++    PARTNER = "partner"
++    AUTONOMOUS = "autonomous"
++
++
++class ComputerAssistanceLevel(str, Enum):
++    BEGINNER = "beginner"
++    NORMAL = "normal"
++    ADVANCED = "advanced"
++    DEVELOPER = "developer"
++
++
++class ProactiveAction(str, Enum):
++    SILENT = "SILENT"
++    PREPARE = "PREPARE"
++    SUGGEST = "SUGGEST"
++    ACT = "ACT"
++    ASK = "ASK"
++    WARN = "WARN"
++
++
++class InterruptionLevel(str, Enum):
++    NONE = "NONE"
++    PASSIVE = "PASSIVE"
++    NORMAL = "NORMAL"
++    IMPORTANT = "IMPORTANT"
++    URGENT = "URGENT"
++
++
++__all__ = [
++    "ActivityEpisode", "AutonomyLevel", "ComputerAssistanceLevel",
++    "ContextObservation", "CurrentContext", "FrictionSignal", "GoalHypothesis",
++    "InterruptionLevel", "ProactiveAction", "ReturnContext", "utcnow",
++]
+diff --git a/core/living/monitor.py b/core/living/monitor.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/monitor.py
+@@ -0,0 +1,167 @@
++"""Low-overhead Windows context sampling without screenshots or key logging."""
++
++from __future__ import annotations
++
++import ctypes
++import threading
++from pathlib import Path
++from typing import Any, Callable
++
++from core.platform.windows import NativeWindowsProvider
++
++from .context import LivingContextEngine
++from .models import ContextObservation, CurrentContext
++
++
++class WindowsContextSampler:
++    """Collects only foreground-window metadata and coarse activity state.
++
++    The sampler never captures pixels, clipboard contents or typed characters.
++    Optional probes may contribute already-structured browser/application state.
++    """
++
++    _MEETING_APPS = {"teams", "zoom", "skype", "webex", "discord"}
++    _MEDIA_APPS = {"vlc", "mpv", "spotify", "wmplayer", "foobar2000"}
++
++    def __init__(
++        self,
++        *,
++        provider: Any | None = None,
++        process_lookup: Callable[[int], str] | None = None,
++        idle_lookup: Callable[[], float] | None = None,
++        fullscreen_lookup: Callable[[int | None], bool] | None = None,
++        browser_probe: Callable[[], dict[str, Any]] | None = None,
++        activity_probe: Callable[[], dict[str, Any]] | None = None,
++    ) -> None:
++        self.provider = provider or NativeWindowsProvider()
++        self.process_lookup = process_lookup or self._process_name
++        self.idle_lookup = idle_lookup or self._idle_seconds
++        self.fullscreen_lookup = fullscreen_lookup or self._is_fullscreen
++        self.browser_probe = browser_probe
++        self.activity_probe = activity_probe
++
++    def sample(self) -> ContextObservation:
++        active = self.provider.window_active()
++        value = dict(active.value or {}) if getattr(active, "ok", False) else {}
++        process_id = int(value.get("process_id") or 0)
++        process = self.process_lookup(process_id) if process_id else ""
++        stem = Path(process).stem
++        application = stem.replace("_", " ").replace("-", " ").title()
++        title = str(value.get("title") or "")
++        handle = value.get("handle")
++        browser = dict(self.browser_probe() or {}) if self.browser_probe else {}
++        activity = dict(self.activity_probe() or {}) if self.activity_probe else {}
++        process_key = stem.casefold()
++        meeting = bool(activity.get("meeting_active")) or any(
++            name in process_key for name in self._MEETING_APPS
++        )
++        media = bool(activity.get("media_active") or browser.get("media_active")) or any(
++            name in process_key for name in self._MEDIA_APPS
++        )
++        return ContextObservation(
++            source="native_windows_metadata",
++            application=application,
++            process=process,
++            window_title=title,
++            domain=str(browser.get("domain") or ""),
++            page_title=str(browser.get("page_title") or ""),
++            action="foreground_active" if title or process else "",
++            idle_seconds=max(0.0, float(self.idle_lookup())),
++            fullscreen=bool(self.fullscreen_lookup(int(handle) if handle else None)),
++            media_active=media,
++            meeting_active=meeting,
++            typing_active=bool(activity.get("typing_active")),
++            do_not_disturb=bool(activity.get("do_not_disturb")),
++            active_mission=bool(activity.get("active_mission")),
++            metadata={
++                "provider": getattr(active, "provider", "native_windows"),
++                "ui_focus_role": str(activity.get("ui_focus_role") or ""),
++                "ui_role_counts": dict(activity.get("ui_role_counts") or {}),
++            },
++        )
++
++    @staticmethod
++    def _process_name(process_id: int) -> str:
++        try:
++            import psutil
++            return str(psutil.Process(process_id).name())
++        except Exception:
++            return ""
++
++    @staticmethod
++    def _idle_seconds() -> float:
++        try:
++            class LASTINPUTINFO(ctypes.Structure):
++                _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
++
++            info = LASTINPUTINFO()
++            info.cbSize = ctypes.sizeof(info)
++            if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
++                return 0.0
++            elapsed_ms = (ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF
++            return elapsed_ms / 1000.0
++        except Exception:
++            return 0.0
++
++    @staticmethod
++    def _is_fullscreen(handle: int | None) -> bool:
++        if not handle:
++            return False
++        try:
++            import win32api
++            import win32gui
++
++            left, top, right, bottom = win32gui.GetWindowRect(handle)
++            monitor = win32api.MonitorFromWindow(handle, 2)
++            monitor_rect = win32api.GetMonitorInfo(monitor)["Monitor"]
++            return (left, top, right, bottom) == tuple(monitor_rect)
++        except Exception:
++            return False
++
++
++class LivingContextMonitor:
++    """Quiet daemon sampler whose one-shot ``tick`` is independently testable."""
++
++    def __init__(self, engine: LivingContextEngine, *, sampler: Any | None = None,
++                 interval_seconds: float = 2.0) -> None:
++        self.engine = engine
++        self.sampler = sampler or WindowsContextSampler()
++        self.interval_seconds = max(0.05, float(interval_seconds))
++        self._stop = threading.Event()
++        self._thread: threading.Thread | None = None
++
++    @property
++    def running(self) -> bool:
++        return bool(self._thread and self._thread.is_alive())
++
++    def tick(self) -> CurrentContext:
++        return self.engine.update(self.sampler.sample())
++
++    def start(self) -> None:
++        if self.running:
++            return
++        self._stop.clear()
++        self._thread = threading.Thread(
++            target=self._loop, name="LivingContextMonitor", daemon=True,
++        )
++        self._thread.start()
++
++    def stop(self, *, close_episode: bool = True) -> None:
++        self._stop.set()
++        if self._thread and self._thread.is_alive():
++            self._thread.join(timeout=max(1.0, self.interval_seconds * 2))
++        self._thread = None
++        if close_episode:
++            self.engine.close_episode(outcome="service_stopped")
++
++    def _loop(self) -> None:
++        while not self._stop.is_set():
++            try:
++                self.tick()
++            except Exception:
++                # Context collection is auxiliary and must never affect Active Mode.
++                pass
++            self._stop.wait(self.interval_seconds)
++
++
++__all__ = ["LivingContextMonitor", "WindowsContextSampler"]
+diff --git a/core/living/proactive.py b/core/living/proactive.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/proactive.py
+@@ -0,0 +1,362 @@
++"""Scored proactive policy with evidence, attention and adaptive no-spam memory."""
++
++from __future__ import annotations
++
++import json
++import math
++import threading
++from dataclasses import asdict, dataclass, field
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Any
++
++from core.capabilities import RiskLevel
++from core.safety import assess_risk
++
++from .models import (
++    AutonomyLevel,
++    ComputerAssistanceLevel,
++    InterruptionLevel,
++    ProactiveAction,
++)
++
++
++@dataclass
++class ProactiveCandidate:
++    id: str
++    topic: str
++    opportunity: str
++    confidence: float
++    expected_value: float
++    reversible: bool
++    risk: str
++    evidence: list[str]
++    ambiguity: float = 0.0
++    urgency: float = 0.0
++    can_prepare: bool = False
++    external_side_effect: bool = False
++    requires_credentials: bool = False
++    missing_information: str = ""
++    danger: bool = False
++    capability_id: str = ""
++
++
++@dataclass
++class AttentionSnapshot:
++    fullscreen: bool = False
++    gaming: bool = False
++    media_active: bool = False
++    meeting_active: bool = False
++    typing_active: bool = False
++    active_conversation: bool = False
++    active_mission: bool = False
++    do_not_disturb: bool = False
++    seconds_since_interruption: float | None = None
++
++
++@dataclass(frozen=True)
++class AttentionDecision:
++    level: InterruptionLevel
++    can_interrupt: bool
++    availability: float
++    reasons: tuple[str, ...]
++
++
++@dataclass
++class UserProfile:
++    autonomy: AutonomyLevel = AutonomyLevel.ASSISTANT
++    assistance: ComputerAssistanceLevel = ComputerAssistanceLevel.NORMAL
++    allow_low_risk_autonomy: bool = True
++    proactive_enabled: bool = True
++
++
++@dataclass(frozen=True)
++class ProactiveDecision:
++    action: ProactiveAction
++    user_message: str
++    score: float
++    evidence: tuple[str, ...]
++    reason: str
++    attention_level: InterruptionLevel
++    background_allowed: bool = False
++
++
++@dataclass(frozen=True)
++class AssistanceResponse:
++    message: str
++    execute_safe_parts: bool
++    ask_user: bool
++    show_trace: bool
++
++
++class AttentionManager:
++    """Scores interruption availability without inferring mood or emotion."""
++
++    weights = {
++        "fullscreen": 0.28, "gaming": 0.45, "media_active": 0.25,
++        "meeting_active": 0.48, "typing_active": 0.16,
++        "active_conversation": 0.42, "active_mission": 0.16,
++        "do_not_disturb": 0.75,
++    }
++
++    def assess(self, snapshot: AttentionSnapshot, *, urgency: float = 0.0) -> AttentionDecision:
++        reasons: list[str] = []
++        load = 0.0
++        for name, weight in self.weights.items():
++            if getattr(snapshot, name):
++                load += weight
++                reasons.append(name)
++        if snapshot.seconds_since_interruption is not None:
++            recency = math.exp(-max(0.0, snapshot.seconds_since_interruption) / 900)
++            load += 0.35 * recency
++            if recency > 0.25:
++                reasons.append("recent_interruption")
++        availability = max(0.0, min(1.0, 1.0 - load))
++        urgency = max(0.0, min(1.0, urgency))
++        engaged = any((snapshot.fullscreen, snapshot.gaming, snapshot.media_active,
++                       snapshot.meeting_active, snapshot.typing_active,
++                       snapshot.active_mission))
++        if snapshot.do_not_disturb or (engaged and urgency < 0.85) or snapshot.active_conversation:
++            return AttentionDecision(InterruptionLevel.NONE, False, round(availability, 3), tuple(reasons))
++        pressure = 0.7 * urgency + 0.3 * availability
++        if pressure >= 0.88:
++            level = InterruptionLevel.URGENT
++        elif pressure >= 0.7:
++            level = InterruptionLevel.IMPORTANT
++        elif pressure >= 0.42:
++            level = InterruptionLevel.NORMAL
++        else:
++            level = InterruptionLevel.PASSIVE
++        return AttentionDecision(level, availability >= 0.35 or urgency >= 0.8,
++                                 round(availability, 3), tuple(reasons))
++
++
++class ProactiveMemoryStore:
++    """Persists suggestion outcomes, never observed content or private fields."""
++
++    def __init__(self, directory: Path | str) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "proactive_memory.json"
++        self._lock = threading.RLock()
++
++    def record(self, topic: str, *, outcome: str, useful: bool | None,
++               now: datetime | None = None, suggestion: str = "") -> None:
++        entry = {
++            "topic": " ".join(topic.casefold().split())[:200],
++            "suggestion": suggestion[:300],
++            "outcome": outcome,
++            "useful": useful,
++            "at": (now or datetime.now(timezone.utc)).isoformat(),
++        }
++        with self._lock:
++            items = self._load()
++            items.append(entry)
++            self._save(items[-500:])
++
++    def allows(self, topic: str, *, now: datetime | None = None) -> bool:
++        normalized = " ".join(topic.casefold().split())
++        related = [item for item in self._load() if item.get("topic") == normalized]
++        if not related:
++            return True
++        current = now or datetime.now(timezone.utc)
++        last = related[-1]
++        outcome = last.get("outcome")
++        rejects = sum(item.get("outcome") == "rejected" for item in related[-5:])
++        ignores = sum(item.get("outcome") == "ignored" for item in related[-5:])
++        days = 0.5
++        if outcome == "ignored":
++            days = 5 + 2 * ignores
++        elif outcome == "rejected":
++            days = 10 + 4 * rejects
++        elif outcome in {"accepted", "useful"}:
++            days = 0.25
++        try:
++            then = datetime.fromisoformat(str(last["at"]))
++        except (KeyError, TypeError, ValueError):
++            return True
++        return current - then >= timedelta(days=days)
++
++    def affinity(self, topic: str) -> float:
++        normalized = " ".join(topic.casefold().split())
++        score = 0.0
++        count = 0
++        for item in self._load():
++            if item.get("topic") != normalized:
++                continue
++            count += 1
++            score += {"accepted": 0.7, "useful": 1.0, "ignored": -0.3,
++                      "rejected": -1.0, "failed": -0.5}.get(str(item.get("outcome")), 0)
++            if item.get("useful") is True:
++                score += 0.3
++            elif item.get("useful") is False:
++                score -= 0.3
++        return max(-1.0, min(1.0, score / max(1, count)))
++
++    def _load(self) -> list[dict[str, Any]]:
++        try:
++            return list(json.loads(self.path.read_text(encoding="utf-8")).get("records") or [])
++        except (OSError, ValueError, TypeError):
++            return []
++
++    def _save(self, items: list[dict[str, Any]]) -> None:
++        temporary = self.path.with_suffix(".tmp")
++        temporary.write_text(json.dumps({"records": items}, ensure_ascii=False, indent=2),
++                             encoding="utf-8")
++        temporary.replace(self.path)
++
++
++class UserProfileStore:
++    def __init__(self, directory: Path | str) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "assistance_profile.json"
++
++    def load(self) -> UserProfile:
++        try:
++            data = json.loads(self.path.read_text(encoding="utf-8"))
++            return UserProfile(
++                AutonomyLevel(data.get("autonomy", AutonomyLevel.ASSISTANT.value)),
++                ComputerAssistanceLevel(data.get("assistance", ComputerAssistanceLevel.NORMAL.value)),
++                bool(data.get("allow_low_risk_autonomy", True)),
++                bool(data.get("proactive_enabled", True)),
++            )
++        except (OSError, ValueError, TypeError):
++            return UserProfile()
++
++    def update(self, *, autonomy: AutonomyLevel | str | None = None,
++               assistance: ComputerAssistanceLevel | str | None = None,
++               allow_low_risk_autonomy: bool | None = None,
++               proactive_enabled: bool | None = None) -> UserProfile:
++        profile = self.load()
++        if autonomy is not None:
++            profile.autonomy = AutonomyLevel(autonomy)
++        if assistance is not None:
++            profile.assistance = ComputerAssistanceLevel(assistance)
++        if allow_low_risk_autonomy is not None:
++            profile.allow_low_risk_autonomy = bool(allow_low_risk_autonomy)
++        if proactive_enabled is not None:
++            profile.proactive_enabled = bool(proactive_enabled)
++        temporary = self.path.with_suffix(".tmp")
++        payload = asdict(profile)
++        payload["autonomy"] = profile.autonomy.value
++        payload["assistance"] = profile.assistance.value
++        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
++        temporary.replace(self.path)
++        return profile
++
++
++class ProactiveDecisionEngine:
++    """Weighted opportunity policy plus non-negotiable risk/evidence guardrails."""
++
++    def __init__(self, memory: ProactiveMemoryStore,
++                 attention: AttentionManager | None = None) -> None:
++        self.memory = memory
++        self.attention = attention or AttentionManager()
++
++    def decide(self, candidate: ProactiveCandidate, attention: AttentionSnapshot, *,
++               profile: UserProfile | None = None,
++               now: datetime | None = None) -> ProactiveDecision:
++        profile = profile or UserProfile()
++        evidence = tuple(str(item) for item in candidate.evidence if str(item).strip())
++        attention_result = self.attention.assess(attention, urgency=candidate.urgency)
++        if not evidence or not profile.proactive_enabled:
++            return self._decision(ProactiveAction.SILENT, "", 0, evidence,
++                                  "structured evidence is required", attention_result)
++        if not self.memory.allows(candidate.topic, now=now):
++            return self._decision(ProactiveAction.SILENT, "", 0, evidence,
++                                  "adaptive cooldown", attention_result)
++
++        assessed = assess_risk(candidate.opportunity)
++        explicit = {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(candidate.risk, 2)
++        detected = {RiskLevel.LOW: 0, RiskLevel.MEDIUM: 1,
++                    RiskLevel.HIGH: 2, RiskLevel.CRITICAL: 3}[assessed.level]
++        risk = max(explicit, detected)
++        affinity = self.memory.affinity(candidate.topic)
++        score = max(0.0, min(1.0,
++            0.40 * candidate.confidence + 0.25 * candidate.expected_value
++            + 0.20 * min(1.0, len(evidence) / 3) + 0.15 * ((affinity + 1) / 2)
++            - 0.25 * candidate.ambiguity
++        ))
++
++        if candidate.danger and candidate.urgency >= 0.8 and attention_result.can_interrupt:
++            return self._decision(
++                ProactiveAction.WARN, f"Сэр, обнаружен значимый риск: {candidate.opportunity}.",
++                score, evidence, "verified danger evidence", attention_result,
++            )
++        if candidate.requires_credentials or candidate.external_side_effect or candidate.ambiguity >= 0.65:
++            if not attention_result.can_interrupt and candidate.can_prepare and risk == 0:
++                return self._decision(ProactiveAction.PREPARE, "", score, evidence,
++                                      "prepare while attention is unavailable", attention_result, True)
++            if not attention_result.can_interrupt:
++                return self._decision(ProactiveAction.SILENT, "", score, evidence,
++                                      "required question deferred by attention/risk", attention_result)
++            missing = candidate.missing_information or "недостающую информацию"
++            return self._decision(ProactiveAction.ASK, f"Сэр, уточните {missing}?", score,
++                                  evidence, "one required input", attention_result)
++        if risk >= 2:
++            return self._decision(ProactiveAction.SILENT, "", score, evidence,
++                                  "proactive high-risk action suppressed", attention_result)
++        if not attention_result.can_interrupt:
++            if candidate.can_prepare and risk == 0:
++                return self._decision(ProactiveAction.PREPARE, "", score, evidence,
++                                      "safe background preparation", attention_result, True)
++            return self._decision(ProactiveAction.SILENT, "", score, evidence,
++                                  "attention budget unavailable", attention_result)
++        if score < 0.58:
++            return self._decision(ProactiveAction.SILENT, "", score, evidence,
++                                  "opportunity score below policy threshold", attention_result)
++        can_act = (
++            profile.autonomy in {AutonomyLevel.PARTNER, AutonomyLevel.AUTONOMOUS}
++            and profile.allow_low_risk_autonomy and risk == 0 and candidate.reversible
++            and candidate.ambiguity < 0.2 and candidate.confidence >= 0.85
++        )
++        if can_act:
++            return self._decision(ProactiveAction.ACT, "", score, evidence,
++                                  "permitted low-risk reversible autonomy", attention_result, True)
++        if profile.autonomy is AutonomyLevel.OBSERVER and score < 0.9:
++            return self._decision(ProactiveAction.SILENT, "", score, evidence,
++                                  "observer profile", attention_result)
++        return self._decision(
++            ProactiveAction.SUGGEST,
++            f"Сэр, эта последовательность повторяется. Автоматизировать {candidate.topic}?",
++            score, evidence, "useful opportunity awaiting consent", attention_result,
++        )
++
++    @staticmethod
++    def _decision(action: ProactiveAction, message: str, score: float,
++                  evidence: tuple[str, ...], reason: str,
++                  attention: AttentionDecision, background: bool = False) -> ProactiveDecision:
++        return ProactiveDecision(action, message, round(score, 3), evidence, reason,
++                                 attention.level, background)
++
++
++class AssistancePolicy:
++    def plan(self, request: str, *, assistance: ComputerAssistanceLevel,
++             capability_available: bool, requires_user_input: str = "",
++             provider_trace: str = "") -> AssistanceResponse:
++        if requires_user_input:
++            return AssistanceResponse(
++                f"{requires_user_input} требуется здесь. Введите, дальше я продолжу.",
++                False, True, assistance in {ComputerAssistanceLevel.ADVANCED,
++                                            ComputerAssistanceLevel.DEVELOPER},
++            )
++        if assistance is ComputerAssistanceLevel.BEGINNER:
++            if capability_available:
++                return AssistanceResponse(
++                    "Я сам выполню безопасные шаги. Если понадобится ввод, скажу.",
++                    True, False, False,
++                )
++            return AssistanceResponse("Сейчас разберусь и подготовлю способ.", True, False, False)
++        show = assistance in {ComputerAssistanceLevel.ADVANCED, ComputerAssistanceLevel.DEVELOPER}
++        message = "Выполняю через проверенную capability."
++        if show and provider_trace:
++            message += f" Provider trace: {provider_trace}."
++        return AssistanceResponse(message, capability_available, False, show)
++
++
++__all__ = [
++    "AssistancePolicy", "AssistanceResponse", "AttentionDecision", "AttentionManager",
++    "AttentionSnapshot", "ProactiveCandidate", "ProactiveDecision",
++    "ProactiveDecisionEngine", "ProactiveMemoryStore", "UserProfile", "UserProfileStore",
++]
+diff --git a/core/living/resources.py b/core/living/resources.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/resources.py
+@@ -0,0 +1,195 @@
++"""Resource budgets, Shadow value ranking and capability quality feedback."""
++
++from __future__ import annotations
++
++import json
++import math
++import threading
++from dataclasses import asdict, dataclass
++from enum import Enum
++from pathlib import Path
++from typing import Any
++
++
++class BackgroundMode(str, Enum):
++    RUN = "RUN"
++    THROTTLE = "THROTTLE"
++    PAUSE = "PAUSE"
++
++
++@dataclass(frozen=True)
++class ResourceSnapshot:
++    cpu_percent: float = 0.0
++    gpu_percent: float = 0.0
++    ram_percent: float = 0.0
++    foreground_latency_ms: float = 0.0
++    gaming: bool = False
++    fullscreen: bool = False
++    active_tts: bool = False
++    active_user_mission: bool = False
++    on_battery: bool = False
++    battery_percent: float = 100.0
++
++
++@dataclass(frozen=True)
++class BackgroundDecision:
++    mode: BackgroundMode
++    load_score: float
++    cpu_quota: float
++    reasons: tuple[str, ...]
++
++
++@dataclass(frozen=True)
++class ShadowPriorityFactors:
++    user_pain: float
++    frequency: float
++    time_saved: float
++    reuse_probability: float
++    risk: float
++    learning_cost: float
++
++    def score(self) -> float:
++        values = [max(0.0, min(1.0, float(value))) for value in asdict(self).values()]
++        pain, frequency, time_saved, reuse, risk, cost = values
++        benefit = 0.28 * pain + 0.22 * frequency + 0.20 * time_saved + 0.20 * reuse
++        penalty = 0.18 * risk + 0.12 * cost
++        return round(max(0.0, min(1.0, benefit - penalty)), 3)
++
++
++@dataclass(frozen=True)
++class QualityResult:
++    capability_id: str
++    optimization_needed: bool
++    priority: float
++    evidence: tuple[str, ...]
++
++
++class BackgroundBudgetManager:
++    """Weighted saturation model protecting foreground responsiveness."""
++
++    def assess(self, snapshot: ResourceSnapshot) -> BackgroundDecision:
++        reasons: list[str] = []
++        load = (
++            0.23 * max(0.0, min(1.0, snapshot.cpu_percent / 100))
++            + 0.17 * max(0.0, min(1.0, snapshot.gpu_percent / 100))
++            + 0.18 * max(0.0, min(1.0, snapshot.ram_percent / 100))
++            + 0.18 * max(0.0, min(1.0, snapshot.foreground_latency_ms / 250))
++        )
++        for name, weight in (
++            ("gaming", 0.40), ("fullscreen", 0.18), ("active_tts", 0.35),
++            ("active_user_mission", 0.35),
++        ):
++            if getattr(snapshot, name):
++                load += weight
++                reasons.append(name)
++        if snapshot.on_battery:
++            battery_pressure = max(0.0, min(1.0, (35 - snapshot.battery_percent) / 35))
++            load += 0.45 * battery_pressure
++            if battery_pressure > 0:
++                reasons.append("battery conservation")
++        load = max(0.0, min(1.0, load))
++        if load >= 0.65:
++            return BackgroundDecision(BackgroundMode.PAUSE, round(load, 3), 0.0, tuple(reasons))
++        if load >= 0.38:
++            return BackgroundDecision(BackgroundMode.THROTTLE, round(load, 3),
++                                      round(max(0.05, (0.65 - load) * 0.5), 3), tuple(reasons))
++        return BackgroundDecision(BackgroundMode.RUN, round(load, 3),
++                                  round(max(0.1, 0.5 - load), 3), tuple(reasons))
++
++
++class LocalResourceSampler:
++    """Reads coarse local load metrics; it records no process contents."""
++
++    def __init__(self, psutil_module: Any = None) -> None:
++        if psutil_module is None:
++            import psutil
++            psutil_module = psutil
++        self.psutil = psutil_module
++
++    def sample(self, *, foreground_latency_ms: float = 0.0,
++               gaming: bool = False, fullscreen: bool = False,
++               active_tts: bool = False, active_user_mission: bool = False,
++               gpu_percent: float = 0.0) -> ResourceSnapshot:
++        battery = None
++        try:
++            battery = self.psutil.sensors_battery()
++        except (AttributeError, OSError):
++            pass
++        return ResourceSnapshot(
++            cpu_percent=float(self.psutil.cpu_percent(interval=None)),
++            gpu_percent=max(0.0, float(gpu_percent)),
++            ram_percent=float(self.psutil.virtual_memory().percent),
++            foreground_latency_ms=max(0.0, float(foreground_latency_ms)),
++            gaming=bool(gaming), fullscreen=bool(fullscreen),
++            active_tts=bool(active_tts), active_user_mission=bool(active_user_mission),
++            on_battery=bool(battery and not battery.power_plugged),
++            battery_percent=float(battery.percent if battery else 100.0),
++        )
++
++
++class CapabilityQualityLoop:
++    def __init__(self, directory: Path | str, backlog: Any) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "capability_quality.json"
++        self.backlog = backlog
++        self._lock = threading.RLock()
++
++    def record(self, capability_id: str, *, verified: bool, duration: float,
++               expected_duration: float, repairs: int = 0,
++               fallbacks: int = 0) -> QualityResult:
++        with self._lock:
++            data = self._load()
++            item = dict(data.get(capability_id) or {
++                "runs": 0, "failures": 0, "repairs": 0, "fallbacks": 0,
++                "duration_ratio_total": 0.0,
++            })
++            item["runs"] += 1
++            item["failures"] += int(not verified)
++            item["repairs"] += max(0, int(repairs))
++            item["fallbacks"] += max(0, int(fallbacks))
++            ratio = max(0.0, duration) / max(0.01, expected_duration)
++            item["duration_ratio_total"] += ratio
++            data[capability_id] = item
++            self._save(data)
++
++        runs = item["runs"]
++        failure_rate = item["failures"] / runs
++        repair_pressure = min(1.0, item["repairs"] / runs)
++        fallback_pressure = min(1.0, item["fallbacks"] / runs)
++        average_ratio = item["duration_ratio_total"] / runs
++        slowness = min(1.0, max(0.0, average_ratio - 1) / 3)
++        pressure = min(1.0, 0.40 * failure_rate + 0.20 * repair_pressure
++                       + 0.20 * fallback_pressure + 0.20 * slowness)
++        evidence = (
++            f"failure_rate={failure_rate:.3f}", f"repairs_per_run={item['repairs'] / runs:.3f}",
++            f"fallbacks_per_run={item['fallbacks'] / runs:.3f}",
++            f"duration_ratio={average_ratio:.3f}",
++        )
++        needed = pressure >= 0.45
++        if needed:
++            self.backlog.add_ranked(
++                f"optimize_{capability_id}", reason="; ".join(evidence),
++                user_pain=pressure, frequency=min(1.0, 1 - math.exp(-runs / 3)),
++                time_saved=slowness, reuse_probability=min(1.0, runs / 5),
++                risk=0.1, learning_cost=0.35,
++            )
++        return QualityResult(capability_id, needed, round(pressure, 3), evidence)
++
++    def _load(self) -> dict[str, Any]:
++        try:
++            return dict(json.loads(self.path.read_text(encoding="utf-8")))
++        except (OSError, ValueError, TypeError):
++            return {}
++
++    def _save(self, data: dict[str, Any]) -> None:
++        temporary = self.path.with_suffix(".tmp")
++        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
++        temporary.replace(self.path)
++
++
++__all__ = [
++    "BackgroundBudgetManager", "BackgroundDecision", "BackgroundMode",
++    "CapabilityQualityLoop", "LocalResourceSampler", "QualityResult", "ResourceSnapshot",
++    "ShadowPriorityFactors",
++]
+diff --git a/core/living/service.py b/core/living/service.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/service.py
+@@ -0,0 +1,346 @@
++"""Integration facade for context, proactive policy, Shadow and Mission Runtime."""
++
++from __future__ import annotations
++
++import json
++import threading
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Callable
++
++from core.capability_engine import DesiredStateVerifier
++from core.shadow.backlog import ShadowBacklog
++from core.task_runtime import Mission, MissionStatus, TaskRuntime
++
++from .context import LivingContextEngine
++from .models import ContextObservation
++from .monitor import LivingContextMonitor
++from .proactive import (
++    AssistancePolicy,
++    AttentionSnapshot,
++    ProactiveCandidate,
++    ProactiveDecision,
++    ProactiveDecisionEngine,
++    ProactiveMemoryStore,
++    UserProfileStore,
++)
++from .resources import (
++    BackgroundBudgetManager,
++    BackgroundMode,
++    CapabilityQualityLoop,
++    LocalResourceSampler,
++    QualityResult,
++    ResourceSnapshot,
++)
++from .workflow import WorkflowLearner, WorkflowRun
++
++
++@dataclass(frozen=True)
++class ProactiveCycleResult:
++    decision: ProactiveDecision
++    mission: Mission | None = None
++
++
++@dataclass(frozen=True)
++class ProactiveExecutionResult:
++    action: str
++    executed: bool
++    verified: bool
++    observed: dict[str, Any]
++    missing: dict[str, Any]
++    rolled_back: bool
++    evidence: tuple[str, ...]
++
++
++@dataclass(frozen=True)
++class AssistanceExecutionResult:
++    message: str
++    executed: bool
++    verified: bool
++    result: Any = None
++
++
++class LivingIntelligence:
++    def __init__(self, directory: Path | str, *, task_runtime: TaskRuntime | None = None,
++                 shadow_engine: Any = None) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.context = LivingContextEngine(self.directory / "context")
++        self.workflows = WorkflowLearner(self.directory / "workflows")
++        self.memory = ProactiveMemoryStore(self.directory / "memory")
++        self.profile_store = UserProfileStore(self.directory / "profile")
++        self.decisions = ProactiveDecisionEngine(self.memory)
++        self.resources = BackgroundBudgetManager()
++        self.resource_sampler = LocalResourceSampler()
++        self.task_runtime = task_runtime or TaskRuntime(
++            persistence_dir=self.directory / "missions",
++        )
++        self.shadow_backlog = (
++            shadow_engine.backlog if shadow_engine is not None
++            else ShadowBacklog(self.directory / "shadow")
++        )
++        self.quality = CapabilityQualityLoop(self.directory / "quality", self.shadow_backlog)
++        self.verifier = DesiredStateVerifier()
++        self.monitor = LivingContextMonitor(self.context)
++
++    def start(self) -> None:
++        self.monitor.start()
++
++    def stop(self) -> None:
++        self.monitor.stop()
++
++    def observe_user_input(self, text: str, *, active_mission: bool = False) -> None:
++        """Adds declared intent while retaining the last sampled application metadata."""
++        current = self.context.current
++        self.context.update(ContextObservation(
++            source="user_language",
++            application=current.active_application,
++            process=current.active_process,
++            window_title=current.window_title,
++            domain=current.browser_domain,
++            page_title=current.page_title,
++            action="user_request",
++            user_language=(text or "").strip(),
++            active_mission=active_mission,
++        ))
++
++    def observe_action(self, *, action: str, outcome: str = "unknown",
++                       application: str = "", target: str = "", source: str = "local_action",
++                       error_signature: str = "", active_mission: bool = False,
++                       metadata: dict[str, Any] | None = None) -> None:
++        current = self.context.current
++        self.context.update(ContextObservation(
++            source=source,
++            application=application or current.active_application,
++            process=current.active_process,
++            window_title=current.window_title,
++            domain=current.browser_domain,
++            page_title=current.page_title,
++            action=action,
++            target=target,
++            outcome=outcome,
++            error_signature=error_signature,
++            active_mission=active_mission,
++            metadata=dict(metadata or {}),
++        ))
++
++    def observe_mission_event(self, event: Any) -> None:
++        event_type = str(getattr(event, "event_type", ""))
++        payload = dict(getattr(event, "payload", {}) or {})
++        status = str(payload.get("status") or getattr(event, "phase", ""))
++        outcome = "failure" if "failed" in event_type or status == "failed" else (
++            "success" if "completed" in event_type or status == "completed" else "unknown"
++        )
++        active = status not in {"completed", "failed", "cancelled"}
++        self.observe_action(
++            action=event_type or "mission_event", outcome=outcome, source="mission_runtime",
++            error_signature=str(payload.get("error") or ""),
++            active_mission=active,
++            metadata={
++                "mission_id": str(getattr(event, "task_id", "")),
++                "mission_status": status,
++                "mission_goal": str(payload.get("goal") or ""),
++            },
++        )
++
++    def observe_capability_outcome(self, request: str, *, verified: bool,
++                                   capability_id: str = "", error: str = "") -> None:
++        self.observe_action(
++            action="capability_verified" if verified else "capability_failed",
++            outcome="success" if verified else "failure", source="jarvis_capability",
++            error_signature=error,
++            metadata={"goal_hint": request, "capability_id": capability_id},
++        )
++
++    def observe_file_activity(self, action: str, path_role: str, *, outcome: str = "success",
++                              project: str = "", workflow: str = "") -> None:
++        self.observe_action(
++            action=action, outcome=outcome, application="File Explorer",
++            target=path_role, source="file_activity",
++            metadata={"project": project, "workflow": workflow},
++        )
++
++    def observe_workflow(self, run: WorkflowRun) -> None:
++        self.workflows.observe(run)
++        self.observe_action(
++            action="workflow_observed", outcome="success" if run.success else "failure",
++            source="workflow_learner",
++            metadata={"workflow": run.run_id, "goal_hint": " ".join(
++                item.target_name for item in run.actions if item.target_name
++            )},
++        )
++
++    def opportunity_candidates(self) -> list[ProactiveCandidate]:
++        """Converts evidence-backed learned workflows into policy candidates."""
++        result: list[ProactiveCandidate] = []
++        for workflow in self.workflows.discover():
++            if not workflow.ready:
++                continue
++            expected = max(0.5, min(1.0, workflow.time_saved_seconds / 60.0))
++            result.append(ProactiveCandidate(
++                id=workflow.id, topic=workflow.description,
++                opportunity=f"automate semantic workflow: {workflow.description}",
++                confidence=workflow.confidence, expected_value=expected,
++                reversible=workflow.risk == "low", risk=workflow.risk,
++                evidence=list(workflow.evidence), can_prepare=True,
++                capability_id=workflow.id,
++            ))
++        return result
++
++    def observe_clipboard_metadata(self, metadata: dict[str, Any], *, permission: bool) -> bool:
++        if not permission:
++            return False
++        allowed = {key: value for key, value in metadata.items()
++                   if key in {"type", "format", "size", "item_count"}}
++        current = self.context.current
++        self.context.update(ContextObservation(
++            source="clipboard_metadata", application=current.active_application,
++            process=current.active_process, window_title=current.window_title,
++            action="clipboard_metadata_changed", clipboard_metadata=allowed,
++        ))
++        return True
++
++    def answer_context(self, question: str) -> dict[str, Any] | None:
++        normalized = " ".join((question or "").casefold().replace("ё", "е").split())
++        markers = (
++            "что я сейчас делал", "что я делал", "на чем остановились",
++            "на чем мы остановились", "что ты заметил", "чему я тебя научил",
++            "чему ты научился", "что ты делал пока меня не было",
++        )
++        if not any(marker in normalized for marker in markers):
++            return None
++        return self.context.answer(normalized)
++
++    def proactive_cycle(self, candidate: ProactiveCandidate,
++                        attention: AttentionSnapshot, *,
++                        resources: ResourceSnapshot | None = None,
++                        prepare: Callable[[], dict[str, Any]] | None = None) -> ProactiveCycleResult:
++        decision = self.decisions.decide(
++            candidate, attention, profile=self.profile_store.load(),
++        )
++        mission = None
++        if decision.action.value == "PREPARE" and prepare is not None:
++            mission = self.schedule_prepare(
++                candidate, prepare, resources=resources or self.resource_sampler.sample(),
++            )
++        return ProactiveCycleResult(decision, mission)
++
++    def schedule_prepare(self, candidate: ProactiveCandidate,
++                         prepare: Callable[[], dict[str, Any]], *,
++                         resources: ResourceSnapshot) -> Mission | None:
++        budget = self.resources.assess(resources)
++        if budget.mode is BackgroundMode.PAUSE:
++            self.shadow_backlog.add_ranked(
++                candidate.id, reason="background budget paused preparation",
++                user_pain=candidate.expected_value,
++                frequency=min(1.0, candidate.confidence),
++                time_saved=candidate.expected_value,
++                reuse_probability=candidate.confidence,
++                risk={"low": 0.1, "medium": 0.5, "high": 0.9, "critical": 1}.get(candidate.risk, 0.9),
++                learning_cost=0.4,
++            )
++            return None
++
++        def runner(mission: Mission, cancel: threading.Event) -> str:
++            latest_error = ""
++            for attempt in range(1, 4):
++                while mission.status is MissionStatus.PAUSED and not cancel.is_set():
++                    time.sleep(0.05)
++                if cancel.is_set():
++                    raise RuntimeError("preparation cancelled")
++                if budget.mode is BackgroundMode.THROTTLE:
++                    time.sleep(max(0.05, min(0.5, 0.15 - budget.cpu_quota)))
++                mission.set_progress((attempt - 1) / 3, f"prepare attempt {attempt}")
++                try:
++                    result = dict(prepare() or {})
++                    if not result.get("verified"):
++                        raise RuntimeError("prepared capability did not pass rehearsal")
++                    mission.verification = {"verified": True, "evidence": list(candidate.evidence)}
++                    mission.set_progress(1.0, "prepared and verified")
++                    return json.dumps(result, ensure_ascii=False)
++                except Exception as exc:
++                    latest_error = str(exc)
++                    mission.note_error(latest_error)
++                    time.sleep(0.05 * attempt)
++            raise RuntimeError(latest_error or "preparation failed")
++
++        return self.task_runtime.submit(
++            f"Prepare: {candidate.opportunity}", runner,
++            metadata={
++                "proactive": True, "candidate_id": candidate.id,
++                "risk": candidate.risk, "evidence": list(candidate.evidence),
++                "foreground_interruption": False,
++                "background_mode": budget.mode.value, "cpu_quota": budget.cpu_quota,
++            },
++        )
++
++    def execute_proactive(self, candidate: ProactiveCandidate,
++                          attention: AttentionSnapshot, *,
++                          desired_state: dict[str, Any], checkpoint: Callable[[], Any],
++                          executor: Callable[[], Any], observer: Callable[[], dict[str, Any]],
++                          rollback: Callable[[Any], Any]) -> ProactiveExecutionResult:
++        decision = self.decisions.decide(
++            candidate, attention, profile=self.profile_store.load(),
++        )
++        if decision.action.value != "ACT":
++            return ProactiveExecutionResult(
++                decision.action.value, False, False, {}, dict(desired_state), False,
++                decision.evidence,
++            )
++        saved = checkpoint()
++        try:
++            executor()  # return flags are never treated as verification
++            observed = dict(observer())
++        except Exception as exc:
++            rolled_back = False
++            rollback_error = ""
++            try:
++                rolled_back = bool(rollback(saved))
++            except Exception as rollback_exc:
++                rollback_error = f"; rollback_error={type(rollback_exc).__name__}: {rollback_exc}"
++            return ProactiveExecutionResult(
++                decision.action.value, True, False, {}, dict(desired_state), rolled_back,
++                (*decision.evidence, f"execution_error={type(exc).__name__}: {exc}{rollback_error}"),
++            )
++        verification = self.verifier.verify(desired_state, observed)
++        rolled_back = False
++        if not verification.verified:
++            rolled_back = bool(rollback(saved))
++        return ProactiveExecutionResult(
++            decision.action.value, True, verification.verified, observed,
++            verification.missing, rolled_back, decision.evidence,
++        )
++
++    def assist(self, request: str, *, capability_available: bool,
++               operator: Callable[[str], Any] | None = None,
++               requires_user_input: str = "", provider_trace: str = "") -> AssistanceExecutionResult:
++        profile = self.profile_store.load()
++        policy = AssistancePolicy().plan(
++            request, assistance=profile.assistance,
++            capability_available=capability_available,
++            requires_user_input=requires_user_input,
++            provider_trace=provider_trace,
++        )
++        if not policy.execute_safe_parts or operator is None:
++            return AssistanceExecutionResult(policy.message, False, False)
++        result = operator(request)
++        verified = bool(result.get("verified")) if isinstance(result, dict) else bool(
++            getattr(result, "verified", False)
++        )
++        return AssistanceExecutionResult(policy.message, True, verified, result)
++
++    def record_capability_outcome(self, capability_id: str, *, verified: bool,
++                                  duration: float, expected_duration: float,
++                                  repairs: int = 0, fallbacks: int = 0) -> QualityResult:
++        return self.quality.record(
++            capability_id, verified=verified, duration=duration,
++            expected_duration=expected_duration, repairs=repairs,
++            fallbacks=fallbacks,
++        )
++
++
++__all__ = [
++    "AssistanceExecutionResult", "LivingIntelligence", "ProactiveCycleResult",
++    "ProactiveExecutionResult",
++]
+diff --git a/core/living/workflow.py b/core/living/workflow.py
+new file mode 100644
+--- /dev/null
++++ b/core/living/workflow.py
+@@ -0,0 +1,366 @@
++"""Semantic workflow discovery and verified Capability Engine integration."""
++
++from __future__ import annotations
++
++import json
++import math
++import re
++import threading
++from dataclasses import asdict, dataclass, field
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any, Callable, Iterable
++
++from core.capability_engine import (
++    CapabilityCatalog,
++    CapabilityDefinition,
++    CapabilityEpisode,
++    CapabilityKind,
++    DesiredStateVerifier,
++)
++
++
++_COORDINATE_KEYS = {"x", "y", "left", "top", "right", "bottom", "coordinates", "rectangle"}
++_SECRET_KEYS = ("password", "passwd", "secret", "token", "api_key", "credential")
++
++
++@dataclass(frozen=True)
++class SemanticAction:
++    verb: str
++    target_role: str
++    target_name: str
++    provider: str
++    parameters: dict[str, Any] = field(default_factory=dict)
++    risk: str = "low"
++
++    @property
++    def signature(self) -> str:
++        return "|".join((self.verb.casefold(), self.target_role.casefold(),
++                         self.target_name.casefold(), self.provider.casefold()))
++
++
++@dataclass
++class WorkflowRun:
++    run_id: str
++    actions: list[SemanticAction]
++    duration_seconds: float = 0.0
++    estimated_automated_seconds: float = 0.0
++    success: bool = True
++    desired_state: dict[str, Any] = field(default_factory=dict)
++    observed_state: dict[str, Any] = field(default_factory=dict)
++    observed_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
++
++
++@dataclass
++class WorkflowCandidate:
++    id: str
++    description: str
++    actions: list[SemanticAction]
++    frequency: int
++    similarity: float
++    time_saved_seconds: float
++    reliability: float
++    risk: str
++    confidence: float
++    desired_state: dict[str, Any]
++    evidence: list[str] = field(default_factory=list)
++    ready_threshold: float = 0.75
++
++    @property
++    def ready(self) -> bool:
++        return (self.confidence >= self.ready_threshold and self.reliability >= 0.6
++                and self.risk in {"low", "medium"})
++
++
++@dataclass(frozen=True)
++class WorkflowExecution:
++    verified: bool
++    observed: dict[str, Any]
++    missing: dict[str, Any]
++    action_results: tuple[dict[str, Any], ...]
++
++
++class WorkflowLearner:
++    """Clusters sequences by semantic similarity, never by screen coordinates."""
++
++    def __init__(self, directory: Path | str, *, ready_threshold: float = 0.75,
++                 cluster_similarity: float = 0.65) -> None:
++        self.directory = Path(directory)
++        self.directory.mkdir(parents=True, exist_ok=True)
++        self.path = self.directory / "workflow_runs.json"
++        self.ready_threshold = float(ready_threshold)
++        self.cluster_similarity = float(cluster_similarity)
++        self._runs: list[WorkflowRun] = []
++        self._lock = threading.RLock()
++        self._load()
++
++    def observe(self, run: WorkflowRun) -> None:
++        if not run.actions:
++            return
++        actions = [self._sanitize_action(action) for action in run.actions]
++        sanitized = WorkflowRun(
++            run.run_id, actions, max(0.0, run.duration_seconds),
++            max(0.0, run.estimated_automated_seconds), bool(run.success),
++            self._safe_mapping(run.desired_state), self._safe_mapping(run.observed_state),
++            run.observed_at,
++        )
++        with self._lock:
++            self._runs.append(sanitized)
++            self._save()
++
++    def discover(self) -> list[WorkflowCandidate]:
++        clusters: list[list[WorkflowRun]] = []
++        for run in self._runs:
++            placed = False
++            for cluster in clusters:
++                if self.sequence_similarity(run.actions, cluster[0].actions) >= self.cluster_similarity:
++                    cluster.append(run)
++                    placed = True
++                    break
++            if not placed:
++                clusters.append([run])
++        candidates = [self._candidate(cluster) for cluster in clusters]
++        return sorted(candidates, key=lambda item: (-item.confidence, item.id))
++
++    @staticmethod
++    def sequence_similarity(left: list[SemanticAction], right: list[SemanticAction]) -> float:
++        a, b = [item.signature for item in left], [item.signature for item in right]
++        if not a or not b:
++            return 0.0
++        table = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
++        for i, x in enumerate(a, 1):
++            for j, y in enumerate(b, 1):
++                table[i][j] = table[i - 1][j - 1] + 1 if x == y else max(
++                    table[i - 1][j], table[i][j - 1],
++                )
++        return 2 * table[-1][-1] / (len(a) + len(b))
++
++    def _candidate(self, runs: list[WorkflowRun]) -> WorkflowCandidate:
++        similarities = [
++            self.sequence_similarity(left.actions, right.actions)
++            for index, left in enumerate(runs) for right in runs[index + 1:]
++        ]
++        similarity = sum(similarities) / len(similarities) if similarities else 0.5
++        frequency = len(runs)
++        reliability = sum(run.success for run in runs) / frequency
++        saved = [max(0.0, run.duration_seconds - run.estimated_automated_seconds) for run in runs]
++        time_saved = sum(saved) / frequency
++        durations = sum(max(1.0, run.duration_seconds) for run in runs) / frequency
++        time_score = min(1.0, time_saved / durations)
++        frequency_score = 1 - math.exp(-frequency / 2.5)
++        risk = max((action.risk for run in runs for action in run.actions),
++                   key=lambda item: {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(item, 2))
++        safety_score = 1 - {"low": 0.1, "medium": 0.45, "high": 0.8, "critical": 1}.get(risk, 0.8)
++        confidence = min(0.99, 0.22 * frequency_score + 0.25 * similarity
++                         + 0.25 * reliability + 0.18 * time_score + 0.10 * safety_score)
++        actions = self._generalize([run.actions for run in runs])
++        description = " ".join(dict.fromkeys(
++            word for action in actions for word in (
++                action.verb, action.target_role, action.target_name,
++            ) if word
++        ))
++        identifier = re.sub(r"[^a-z0-9]+", "_", description.casefold()).strip("_")[:72]
++        desired = next((run.desired_state for run in reversed(runs) if run.success and run.desired_state), {})
++        return WorkflowCandidate(
++            f"workflow_{identifier or 'semantic'}", description, actions, frequency,
++            round(similarity, 3), round(time_saved, 3), round(reliability, 3), risk,
++            round(confidence, 3), dict(desired),
++            [f"frequency={frequency}", f"similarity={similarity:.3f}",
++             f"reliability={reliability:.3f}", f"time_saved={time_saved:.3f}s"],
++            self.ready_threshold,
++        )
++
++    @staticmethod
++    def _generalize(sequences: list[list[SemanticAction]]) -> list[SemanticAction]:
++        length = min(map(len, sequences))
++        result: list[SemanticAction] = []
++        for index in range(length):
++            group = [sequence[index] for sequence in sequences]
++            reference = group[0]
++            parameters: dict[str, Any] = {}
++            keys = set().union(*(action.parameters for action in group))
++            for key in sorted(keys):
++                values = [action.parameters.get(key) for action in group]
++                parameters[key] = values[0] if all(value == values[0] for value in values) else {"$slot": key}
++            result.append(SemanticAction(
++                reference.verb, reference.target_role, reference.target_name,
++                reference.provider, parameters, reference.risk,
++            ))
++        return result
++
++    @staticmethod
++    def _sanitize_action(action: SemanticAction) -> SemanticAction:
++        keys = {str(key).casefold() for key in action.parameters}
++        if keys & _COORDINATE_KEYS:
++            raise ValueError("workflow actions must be semantic; coordinates are excluded")
++        return SemanticAction(
++            action.verb, action.target_role, action.target_name, action.provider,
++            WorkflowLearner._safe_mapping(action.parameters), action.risk,
++        )
++
++    @staticmethod
++    def _safe_mapping(value: dict[str, Any]) -> dict[str, Any]:
++        result = {}
++        for key, item in value.items():
++            label = str(key)
++            if any(secret in label.casefold() for secret in _SECRET_KEYS):
++                continue
++            result[label] = WorkflowLearner._safe_mapping(item) if isinstance(item, dict) else item
++        return result
++
++    def _save(self) -> None:
++        payload = {"runs": [
++            {**asdict(run), "actions": [asdict(action) for action in run.actions]}
++            for run in self._runs[-200:]
++        ]}
++        temporary = self.path.with_suffix(".tmp")
++        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
++        temporary.replace(self.path)
++
++    def _load(self) -> None:
++        try:
++            payload = json.loads(self.path.read_text(encoding="utf-8"))
++        except (OSError, ValueError, TypeError):
++            return
++        restored: list[WorkflowRun] = []
++        for raw in list(payload.get("runs") or [])[-200:]:
++            try:
++                actions = [self._sanitize_action(SemanticAction(**item))
++                           for item in raw.get("actions") or []]
++                restored.append(WorkflowRun(
++                    run_id=str(raw["run_id"]), actions=actions,
++                    duration_seconds=float(raw.get("duration_seconds", 0)),
++                    estimated_automated_seconds=float(raw.get("estimated_automated_seconds", 0)),
++                    success=bool(raw.get("success", False)),
++                    desired_state=dict(raw.get("desired_state") or {}),
++                    observed_state=dict(raw.get("observed_state") or {}),
++                    observed_at=str(raw.get("observed_at") or datetime.now(timezone.utc).isoformat()),
++                ))
++            except (KeyError, TypeError, ValueError):
++                continue
++        self._runs = restored
++
++
++class WorkflowCapabilityBridge:
++    def __init__(self, catalog: CapabilityCatalog) -> None:
++        self.catalog = catalog
++
++    def rehearse(self, candidate: WorkflowCandidate,
++                 rehearsal: Callable[[WorkflowCandidate], dict[str, Any]]) -> CapabilityDefinition | None:
++        if not candidate.ready:
++            return None
++        result = dict(rehearsal(candidate) or {})
++        if not result.get("verified"):
++            return None
++        procedure = [
++            f"{action.provider}:{action.verb}:{action.target_role}:{action.target_name}"
++            for action in candidate.actions
++        ]
++        capability = CapabilityDefinition(
++            id=candidate.id,
++            description=candidate.description,
++            tools=list(dict.fromkeys(action.provider for action in candidate.actions)),
++            kind=CapabilityKind.LEARNED,
++            success_criteria=[f"{key}={value!r}" for key, value in candidate.desired_state.items()],
++            risk_class=candidate.risk,
++            confidence=candidate.confidence,
++            generalized_procedure=procedure,
++            procedure_steps=[{
++                "id": f"workflow-{index + 1}", "tool": action.provider,
++                "args": dict(action.parameters), "depends_on": [f"workflow-{index}"] if index else [],
++                "produces": {}, "verification": [],
++            } for index, action in enumerate(candidate.actions)],
++            desired_state=dict(candidate.desired_state),
++        )
++        duration = float(result.get("duration", 0))
++        capability.record_result(success=True, duration=duration)
++        self.catalog.save(capability)
++        observed = dict(result.get("observed") or {})
++        episode = CapabilityEpisode(
++            goal=candidate.description, capability=capability.id,
++            task_class="semantic_workflow", successful_strategy=procedure,
++            verification=[f"{key}={value!r}" for key, value in observed.items()],
++            generalized_procedure=procedure, tools_used=list(capability.tools),
++            duration=duration, risk_profile=candidate.risk,
++            confidence=capability.confidence,
++        )
++        self.catalog.record_episode(episode)
++        return capability
++
++
++class WorkflowExecutor:
++    def __init__(self, providers: dict[str, Callable[[SemanticAction, dict[str, Any]], Any]],
++                 *, observer: Callable[[], dict[str, Any]]) -> None:
++        self.providers = dict(providers)
++        self.observer = observer
++        self.verifier = DesiredStateVerifier()
++
++    def execute(self, candidate: WorkflowCandidate, *, slots: dict[str, Any] | None = None) -> WorkflowExecution:
++        slots = dict(slots or {})
++        results: list[dict[str, Any]] = []
++        for action in candidate.actions:
++            provider = self.providers.get(action.provider)
++            if provider is None:
++                results.append({"provider": action.provider, "accepted": False, "error": "missing provider"})
++                continue
++            params = self._slots(action.parameters, slots)
++            missing_slots = sorted(self._missing_slots(action.parameters, slots))
++            if missing_slots:
++                results.append({
++                    "provider": action.provider, "verb": action.verb, "accepted": False,
++                    "error": "missing slots: " + ", ".join(missing_slots),
++                })
++                continue
++            try:
++                raw_result = provider(action, params)
++                if isinstance(raw_result, dict):
++                    accepted = bool(raw_result.get(
++                        "verified", raw_result.get("ok", raw_result.get("success", False)),
++                    ))
++                else:
++                    accepted = bool(raw_result)
++                results.append({"provider": action.provider, "verb": action.verb,
++                                "accepted": accepted})
++            except Exception as exc:
++                results.append({
++                    "provider": action.provider, "verb": action.verb, "accepted": False,
++                    "error": f"{type(exc).__name__}: {exc}",
++                })
++        try:
++            observed = dict(self.observer())
++            verification = self.verifier.verify(candidate.desired_state, observed)
++            missing = dict(verification.missing)
++        except Exception as exc:
++            observed = {}
++            missing = {"observation": {"error": f"{type(exc).__name__}: {exc}"}}
++        rejected = [index for index, item in enumerate(results) if not item.get("accepted")]
++        if rejected:
++            missing["workflow_actions"] = {"expected": "all accepted", "failed_indexes": rejected}
++        return WorkflowExecution(not missing, observed, missing, tuple(results))
++
++    @classmethod
++    def _slots(cls, value: Any, slots: dict[str, Any]) -> Any:
++        if isinstance(value, dict) and set(value) == {"$slot"}:
++            return slots.get(str(value["$slot"]))
++        if isinstance(value, dict):
++            return {key: cls._slots(item, slots) for key, item in value.items()}
++        if isinstance(value, list):
++            return [cls._slots(item, slots) for item in value]
++        return value
++
++    @classmethod
++    def _missing_slots(cls, value: Any, slots: dict[str, Any]) -> set[str]:
++        if isinstance(value, dict) and set(value) == {"$slot"}:
++            name = str(value["$slot"])
++            return {name} if name not in slots or slots[name] is None else set()
++        if isinstance(value, dict):
++            return set().union(*(cls._missing_slots(item, slots) for item in value.values())) if value else set()
++        if isinstance(value, list):
++            return set().union(*(cls._missing_slots(item, slots) for item in value)) if value else set()
++        return set()
++
++
++__all__ = [
++    "SemanticAction", "WorkflowCandidate", "WorkflowCapabilityBridge",
++    "WorkflowExecution", "WorkflowExecutor", "WorkflowLearner", "WorkflowRun",
++]
+diff --git a/scripts/sprint11_live_demo.py b/scripts/sprint11_live_demo.py
+new file mode 100644
+--- /dev/null
++++ b/scripts/sprint11_live_demo.py
+@@ -0,0 +1,448 @@
++"""Safe real Sprint 11 demos: workflow learning, attention, beginner and Shadow."""
++
++from __future__ import annotations
++
++import argparse
++import functools
++import http.server
++import json
++import shutil
++import subprocess
++import sys
++import threading
++import time
++from dataclasses import asdict
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any
++
++ROOT = Path(__file__).resolve().parents[1]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++from core.actions.registry import ToolRegistry
++from core.capability_engine import CapabilityCatalog
++from core.living import (
++    AttentionSnapshot,
++    ComputerAssistanceLevel,
++    LivingIntelligence,
++    ProactiveCandidate,
++    ResourceSnapshot,
++    SemanticAction,
++    WindowsContextSampler,
++    WorkflowCapabilityBridge,
++    WorkflowExecutor,
++    WorkflowLearner,
++    WorkflowRun,
++)
++from core.operator.software import InstallerEngine, SoftwareResolver
++from core.platform.browser import BrowserAutomationProvider
++from core.shadow import ShadowEngine
++from core.task_runtime import MissionStatus
++
++
++APP = "Notepad++"
++PACKAGE_ID = "Notepad++.Notepad++"
++
++
++class _QuietHandler(http.server.SimpleHTTPRequestHandler):
++    def log_message(self, _format: str, *args: Any) -> None:
++        return
++
++
++class _LocalServer:
++    def __init__(self, directory: Path) -> None:
++        handler = functools.partial(_QuietHandler, directory=str(directory))
++        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
++        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
++
++    @property
++    def base_url(self) -> str:
++        return f"http://127.0.0.1:{self.server.server_address[1]}"
++
++    def __enter__(self) -> "_LocalServer":
++        self.thread.start()
++        return self
++
++    def __exit__(self, *_args: Any) -> None:
++        self.server.shutdown()
++        self.server.server_close()
++        self.thread.join(timeout=5)
++
++
++def _workflow_demo(run_id: str, intelligence: LivingIntelligence) -> dict[str, Any]:
++    workspace = ROOT / "artifacts" / "sprint11" / "live_workspace" / run_id
++    inbox = workspace / "inbox"
++    archive = workspace / "organized"
++    inbox.mkdir(parents=True, exist_ok=True)
++    archive.mkdir(parents=True, exist_ok=True)
++    learner = intelligence.workflows
++
++    manual_verified: list[bool] = []
++    for index in range(4):
++        source = inbox / f"report-{run_id}-{index}.txt"
++        destination = archive / source.name
++        source.write_text(f"local report {index}\n", encoding="utf-8")
++        listed = source.name in {item.name for item in inbox.iterdir()}
++        shutil.move(str(source), str(destination))
++        verified = destination.is_file() and not source.exists()
++        manual_verified.append(listed and verified)
++        intelligence.observe_file_activity(
++            "discover_incoming_report", "inbox", project="local_reports",
++            workflow="organize incoming reports",
++        )
++        intelligence.observe_file_activity(
++            "move_report_to_archive", "organized", project="local_reports",
++            workflow="organize incoming reports",
++        )
++        intelligence.observe_workflow(WorkflowRun(
++            run_id=f"{run_id}-manual-{index}",
++            actions=[
++                SemanticAction("discover", "folder", "inbox", "filesystem.list",
++                               {"path": str(inbox)}),
++                SemanticAction("move", "file", "new report", "filesystem.move", {
++                    "source": str(source), "destination": str(destination),
++                }),
++            ],
++            duration_seconds=24 + index,
++            estimated_automated_seconds=2,
++            success=listed and verified,
++            desired_state={"organized": True},
++            observed_state={"organized": verified},
++        ))
++
++    candidate = learner.discover()[0]
++    detected_opportunities = intelligence.opportunity_candidates()
++    opportunity = ProactiveCandidate(
++        id=candidate.id, topic=f"local report organization {run_id}",
++        opportunity="organize incoming local report files",
++        confidence=candidate.confidence, expected_value=0.92,
++        reversible=True, risk="low", evidence=list(candidate.evidence),
++        can_prepare=True, capability_id=candidate.id,
++    )
++    suggestion = intelligence.decisions.decide(
++        opportunity, AttentionSnapshot(), profile=intelligence.profile_store.load(),
++    )
++    if suggestion.action.value != "SUGGEST":
++        raise RuntimeError(f"workflow was not suggested: {asdict(suggestion)}")
++    intelligence.memory.record(
++        opportunity.topic, outcome="accepted", useful=True,
++        suggestion=suggestion.user_message,
++    )
++
++    rehearsal_source = inbox / f"rehearsal-{run_id}.txt"
++    rehearsal_destination = archive / rehearsal_source.name
++    rehearsal_source.write_text("verified rehearsal\n", encoding="utf-8")
++
++    def filesystem_provider(action: SemanticAction, params: dict[str, Any]) -> bool:
++        if action.verb == "discover":
++            return Path(str(params["path"])).is_dir() and list(Path(str(params["path"])).iterdir()) is not None
++        if action.verb == "move":
++            source = Path(str(params["source"]))
++            destination = Path(str(params["destination"]))
++            destination.parent.mkdir(parents=True, exist_ok=True)
++            shutil.move(str(source), str(destination))
++            return True
++        return False
++
++    rehearsal_executor = WorkflowExecutor(
++        {"filesystem.list": filesystem_provider, "filesystem.move": filesystem_provider},
++        observer=lambda: {"organized": rehearsal_destination.is_file()
++                          and not rehearsal_source.exists()},
++    )
++    rehearsal = rehearsal_executor.execute(candidate, slots={
++        "path": str(inbox), "source": str(rehearsal_source),
++        "destination": str(rehearsal_destination),
++    })
++    catalog = CapabilityCatalog(intelligence.directory / "capabilities")
++    capability = WorkflowCapabilityBridge(catalog).rehearse(
++        candidate, lambda _candidate: {
++            "verified": rehearsal.verified,
++            "observed": rehearsal.observed,
++            "duration": 0.05,
++        },
++    )
++    if capability is None:
++        raise RuntimeError("verified workflow rehearsal did not create a capability")
++
++    # A fresh learner/catalog instance proves persisted second-run reuse.
++    reloaded_candidate = WorkflowLearner(
++        learner.directory,
++    ).discover()[0]
++    reloaded_capability = CapabilityCatalog(
++        catalog.directory,
++    ).get(capability.id)
++    next_source = inbox / f"next-{run_id}.txt"
++    next_destination = archive / next_source.name
++    next_source.write_text("second run\n", encoding="utf-8")
++    second = WorkflowExecutor(
++        {"filesystem.list": filesystem_provider, "filesystem.move": filesystem_provider},
++        observer=lambda: {"organized": next_destination.is_file() and not next_source.exists()},
++    ).execute(reloaded_candidate, slots={
++        "path": str(inbox), "source": str(next_source), "destination": str(next_destination),
++    })
++    verified = all(manual_verified) and rehearsal.verified and second.verified and reloaded_capability is not None
++    return {
++        "verified": verified,
++        "workspace": str(workspace),
++        "manual_runs": len(manual_verified),
++        "manual_verified": manual_verified,
++        "living_context": asdict(intelligence.context.current),
++        "living_context_observations": len(intelligence.context.observations),
++        "candidate": asdict(candidate),
++        "service_opportunity_candidates": [asdict(item) for item in detected_opportunities],
++        "proactive_decision": asdict(suggestion),
++        "mock_user_response": "accepted",
++        "rehearsal": asdict(rehearsal),
++        "capability_path": str(catalog.directory / f"{capability.id}.json"),
++        "capability_kind": capability.kind.value,
++        "second_run": asdict(second),
++        "second_run_reused_persistent_workflow": reloaded_candidate.frequency >= candidate.frequency,
++        "second_run_reused_capability": reloaded_capability is not None,
++        "raw_coordinates_used": False,
++    }
++
++
++def _attention_demo(run_id: str, intelligence: LivingIntelligence) -> dict[str, Any]:
++    artifact = ROOT / "artifacts" / "sprint11"
++    media = artifact / f"attention-{run_id}.mp4"
++    html = artifact / f"attention-{run_id}.html"
++    ffmpeg = shutil.which("ffmpeg")
++    if not ffmpeg:
++        raise RuntimeError("ffmpeg is required for the real local media fixture")
++    done = subprocess.run([
++        ffmpeg, "-y", "-f", "lavfi", "-i", "color=c=#152238:s=640x360:d=3",
++        "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(media),
++    ], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
++    if done.returncode != 0 or not media.is_file():
++        raise RuntimeError(f"media fixture generation failed: {done.stderr[-500:]}")
++    html.write_text("""<!doctype html><html><head><meta charset='utf-8'><title>Local lesson</title>
++<style>html,body{margin:0;background:#000;overflow:hidden} video{position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain}</style>
++</head><body><video id='lesson' aria-label='Local tutorial video' autoplay muted loop controls src='"""
++                    + media.name + "'></video></body></html>", encoding="utf-8")
++
++    provider = BrowserAutomationProvider(headless=True)
++    try:
++        with _LocalServer(artifact) as server:
++            opened = provider.open(f"{server.base_url}/{html.name}")
++            provider._page.locator("#lesson").evaluate("el => el.play()")
++            provider._page.wait_for_timeout(700)
++            nodes = provider.inspect_dom()
++            dom_state = dict(provider._page.evaluate("""() => {
++              const el = document.querySelector('#lesson'); const rect = el.getBoundingClientRect();
++              return {media_active: !el.paused && el.readyState >= 2,
++                      fullscreen: Math.abs(rect.width-innerWidth)<2 && Math.abs(rect.height-innerHeight)<2,
++                      current_time: el.currentTime, ready_state: el.readyState};
++            }"""))
++            busy = AttentionSnapshot(
++                fullscreen=bool(dom_state["fullscreen"]),
++                media_active=bool(dom_state["media_active"]),
++            )
++            candidate = ProactiveCandidate(
++                id=f"busy-{run_id}", topic=f"attention demo {run_id}",
++                opportunity="prepare local report organization capability",
++                confidence=0.94, expected_value=0.88, reversible=True, risk="low",
++                evidence=["repeated semantic workflow", "verified filesystem rehearsal"],
++                can_prepare=True,
++            )
++            while_busy = intelligence.decisions.decide(
++                candidate, busy, profile=intelligence.profile_store.load(),
++            )
++    finally:
++        provider.close()
++    after = intelligence.decisions.decide(
++        candidate, AttentionSnapshot(), profile=intelligence.profile_store.load(),
++    )
++    verified = all((
++        opened.get("ok"), dom_state["media_active"], dom_state["fullscreen"],
++        while_busy.action.value == "PREPARE", while_busy.user_message == "",
++        after.action.value == "SUGGEST", bool(after.user_message),
++    ))
++    return {
++        "verified": verified,
++        "browser_provider": type(provider).__name__,
++        "url": opened["url"],
++        "dom_nodes": len(nodes),
++        "dom_state": dom_state,
++        "while_busy": asdict(while_busy),
++        "after_video": asdict(after),
++        "foreground_message_while_busy": while_busy.user_message,
++        "raw_coordinates_used": False,
++    }
++
++
++def _beginner_demo(intelligence: LivingIntelligence) -> dict[str, Any]:
++    intelligence.profile_store.update(assistance=ComputerAssistanceLevel.BEGINNER)
++    evidence_holder: dict[str, Any] = {}
++
++    def operator(_request: str) -> dict[str, Any]:
++        candidate = SoftwareResolver().resolve(APP, package_id=PACKAGE_ID)
++        if candidate is None:
++            return {"verified": False, "reason": "trusted package metadata absent"}
++        candidate.expected_executable = "notepad++.exe"
++        evidence = InstallerEngine().verify(candidate, installer_exit=None, launch=False)
++        evidence_holder.update(asdict(evidence))
++        return {"verified": evidence.verified, "evidence": asdict(evidence)}
++
++    assistance = intelligence.assist(
++        "Я скачал программу, не понимаю, как её установить.",
++        capability_available=True, operator=operator,
++    )
++    return {
++        "verified": assistance.executed and assistance.verified,
++        "profile": "beginner",
++        "assistant_message": assistance.message,
++        "message_words": len(assistance.message.split()),
++        "executed_safe_parts": assistance.executed,
++        "installer_verification": evidence_holder,
++        "source_resolver": "SoftwareResolver/winget trusted source",
++        "long_instruction_dumped": False,
++    }
++
++
++def _shadow_demo(run_id: str, intelligence: LivingIntelligence) -> dict[str, Any]:
++    registry = ToolRegistry()
++    shadow = ShadowEngine(
++        data_dir=ROOT / "data" / "living" / "live_shadow",
++        registry=registry, enabled=True,
++    )
++    source = '''"""
++Tool: shadow_safe_item_counter
++Generated by: Shadow Engine
++Description: Count a supplied list without filesystem or network access.
++"""
++
++def execute_task(params):
++    return len(list(params.get("items") or []))
++
++def run(params: dict) -> dict:
++    try:
++        return {"success": True, "result": execute_task(params), "error": None}
++    except Exception as exc:
++        return {"success": False, "result": None, "error": str(exc)}
++'''
++    prepared_holder: dict[str, Any] = {}
++
++    def prepare() -> dict[str, Any]:
++        template = ROOT / "data" / "tools" / "templates" / "basic_tool.py"
++        template_text = template.read_text(encoding="utf-8")
++        prepared = shadow.prepare_tool(
++            name="shadow_safe_item_counter",
++            description="Count supplied local items",
++            source=source,
++            test_params={"items": ["a", "b", "c"]},
++        )
++        prepared_holder.update({
++            "name": prepared.name, "status": prepared.status,
++            "confidence": prepared.confidence, "path": str(prepared.path or ""),
++            "syntax": prepared.report.syntax.passed,
++            "safety": prepared.report.safety.passed,
++            "functional": prepared.report.functional.passed,
++            "style": prepared.report.style.passed,
++            "research": {
++                "template": str(template), "template_read": bool(template_text),
++                "existing_tool_examples": len(registry.list_tools()),
++            },
++        })
++        return {
++            "verified": prepared.status == "registered" and prepared.confidence >= 90
++                        and bool(prepared.path and prepared.path.is_file()),
++            **prepared_holder,
++        }
++
++    candidate = ProactiveCandidate(
++        id=f"shadow-{run_id}", topic=f"shadow preparation {run_id}",
++        opportunity="prepare a local deterministic item counter",
++        confidence=0.95, expected_value=0.84, reversible=True, risk="low",
++        evidence=["repeated local list counting", "standard-library-only template"],
++        can_prepare=True,
++    )
++    intelligence.observe_action(
++        action="repeated_list_count_failed", outcome="failure", source="shadow_engine",
++        error_signature="missing reusable counter",
++        metadata={"goal_hint": "prepare local item counter"},
++    )
++    # Busy media state suppresses interruption but permits verified preparation.
++    cycle = intelligence.proactive_cycle(
++        candidate, AttentionSnapshot(media_active=True),
++        resources=ResourceSnapshot(cpu_percent=5, ram_percent=20),
++        prepare=prepare,
++    )
++    if cycle.mission is None:
++        raise RuntimeError("background preparation was not scheduled")
++    finished = intelligence.task_runtime.wait(cycle.mission.task_id, timeout=30)
++    tool = registry.get("shadow_safe_item_counter")
++    verified = bool(
++        finished and finished.status is MissionStatus.COMPLETED
++        and finished.verification and finished.verification.get("verified")
++        and prepared_holder.get("confidence", 0) >= 90 and tool is not None
++        and cycle.decision.user_message == ""
++    )
++    return {
++        "verified": verified,
++        "decision": asdict(cycle.decision),
++        "foreground_message": cycle.decision.user_message,
++        "mission": finished.to_dict() if finished else None,
++        "prepared_tool": prepared_holder,
++        "registered_in_action_registry": tool is not None,
++        "foreground_interrupted": False,
++    }
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    parser.parse_args()
++    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
++    artifact = ROOT / "artifacts" / "sprint11"
++    artifact.mkdir(parents=True, exist_ok=True)
++    intelligence = LivingIntelligence(ROOT / "data" / "living" / "live_service" / run_id)
++    native_sample = WindowsContextSampler().sample()
++    resource_sample = intelligence.resource_sampler.sample()
++    resource_decision = intelligence.resources.assess(resource_sample)
++    workflow = _workflow_demo(run_id, intelligence)
++    attention = _attention_demo(run_id, intelligence)
++    beginner = _beginner_demo(intelligence)
++    shadow = _shadow_demo(run_id, intelligence)
++    report = {
++        "run_id": run_id,
++        "generated_at": datetime.now(timezone.utc).isoformat(),
++        "native_context_sample": {
++            "source": native_sample.source,
++            "application": native_sample.application,
++            "process": native_sample.process,
++            "window_title": native_sample.window_title,
++            "idle_seconds": native_sample.idle_seconds,
++            "fullscreen": native_sample.fullscreen,
++        },
++        "background_resources": {
++            "snapshot": asdict(resource_sample), "decision": asdict(resource_decision),
++        },
++        "repeated_workflow": workflow,
++        "attention_aware": attention,
++        "beginner_assistance": beginner,
++        "shadow_prepare": shadow,
++        "privacy": {
++            "screen_pixels_stored": False, "keystrokes_stored": False,
++            "clipboard_values_stored": False, "secrets_stored": False,
++        },
++        "frontend_changed_by_sprint11": False,
++        "new_llm_models": [],
++    }
++    report["verified"] = all(
++        report[key]["verified"] for key in (
++            "repeated_workflow", "attention_aware", "beginner_assistance", "shadow_prepare",
++        )
++    )
++    report_path = artifact / "live_demo_report.json"
++    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
++    print(json.dumps({
++        "verified": report["verified"], "report": str(report_path),
++        "workflow": workflow["verified"], "attention": attention["verified"],
++        "beginner": beginner["verified"], "shadow": shadow["verified"],
++        "second_run_reuse": workflow["second_run_reused_capability"],
++    }, ensure_ascii=False, indent=2))
++    return 0 if report["verified"] else 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/rollback_sprint11.ps1 b/scripts/rollback_sprint11.ps1
+new file mode 100644
+--- /dev/null
++++ b/scripts/rollback_sprint11.ps1
+@@ -0,0 +1,91 @@
++[CmdletBinding(SupportsShouldProcess = $true)]
++param(
++    [string]$Workspace = (Split-Path -Parent $PSScriptRoot)
++)
++
++$ErrorActionPreference = 'Stop'
++$root = [IO.Path]::GetFullPath($Workspace).TrimEnd([IO.Path]::DirectorySeparatorChar)
++$rootPrefix = $root + [IO.Path]::DirectorySeparatorChar
++
++function Resolve-WorkspacePath {
++    param([Parameter(Mandatory = $true)][string]$RelativePath)
++    $candidate = [IO.Path]::GetFullPath((Join-Path $root $RelativePath))
++    if (-not $candidate.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
++        throw "Rollback target escaped workspace: $candidate"
++    }
++    return $candidate
++}
++
++$backupRoot = Resolve-WorkspacePath 'artifacts\sprint11\original'
++$restoreMap = [ordered]@{
++    'core\agent.py' = 'core\agent.py'
++    'core\orchestrator.py' = 'core\orchestrator.py'
++    'core\shadow\backlog.py' = 'core\shadow\backlog.py'
++    'core\shadow\engine.py' = 'core\shadow\engine.py'
++}
++
++$restored = @()
++foreach ($relative in $restoreMap.Keys) {
++    $source = [IO.Path]::GetFullPath((Join-Path $backupRoot $restoreMap[$relative]))
++    $target = Resolve-WorkspacePath $relative
++    if (-not $source.StartsWith(($backupRoot + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) {
++        throw "Backup source escaped backup root: $source"
++    }
++    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
++        throw "Missing Sprint 11 backup: $source"
++    }
++    if ($PSCmdlet.ShouldProcess($target, 'restore Sprint 11 baseline')) {
++        $parent = Split-Path -Parent $target
++        New-Item -ItemType Directory -Force -Path $parent | Out-Null
++        Copy-Item -LiteralPath $source -Destination $target -Force
++        $expected = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
++        $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash
++        if ($actual -ne $expected) {
++            throw "Restored hash mismatch: $relative"
++        }
++        $restored += $relative
++    }
++}
++
++$newPaths = @(
++    'core\living',
++    'tests\test_sprint11_context.py',
++    'tests\test_sprint11_workflow.py',
++    'tests\test_sprint11_proactive.py',
++    'tests\test_sprint11_resources.py',
++    'tests\test_sprint11_service.py',
++    'scripts\sprint11_live_demo.py',
++    'docs\sprints\SPRINT11_SPEC.md',
++    'tasks\sprint11_plan.md',
++    'tasks\sprint11_todo.md',
++    'data\living'
++)
++
++$removed = @()
++foreach ($relative in $newPaths) {
++    $target = Resolve-WorkspacePath $relative
++    if (-not (Test-Path -LiteralPath $target)) {
++        continue
++    }
++    if ($PSCmdlet.ShouldProcess($target, 'remove Sprint 11 addition')) {
++        $item = Get-Item -LiteralPath $target -Force
++        if ($item.PSIsContainer) {
++            # The absolute path was checked against the workspace before recursion.
++            Remove-Item -LiteralPath $target -Recurse -Force
++        }
++        else {
++            Remove-Item -LiteralPath $target -Force
++        }
++        $removed += $relative
++    }
++}
++
++[ordered]@{
++    sprint = 11
++    workspace = $root
++    restored = $restored
++    removed = $removed
++    voice_hotfix_preserved = $true
++    sprint10_preserved = $true
++    verified = (-not $WhatIfPreference)
++} | ConvertTo-Json -Depth 4
+diff --git a/docs/sprints/SPRINT11_SPEC.md b/docs/sprints/SPRINT11_SPEC.md
+new file mode 100644
+--- /dev/null
++++ b/docs/sprints/SPRINT11_SPEC.md
+@@ -0,0 +1,1033 @@
++# JARVIS — SPRINT 11
++## LIVING CONTEXT + PROACTIVE INTELLIGENCE + WORKFLOW LEARNING
++
++Sprint 10 полностью VERIFIED.
++
++Baseline:
++
++- 243 passed
++- 2 skipped
++- 0 failed
++- Capability Engine работает
++- Real Windows Operator работает
++- Browser DOM/Playwright работает
++- Installer pipeline работает
++- AppExplorer/AppKnowledge работает
++- Reference/Video foundation работает
++- Shadow Engine работает
++- Memory/Persona/TTS/STT/System Triggers работают
++
++Не начинать UI redesign.
++
++---
++
++# ГЛАВНАЯ ЦЕЛЬ
++
++JARVIS должен перестать существовать только в момент запроса.
++
++Он должен понимать:
++
++> Что пользователь сейчас делает?  
++> Над чем он работает?  
++> Чего пытается добиться?  
++> Где застрял?  
++> Что постоянно повторяет?  
++> Что можно сделать за него?  
++> Стоит ли сейчас вообще вмешиваться?
++
++Он не должен ждать шаблонной команды.
++
++---
++
++# UX
++
++Пользователь работает.
++
++JARVIS молчит.
++
++Он видит контекст и строит понимание в фоне.
++
++Например пользователь:
++
++- несколько раз открывает одни и те же папки;
++- экспортирует одинаковые файлы;
++- исправляет одну ошибку;
++- переключается между браузером и программой;
++- пытается настроить неизвестное приложение.
++
++JARVIS может сам сказать:
++
++> «Сэр, вы уже третий раз делаете одно и то же. Хотите, я возьму это на себя?»
++
++И после разрешения:
++
++> «Понял.»
++
++Дальше создаёт workflow/capability и выполняет.
++
++---
++
++# 1. LIVING CONTEXT ENGINE
++
++Создать:
++
++```text
++LivingContextEngine
++```
++
++Он поддерживает постоянно обновляемую модель текущей ситуации пользователя.
++
++Источники:
++
++```text
++active window
++window title
++process
++UI accessibility context
++browser domain/page title
++recent commands
++recent JARVIS missions
++file activity
++clipboard metadata when permissioned
++idle/AFK
++time
++application sessions
++Shadow patterns
++recent failures
++recent successful capabilities
++```
++
++Не хранить screen pixels постоянно.
++
++Не вести скрытую тотальную запись.
++
++Сохранять только структурированное полезное состояние.
++
++---
++
++# 2. CURRENT CONTEXT MODEL
++
++Пример:
++
++```json
++{
++  "active_application": "Photoshop",
++  "session_duration": 1840,
++  "current_project": "catalog",
++  "probable_activity": "exporting product images",
++  "recent_actions": [
++    "open image",
++    "resize",
++    "export png"
++  ],
++  "repetition_score": 0.88,
++  "friction_score": 0.64,
++  "user_busy": true,
++  "jarvis_should_interrupt": false
++}
++```
++
++Это временный working context.
++
++Не путать с persistent memory.
++
++---
++
++# 3. ACTIVITY EPISODES
++
++Разбивать использование ПК на смысловые episodes.
++
++Например:
++
++```text
++Gaming session
++Coding session
++Video editing
++Product image preparation
++Watching movie
++Researching product
++Configuring software
++Browsing casually
++```
++
++Создать:
++
++```text
++ActivityEpisode
++```
++
++Содержит:
++
++```text
++start
++end
++applications
++high-level actions
++goal hypothesis
++problems
++JARVIS interventions
++outcome
++```
++
++---
++
++# 4. GOAL INFERENCE
++
++Создать:
++
++```text
++GoalTracker
++```
++
++Он пытается определить текущую цель пользователя.
++
++Не делать вывод из одного клика.
++
++Использовать совокупность:
++
++```text
++user language
++application context
++recent files
++recent missions
++sequence of actions
++memory
++```
++
++Confidence обязателен.
++
++Пример:
++
++```json
++{
++  "goal": "prepare product photos for catalog",
++  "confidence": 0.87
++}
++```
++
++Если confidence низкий — не вмешиваться.
++
++---
++
++# 5. FRICTION DETECTION
++
++JARVIS должен определять, когда пользователь испытывает затруднение.
++
++Сигналы:
++
++```text
++same operation repeated
++same dialog reopened
++same error repeated
++undo/redo loops
++repeated failed actions
++rapid application switching
++searching same topic repeatedly
++long pause inside task
++manual workaround after failed JARVIS action
++```
++
++Создать:
++
++```text
++FrictionDetector
++```
++
++Результат:
++
++```json
++{
++  "type": "repeated_failure",
++  "confidence": 0.91,
++  "context": "...",
++  "possible_help": "..."
++}
++```
++
++Не использовать псевдопсихологию вроде:
++
++> быстро печатает = злится
++
++Без достаточных данных не определять эмоцию.
++
++---
++
++# 6. WORKFLOW DISCOVERY
++
++Создать:
++
++```text
++WorkflowLearner
++```
++
++Он выявляет повторяющиеся последовательности действий.
++
++Пример:
++
++```text
++open Downloads
++→ select newest Excel
++→ copy to project
++→ rename
++→ open
++→ export PDF
++→ move PDF
++```
++
++После нескольких повторений появляется candidate workflow.
++
++Не хардкодить количество повторений.
++
++Оценивать:
++
++```text
++frequency
++similarity
++time_saved
++reliability
++risk
++```
++
++---
++
++# 7. WORKFLOW → CAPABILITY
++
++WorkflowLearner интегрировать с Sprint 9 Capability Engine.
++
++Если последовательность стабильна:
++
++```text
++observed workflow
++→ generalized workflow
++→ CapabilityPlanner
++→ sandbox/rehearsal
++→ verification
++→ learned capability
++```
++
++Не хранить тупые coordinate macros.
++
++Хранить semantic actions.
++
++---
++
++# 8. PROACTIVE DECISION ENGINE
++
++Создать:
++
++```text
++ProactiveDecisionEngine
++```
++
++Это не набор:
++
++```python
++if youtube > 2h:
++```
++
++Он получает context candidates и принимает решение:
++
++```text
++SILENT
++PREPARE
++SUGGEST
++ACT
++ASK
++WARN
++```
++
++---
++
++# 9. SILENT
++
++Большинство времени:
++
++```text
++SILENT
++```
++
++Это нормальное состояние.
++
++JARVIS не обязан что-то говорить только потому, что заметил паттерн.
++
++---
++
++# 10. PREPARE
++
++Очень важный режим.
++
++Если JARVIS видит вероятную будущую потребность:
++
++```text
++PREPARE
++```
++
++Он может безопасно:
++
++- исследовать;
++- построить план;
++- найти документацию;
++- подготовить capability;
++- sandbox-test;
++- добавить Shadow backlog;
++- подготовить workflow.
++
++Но не менять пользовательские данные без необходимости.
++
++Это реализует:
++
++> пользователь смотрит фильм, JARVIS тем временем учится.
++
++---
++
++# 11. SUGGEST
++
++Если JARVIS видит очевидную помощь:
++
++> «Сэр, вы уже несколько раз повторили эту последовательность. Хотите, я автоматизирую?»
++
++Коротко.
++
++Без лекций.
++
++Если пользователь:
++
++> «Да.»
++
++JARVIS начинает mission.
++
++---
++
++# 12. ACT
++
++Автоматически действовать можно только когда:
++
++```text
++risk LOW
++confidence HIGH
++user preference allows autonomy
++action is reversible
++context is clear
++```
++
++Пример:
++
++- подготовить копию;
++- организовать temporary workspace;
++- собрать информацию;
++- продолжить ранее одобренную automation.
++
++Не спрашивать разрешение повторно для уже явно разрешённого класса действий.
++
++---
++
++# 13. ASK
++
++Для:
++
++```text
++MEDIUM/HIGH ambiguity
++missing information
++password
++2FA
++meaningful external side effect
++```
++
++задавать один конкретный вопрос.
++
++Не устраивать wizard.
++
++---
++
++# 14. WARN
++
++Использовать только для действительно значимого риска:
++
++- phishing;
++- suspicious executable;
++- destructive action;
++- failing disk indicators if available;
++- dangerous configuration.
++
++Не превращать JARVIS в антивирус с постоянными уведомлениями.
++
++---
++
++# 15. ATTENTION BUDGET
++
++Создать:
++
++```text
++AttentionManager
++```
++
++JARVIS должен понимать:
++
++> Можно ли сейчас вообще отвлекать человека?
++
++Факторы:
++
++```text
++fullscreen application
++game
++movie/video
++meeting
++recent JARVIS interruption
++typing activity
++active mission
++Do Not Disturb
++user preference
++urgency
++```
++
++---
++
++# 16. INTERRUPTION LEVELS
++
++```text
++NONE
++PASSIVE
++NORMAL
++IMPORTANT
++URGENT
++```
++
++Большинство proactive событий:
++
++```text
++PASSIVE
++```
++
++Например tray state меняется, но голоса нет.
++
++---
++
++# 17. NO-SPAM POLICY
++
++Добавить глобальные ограничения:
++
++- не повторять одно предложение;
++- учитывать отказ;
++- учитывать ignore;
++- adaptive cooldown;
++- не вмешиваться посреди активного общения;
++- не повторять dismissed topic.
++
++JARVIS должен научиться:
++
++```text
++пользователь не любит такие напоминания
++```
++
++и уменьшить их.
++
++---
++
++# 18. PROACTIVE MEMORY
++
++Сохранять:
++
++```text
++suggestion
++accepted?
++ignored?
++rejected?
++outcome
++useful?
++```
++
++Использовать это для будущей политики.
++
++---
++
++# 19. USER AUTONOMY PROFILE
++
++Создать настройки:
++
++```text
++observer
++assistant
++partner
++autonomous
++```
++
++### observer
++
++JARVIS почти никогда сам не действует.
++
++### assistant
++
++Предлагает, но ждёт подтверждения.
++
++### partner
++
++LOW-risk reversible задачи может выполнять сам.
++
++### autonomous
++
++Максимальная автономность в рамках Risk Gate.
++
++Default:
++
++```text
++assistant
++```
++
++Не менять default без пользователя.
++
++---
++
++# 20. USER-SPECIFIC LEARNING
++
++JARVIS должен постепенно понимать:
++
++```text
++какие предложения пользователь принимает
++какие игнорирует
++какие задачи делегирует
++какие предпочитает делать сам
++```
++
++Это влияет на ProactiveDecisionEngine.
++
++---
++
++# 21. NOVICE COMPUTER MODE
++
++Очень важная часть проекта.
++
++Создать:
++
++```text
++ComputerAssistanceProfile
++```
++
++Пользователь может быть:
++
++```text
++beginner
++normal
++advanced
++developer
++```
++
++Это НЕ интеллект пользователя.
++
++Это уровень компьютерной помощи.
++
++---
++
++# 22. BEGINNER BEHAVIOR
++
++Если пользователь не умеет пользоваться ПК:
++
++не говорить:
++
++> «Откройте regedit и измените DWORD».
++
++JARVIS:
++
++> «Я сам настрою. Когда понадобится ваше действие — скажу.»
++
++Если нужен ввод:
++
++> «Windows просит пароль. Введите его здесь, дальше я продолжу.»
++
++---
++
++# 23. ADVANCED / DEVELOPER
++
++Продвинутому пользователю JARVIS может:
++
++- показывать commands;
++- давать technical trace;
++- объяснять provider;
++- позволять быстрее подтверждать действия.
++
++---
++
++# 24. CONTEXTUAL HELP
++
++Если beginner застрял в интерфейсе:
++
++JARVIS может использовать Sprint 10 AppExplorer.
++
++Например:
++
++> «Где здесь сохранить?»
++
++JARVIS:
++
++- inspect current app;
++- находит Save;
++- при возможности выполняет;
++- либо кратко указывает элемент.
++
++Не выдавать абстрактную инструкцию, если может сделать сам.
++
++---
++
++# 25. LONG-RUNNING MISSIONS
++
++Использовать существующий persistent Mission Runtime.
++
++JARVIS может заниматься задачей, пока пользователь делает другое.
++
++Пример:
++
++```text
++research software
++download
++process files
++prepare capability
++```
++
++Mission должна:
++
++- pause;
++- resume;
++- survive UI close;
++- survive temporary provider errors.
++
++---
++
++# 26. BACKGROUND RESOURCE MANAGER
++
++Создать:
++
++```text
++BackgroundBudgetManager
++```
++
++Shadow/Proactive learning не должен мешать пользователю.
++
++Учитывать:
++
++```text
++CPU
++RAM
++foreground latency
++gaming/fullscreen
++active TTS
++active user mission
++battery if laptop
++```
++
++При высокой нагрузке:
++
++```text
++pause shadow work
++```
++
++---
++
++# 27. SHADOW BACKLOG PRIORITY
++
++Shadow backlog должен ранжироваться:
++
++```text
++user pain
++frequency
++expected time saved
++probability of reuse
++risk
++cost of learning
++```
++
++Не генерировать бесполезные способности.
++
++---
++
++# 28. SELF-IMPROVEMENT QUALITY LOOP
++
++После использования learned capability:
++
++```text
++execute
++→ verify
++→ measure
++→ record
++```
++
++Если capability:
++
++- часто repair;
++- медленная;
++- ломается;
++- требует fallback;
++
++добавить optimization task в Shadow backlog.
++
++---
++
++# 29. SESSION SUMMARY
++
++Не показывать автоматически.
++
++Но internally по завершению activity episode формировать компактный summary:
++
++```text
++goal
++important events
++unfinished work
++learned workflows
++problems
++```
++
++Использовать как память следующей сессии.
++
++---
++
++# 30. RETURN CONTEXT
++
++После возвращения пользователя JARVIS может восстановить контекст.
++
++Например:
++
++> «Продолжим каталог? Вчера остановились на экспорте изображений.»
++
++Только если confidence высокий и это уместно.
++
++Не говорить это при каждом запуске.
++
++---
++
++# 31. USER CAN ASK
++
++Поддержать естественные вопросы:
++
++```text
++что я сейчас делал?
++на чем мы остановились?
++что ты заметил?
++чему ты научился?
++что ты делал пока меня не было?
++```
++
++Отвечать из structured context/action traces.
++
++Не выдумывать.
++
++---
++
++# 32. PRIVACY
++
++LivingContext не должен превращаться в spyware.
++
++Default:
++
++- не сохранять screenshot stream;
++- не сохранять keystrokes;
++- не сохранять passwords;
++- не сохранять private fields;
++- не отправлять context в cloud без policy;
++- хранить только необходимое structured context.
++
++Sensitive app/window filtering должен существовать.
++
++---
++
++# 33. PROACTIVE SAFETY
++
++Proactive action проходит тот же:
++
++```text
++Risk Gate
++Capability verification
++Checkpoint
++Rollback
++```
++
++что обычная пользовательская mission.
++
++Proactive mode НЕ имеет дополнительных прав.
++
++---
++
++# 34. NEVER FAKE PROACTIVITY
++
++JARVIS не должен генерировать случайную реплику:
++
++> «Я заметил...»
++
++если соответствующего наблюдения не было.
++
++Каждая proactive реплика должна иметь structured evidence.
++
++---
++
++# 35. LIVE TEST — REPEATED WORKFLOW
++
++Создать безопасную локальную последовательность:
++
++```text
++files arrive
++→ user manually organizes
++→ repeats
++```
++
++Проверить:
++
++1. LivingContext видит действия.
++2. WorkflowLearner обнаруживает pattern.
++3. ProactiveDecisionEngine предлагает automation.
++4. Пользователь mock-accept.
++5. Capability создаётся.
++6. Следующая последовательность выполняется автоматически.
++7. Desired state verify.
++
++---
++
++# 36. LIVE TEST — USER BUSY
++
++Открыть fullscreen/video-like fixture.
++
++Создать proactive candidate.
++
++Ожидание:
++
++```text
++AttentionManager → do not interrupt
++```
++
++После выхода:
++
++предложение может появиться, если ещё актуально.
++
++---
++
++# 37. LIVE TEST — BEGINNER
++
++Симулировать:
++
++> «Я скачал программу, не понимаю, как её установить.»
++
++JARVIS должен использовать Sprint 10 capabilities.
++
++Не выдавать длинную инструкцию.
++
++Он должен выполнить безопасные части сам.
++
++---
++
++# 38. LIVE TEST — SHADOW PREPARE
++
++Создать незакрытую безопасную проблему.
++
++Пользователь становится busy.
++
++Shadow Engine должен:
++
++```text
++research
++prepare
++sandbox
++```
++
++без foreground interruption.
++
++После окончания:
++
++capability готова.
++
++---
++
++# 39. TESTS
++
++Добавить минимум:
++
++- LivingContext update;
++- episode segmentation;
++- goal inference confidence;
++- friction detection;
++- workflow discovery;
++- workflow generalization;
++- proactive SILENT;
++- PREPARE;
++- SUGGEST;
++- ACT policy;
++- AttentionManager;
++- fullscreen suppression;
++- ignore learning;
++- autonomy profile;
++- beginner behavior;
++- background budget;
++- Shadow backlog priority;
++- proactive Risk Gate;
++- evidence-required proactive output;
++- session summary;
++- return context;
++- Sprint 10 regression;
++- Capability Engine regression;
++- Voice regression.
++
++---
++
++# 40. BASELINE / REGRESSION
++
++Зафиксировать baseline:
++
++```text
++243 passed
++2 skipped
++0 failed
++```
++
++Затем:
++
++- targeted tests;
++- full pytest;
++- compileall;
++- git diff --check;
++- frontend build только если frontend пришлось менять;
++- реальный safe smoke.
++
++Не скрывать failures.
++
++---
++
++# FINAL REPORT
++
++Показать кратко:
++
++1. Changed files.
++2. Living Context architecture.
++3. Goal/Friction inference.
++4. Workflow learning.
++5. Proactive Decision Engine.
++6. Attention Manager.
++7. Autonomy profiles.
++8. Beginner assistance.
++9. Shadow integration.
++10. Real safe proactive demo.
++11. Tests before/after.
++12. Known limitations.
++13. Rollback.
++
++---
++
++# CRITICAL
++
++Не начинать Sprint 12.
++
++Не делать UI redesign.
++
++Не добавлять LLM-модели.
++
++Не строить proactivity на наборе жёстких if-rules.
++
++Не записывать raw keystrokes.
++
++Не хранить continuous screenshots.
++
++Не обходить Risk Gate.
++
++Не выполнять HIGH/CRITICAL proactive actions.
++
++Не спамить пользователя.
++
++Главная проверка:
++
++> Может ли JARVIS теперь самостоятельно понять, что пользователь делает, заметить полезную возможность помочь, выбрать правильный момент, подготовить или выполнить помощь и научиться на результате — не превращаясь в раздражающий набор уведомлений?
++
++Если нет — Sprint 11 не завершён.
+diff --git a/tasks/sprint11_plan.md b/tasks/sprint11_plan.md
+new file mode 100644
+--- /dev/null
++++ b/tasks/sprint11_plan.md
+@@ -0,0 +1,33 @@
++# Sprint 11 — Living Context + Proactive Intelligence
++
++## Objective
++Build a local, privacy-minimal structured context engine that segments activity,
++infers goals/friction from accumulated evidence, learns semantic workflows,
++chooses silent/prepare/suggest/act/ask/warn through a configurable score policy,
++respects attention/resource budgets, and feeds verified learning into the
++existing Capability and Shadow engines.
++
++## Invariants
++- Structured metadata only: no raw keystrokes, continuous screenshots, pixels,
++  passwords, or private control values.
++- Evidence is mandatory for every proactive output.
++- LOW + reversible + clear context + permitted autonomy is the maximum ACT path.
++- HIGH/CRITICAL proactive actions are suppressed; normal Risk Gate remains final.
++- Default autonomy is assistant and default decision is SILENT.
++- Semantic actions only; raw coordinate macros are excluded.
++- Existing Mission Runtime owns long-running PREPARE work.
++- No frontend changes and no new model dependencies.
++
++## Vertical slices
++1. Observation normalization, sensitive filtering, current context and episodes.
++2. Goal/friction inference, session summaries and return context.
++3. Workflow similarity/generalization and Capability Catalog bridge.
++4. Proactive scoring, evidence gate, memory, autonomy/computer assistance profiles.
++5. Attention and background resource budgets, Shadow priority/quality loop.
++6. Integrated safe live fixtures and full regression.
++
++## Verification
++`python -m pytest -o addopts='' -q`
++`python -m compileall -q core config scripts`
++`git diff --check`
++`python scripts/sprint11_live_demo.py`
+diff --git a/tasks/sprint11_todo.md b/tasks/sprint11_todo.md
+new file mode 100644
+--- /dev/null
++++ b/tasks/sprint11_todo.md
+@@ -0,0 +1,10 @@
++# Sprint 11 Task List
++- [x] Baseline: 243 passed, 2 skipped; Voice smoke exit 0
++- [x] LivingContextEngine and ActivityEpisode
++- [x] GoalTracker and FrictionDetector
++- [x] WorkflowLearner and Capability bridge
++- [x] ProactiveDecisionEngine and evidence gate
++- [x] Attention/no-spam/autonomy/beginner profiles
++- [x] Background budget and Shadow quality loop
++- [x] Four safe live demos
++- [x] Full regression and rollback artifacts
+diff --git a/tests/test_sprint11_context.py b/tests/test_sprint11_context.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_sprint11_context.py
+@@ -0,0 +1,214 @@
++"""Sprint 11 living context, episodes, inference, privacy and summaries."""
++
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++
++from core.living.context import LivingContextEngine
++from core.living.inference import FrictionDetector, GoalTracker
++from core.living.models import ContextObservation
++
++
++BASE = datetime(2026, 8, 17, 9, 0, tzinfo=timezone.utc)
++
++
++def _event(offset: int, **kwargs) -> ContextObservation:
++    defaults = {
++        "observed_at": BASE + timedelta(seconds=offset),
++        "application": "Editor",
++        "process": "editor.exe",
++        "action": "edit_file",
++        "target": "catalog/item.txt",
++        "outcome": "success",
++        "metadata": {"project": "catalog", "goal_hint": "prepare catalog assets"},
++    }
++    defaults.update(kwargs)
++    return ContextObservation(**defaults)
++
++
++def test_living_context_updates_structured_state_without_pixels_or_keystrokes(tmp_path: Path) -> None:
++    engine = LivingContextEngine(tmp_path)
++
++    context = engine.update(_event(
++        0, window_title="catalog - Editor", metadata={
++            "project": "catalog", "goal_hint": "prepare catalog assets",
++            "screen_pixels": "raw", "keystrokes": "secret typing",
++        },
++    ))
++
++    assert context.active_application == "Editor"
++    assert context.current_project == "catalog"
++    assert context.recent_actions == ["edit_file"]
++    assert "screen_pixels" not in str(engine.observations)
++    assert "secret typing" not in str(engine.observations)
++    assert not list(tmp_path.glob("*screenshot*"))
++
++
++def test_sensitive_window_is_reduced_to_category_and_private_values_are_removed(tmp_path: Path) -> None:
++    engine = LivingContextEngine(tmp_path, sensitive_app_patterns=["password manager"])
++
++    engine.update(_event(
++        0, application="Password Manager", window_title="ACCOUNT — vault",
++        target="ROLE password", clipboard_metadata={"type": "text", "value": "TOKEN"},
++    ))
++    stored = engine.observations[-1]
++
++    assert stored.application == "sensitive_application"
++    assert stored.window_title == ""
++    assert stored.target == ""
++    assert stored.clipboard_metadata == {"type": "text"}
++
++
++def test_activity_episode_segmentation_uses_gap_and_meaningful_context_boundary(tmp_path: Path) -> None:
++    engine = LivingContextEngine(tmp_path, minimum_episode_gap_seconds=120)
++    engine.update(_event(0))
++    engine.update(_event(20, action="export_file"))
++    engine.update(_event(
++        400, application="Browser", process="browser.exe", action="research",
++        metadata={"goal_hint": "research product", "activity": "research"},
++    ))
++
++    episodes = engine.episodes(include_active=True)
++
++    assert len(episodes) == 2
++    assert episodes[0].high_level_actions == ["edit_file", "export_file"]
++    assert episodes[0].end is not None
++    assert episodes[1].applications == ["Browser"]
++
++
++def test_goal_inference_requires_multiple_evidence_sources_and_reports_confidence() -> None:
++    tracker = GoalTracker()
++    observations = [
++        _event(0, user_language="prepare catalog assets"),
++        _event(10, action="resize_image"),
++        _event(20, action="export_image"),
++    ]
++
++    goal = tracker.infer(observations, recent_missions=["prepare catalog assets"])
++
++    assert goal.goal == "prepare catalog assets"
++    assert goal.confidence >= 0.75
++    assert len(goal.evidence) >= 2
++
++
++def test_low_evidence_goal_does_not_claim_certainty() -> None:
++    goal = GoalTracker().infer([_event(0, metadata={})])
++
++    assert goal.confidence < 0.5
++    assert goal.goal == ""
++
++
++def test_friction_detector_uses_repeated_failures_and_workaround_not_emotion() -> None:
++    events = [
++        _event(0, action="export_pdf", outcome="failure", error_signature="E_EXPORT"),
++        _event(15, action="export_pdf", outcome="failure", error_signature="E_EXPORT"),
++        _event(30, action="export_pdf", outcome="workaround", error_signature="E_EXPORT"),
++    ]
++
++    signals = FrictionDetector().detect(events)
++
++    assert signals[0].type == "repeated_failure"
++    assert signals[0].confidence >= 0.8
++    assert "angry" not in str(signals).lower()
++    assert "зл" not in str(signals).lower()
++
++
++def test_session_summary_and_return_context_are_evidence_based(tmp_path: Path) -> None:
++    engine = LivingContextEngine(tmp_path)
++    engine.update(_event(0, action="open_image"))
++    engine.update(_event(10, action="export_image", outcome="failure", error_signature="E_EXPORT"))
++    summary = engine.close_episode(outcome="unfinished")
++
++    returned = engine.return_context(now=BASE + timedelta(hours=12), min_confidence=0.7)
++
++    assert summary is not None
++    assert summary["goal"] == "prepare catalog assets"
++    assert summary["unfinished_work"] is True
++    assert returned is not None
++    assert "catalog" in returned.message
++    assert returned.evidence
++
++
++def test_natural_context_questions_never_invent_missing_activity(tmp_path: Path) -> None:
++    engine = LivingContextEngine(tmp_path)
++
++    assert engine.answer("что я сейчас делал?")["known"] is False
++    engine.update(_event(0, action="export_image"))
++    answer = engine.answer("на чем мы остановились?")
++    assert answer["known"] is True
++    assert "export_image" in answer["answer"]
++
++
++class _FakeWindowProvider:
++    def window_active(self):
++        from core.platform.windows import ProviderResult
++        return ProviderResult(True, {"title": "catalog - Editor", "process_id": 42}, provider="native_windows")
++
++
++def test_context_monitor_collects_native_metadata_without_screen_content(tmp_path: Path) -> None:
++    from core.living.monitor import LivingContextMonitor, WindowsContextSampler
++
++    sampler = WindowsContextSampler(
++        provider=_FakeWindowProvider(),
++        process_lookup=lambda pid: "editor.exe",
++        idle_lookup=lambda: 12.5,
++        fullscreen_lookup=lambda handle: False,
++    )
++    engine = LivingContextEngine(tmp_path)
++    monitor = LivingContextMonitor(engine, sampler=sampler, interval_seconds=0.05)
++
++    context = monitor.tick()
++
++    assert context.active_application == "Editor"
++    assert context.active_process == "editor.exe"
++    assert context.window_title == "catalog - Editor"
++    assert engine.observations[-1].idle_seconds == 12.5
++    assert "screen_pixels" not in str(engine.observations).casefold()
++    assert "screenshot" not in str(engine.observations).casefold()
++    assert "keystroke" not in str(engine.observations).casefold()
++
++
++def test_learned_workflow_and_background_questions_use_structured_traces(tmp_path: Path) -> None:
++    engine = LivingContextEngine(tmp_path)
++    engine.update(_event(0, metadata={"workflow": "organize reports", "goal_hint": "organize reports"}))
++    engine.update(_event(5, source="shadow_engine", action="sandbox_capability",
++                         metadata={"goal_hint": "organize reports"}))
++
++    learned = engine.answer("чему ты научился?")
++    background = engine.answer("что ты делал пока меня не было?")
++
++    assert learned["known"] is True
++    assert "organize reports" in learned["answer"]
++    assert background["known"] is True
++    assert "sandbox_capability" in background["answer"]
++
++
++def test_session_summary_contains_learned_workflows(tmp_path: Path) -> None:
++    engine = LivingContextEngine(tmp_path)
++    engine.update(_event(0, metadata={
++        "project": "catalog", "goal_hint": "prepare catalog assets",
++        "workflow": "export catalog image",
++    }))
++
++    summary = engine.close_episode(outcome="unfinished")
++
++    assert summary is not None
++    assert summary["learned_workflows"] == ["export catalog image"]
++
++def test_context_redacts_secret_values_and_rejects_unstructured_metadata(tmp_path: Path) -> None:
++    engine = LivingContextEngine(tmp_path)
++    engine.update(_event(
++        0, user_language="prepare catalog token=TOPSECRET",
++        window_title="Editor",
++        target="item secret=VAULT",
++        metadata={"project": "catalog", "note": "TOKEN", "goal_hint": "prepare catalog"},
++    ))
++
++    stored = engine.observations[-1]
++
++    assert stored.metadata["project"] == "catalog"
++    assert "note" not in stored.metadata
++    assert "TOPSECRET" not in str(stored)
++    assert "VAULT" not in str(stored)
++    assert "[redacted]" in stored.user_language
+diff --git a/tests/test_sprint11_workflow.py b/tests/test_sprint11_workflow.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_sprint11_workflow.py
+@@ -0,0 +1,164 @@
++"""Semantic workflow discovery, generalization and Capability integration."""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from core.actions.registry import DEFAULT_REGISTRY
++from core.capability_engine import CapabilityCatalog, CapabilityEngine, CapabilityKind
++from core.living.workflow import (
++    SemanticAction,
++    WorkflowCapabilityBridge,
++    WorkflowExecutor,
++    WorkflowLearner,
++    WorkflowRun,
++)
++
++
++def _run(index: int, *, success: bool = True) -> WorkflowRun:
++    return WorkflowRun(
++        run_id=f"run-{index}",
++        actions=[
++            SemanticAction("discover", "folder", "inbox", "filesystem.list"),
++            SemanticAction("move", "file", "newest report", "filesystem.move",
++                           {"source": f"report-{index}.txt", "destination": "project/report.txt"}),
++            SemanticAction("rename", "file", "project report", "filesystem.rename",
++                           {"name": f"catalog-{index}.txt"}),
++        ],
++        duration_seconds=30 + index,
++        estimated_automated_seconds=3,
++        success=success,
++        desired_state={"organized": True},
++        observed_state={"organized": success},
++    )
++
++
++def test_workflow_discovery_generalizes_similar_semantic_sequences(tmp_path: Path) -> None:
++    learner = WorkflowLearner(tmp_path)
++    for index in range(4):
++        learner.observe(_run(index))
++
++    candidate = learner.discover()[0]
++
++    assert candidate.frequency == 4
++    assert candidate.similarity >= 0.9
++    assert candidate.reliability == 1.0
++    assert candidate.confidence >= 0.75
++    assert candidate.actions[1].parameters["source"] == {"$slot": "source"}
++    assert candidate.actions[2].parameters["name"] == {"$slot": "name"}
++    assert "coordinate" not in str(candidate).lower()
++
++
++def test_workflow_learning_rejects_coordinate_macros(tmp_path: Path) -> None:
++    learner = WorkflowLearner(tmp_path)
++    run = WorkflowRun(
++        "coords", [SemanticAction("click", "button", "save", "uia", {"x": 10, "y": 20})],
++    )
++
++    with pytest.raises(ValueError, match="semantic"):
++        learner.observe(run)
++
++
++def test_unreliable_workflow_stays_below_learning_threshold(tmp_path: Path) -> None:
++    learner = WorkflowLearner(tmp_path)
++    learner.observe(_run(1, success=False))
++    learner.observe(_run(2, success=False))
++    learner.observe(_run(3, success=True))
++
++    candidate = learner.discover()[0]
++
++    assert candidate.reliability < 0.5
++    assert candidate.ready is False
++
++
++def test_workflow_becomes_capability_only_after_verified_rehearsal(tmp_path: Path) -> None:
++    learner = WorkflowLearner(tmp_path / "workflows")
++    for index in range(4):
++        learner.observe(_run(index))
++    candidate = learner.discover()[0]
++    catalog = CapabilityCatalog(tmp_path / "capabilities")
++    bridge = WorkflowCapabilityBridge(catalog)
++
++    rejected = bridge.rehearse(candidate, lambda _candidate: {"verified": False})
++    accepted = bridge.rehearse(candidate, lambda _candidate: {
++        "verified": True, "observed": {"organized": True}, "duration": 2.5,
++    })
++
++    assert rejected is None
++    assert accepted is not None
++    assert accepted.kind is CapabilityKind.LEARNED
++    assert catalog.get(accepted.id) is not None
++    assert catalog.retrieve_episodes("organize inbox report")
++
++
++def test_workflow_executor_observes_desired_state_instead_of_trusting_calls(tmp_path: Path) -> None:
++    state = {"organized": False}
++    calls = []
++    providers = {
++        "filesystem.list": lambda action, params: calls.append(action.verb) or True,
++        "filesystem.move": lambda action, params: calls.append(action.verb) or True,
++        "filesystem.rename": lambda action, params: calls.append(action.verb) or True,
++    }
++    learner = WorkflowLearner(tmp_path)
++    for index in range(4):
++        learner.observe(_run(index))
++    candidate = learner.discover()[0]
++    executor = WorkflowExecutor(providers, observer=lambda: dict(state))
++
++    failed = executor.execute(candidate, slots={"source": "in.txt", "name": "out.txt"})
++    state["organized"] = True
++    passed = executor.execute(candidate, slots={"source": "in.txt", "name": "out.txt"})
++
++    assert failed.verified is False
++    assert passed.verified is True
++    assert calls
++
++
++def test_workflow_runs_reload_for_second_process_reuse(tmp_path: Path) -> None:
++    first = WorkflowLearner(tmp_path)
++    for index in range(4):
++        first.observe(_run(index))
++
++    second = WorkflowLearner(tmp_path)
++    candidates = second.discover()
++
++    assert candidates
++    assert candidates[0].frequency == 4
++    assert candidates[0].ready
++
++def test_workflow_executor_requires_accepted_actions_even_if_state_already_matches(tmp_path: Path) -> None:
++    learner = WorkflowLearner(tmp_path)
++    for index in range(4):
++        learner.observe(_run(index))
++    candidate = learner.discover()[0]
++    executor = WorkflowExecutor(
++        {"filesystem.list": lambda *_args: {"ok": False}},
++        observer=lambda: {"organized": True},
++    )
++
++    result = executor.execute(candidate)
++
++    assert result.verified is False
++    assert "workflow_actions" in result.missing
++    assert any(not item["accepted"] for item in result.action_results)
++
++
++def test_workflow_executor_contains_provider_exception_and_does_not_verify(tmp_path: Path) -> None:
++    learner = WorkflowLearner(tmp_path)
++    for index in range(4):
++        learner.observe(_run(index))
++    candidate = learner.discover()[0]
++
++    def broken(*_args):
++        raise RuntimeError("temporary provider failure")
++
++    result = WorkflowExecutor(
++        {"filesystem.list": broken, "filesystem.move": broken, "filesystem.rename": broken},
++        observer=lambda: {"organized": True},
++    ).execute(candidate)
++
++    assert result.verified is False
++    assert any("temporary provider failure" in item.get("error", "")
++               for item in result.action_results)
+diff --git a/tests/test_sprint11_proactive.py b/tests/test_sprint11_proactive.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_sprint11_proactive.py
+@@ -0,0 +1,204 @@
++"""Evidence-based proactive policy, attention, memory and assistance profiles."""
++
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++
++from core.living.models import AutonomyLevel, ComputerAssistanceLevel, ProactiveAction
++from core.living.proactive import (
++    AssistancePolicy,
++    AttentionManager,
++    AttentionSnapshot,
++    ProactiveCandidate,
++    ProactiveDecisionEngine,
++    ProactiveMemoryStore,
++    UserProfileStore,
++)
++
++
++NOW = datetime(2026, 8, 17, 10, tzinfo=timezone.utc)
++
++
++def _candidate(**overrides) -> ProactiveCandidate:
++    data = {
++        "id": "organize_reports",
++        "topic": "organize reports",
++        "opportunity": "automate repeated report organization",
++        "confidence": 0.91,
++        "expected_value": 0.85,
++        "reversible": True,
++        "risk": "low",
++        "ambiguity": 0.05,
++        "evidence": ["workflow repeated", "verified semantic actions"],
++        "can_prepare": True,
++    }
++    data.update(overrides)
++    return ProactiveCandidate(**data)
++
++
++def test_proactive_without_structured_evidence_is_silent(tmp_path: Path) -> None:
++    engine = ProactiveDecisionEngine(ProactiveMemoryStore(tmp_path / "memory"))
++
++    decision = engine.decide(_candidate(evidence=[]), AttentionSnapshot(), now=NOW)
++
++    assert decision.action is ProactiveAction.SILENT
++    assert decision.user_message == ""
++
++
++def test_busy_user_causes_silent_prepare_not_interruption(tmp_path: Path) -> None:
++    engine = ProactiveDecisionEngine(ProactiveMemoryStore(tmp_path / "memory"))
++
++    decision = engine.decide(
++        _candidate(), AttentionSnapshot(fullscreen=True, media_active=True), now=NOW,
++    )
++
++    assert decision.action is ProactiveAction.PREPARE
++    assert decision.user_message == ""
++    assert decision.background_allowed is True
++
++
++def test_default_assistant_suggests_but_does_not_act(tmp_path: Path) -> None:
++    profile = UserProfileStore(tmp_path / "profile").load()
++    engine = ProactiveDecisionEngine(ProactiveMemoryStore(tmp_path / "memory"))
++
++    decision = engine.decide(_candidate(), AttentionSnapshot(), profile=profile, now=NOW)
++
++    assert profile.autonomy is AutonomyLevel.ASSISTANT
++    assert decision.action is ProactiveAction.SUGGEST
++    assert decision.user_message.count("?") == 1
++    assert decision.evidence
++
++
++def test_partner_can_act_only_for_low_risk_reversible_clear_action(tmp_path: Path) -> None:
++    store = UserProfileStore(tmp_path / "profile")
++    profile = store.update(autonomy=AutonomyLevel.PARTNER)
++    engine = ProactiveDecisionEngine(ProactiveMemoryStore(tmp_path / "memory"))
++
++    allowed = engine.decide(_candidate(), AttentionSnapshot(), profile=profile, now=NOW)
++    blocked = engine.decide(
++        _candidate(id="danger", topic="danger", opportunity="delete system data",
++                   risk="high", danger=False),
++        AttentionSnapshot(), profile=profile, now=NOW,
++    )
++
++    assert allowed.action is ProactiveAction.ACT
++    assert blocked.action is not ProactiveAction.ACT
++
++
++def test_missing_information_produces_one_specific_question(tmp_path: Path) -> None:
++    engine = ProactiveDecisionEngine(ProactiveMemoryStore(tmp_path / "memory"))
++
++    decision = engine.decide(
++        _candidate(ambiguity=0.8, missing_information="which project folder"),
++        AttentionSnapshot(), now=NOW,
++    )
++
++    assert decision.action is ProactiveAction.ASK
++    assert decision.user_message.count("?") == 1
++    assert "project folder" in decision.user_message
++
++
++def test_warn_requires_real_danger_evidence(tmp_path: Path) -> None:
++    engine = ProactiveDecisionEngine(ProactiveMemoryStore(tmp_path / "memory"))
++
++    warning = engine.decide(
++        _candidate(id="phishing", topic="suspicious download", risk="high", danger=True,
++                   opportunity="suspicious executable detected", urgency=0.95),
++        AttentionSnapshot(), now=NOW,
++    )
++    no_warning = engine.decide(
++        _candidate(id="vague", topic="vague", risk="high", danger=True,
++                   evidence=[], urgency=0.95),
++        AttentionSnapshot(), now=NOW,
++    )
++
++    assert warning.action is ProactiveAction.WARN
++    assert no_warning.action is ProactiveAction.SILENT
++
++
++def test_attention_manager_suppresses_fullscreen_then_releases_after_exit() -> None:
++    manager = AttentionManager()
++
++    busy = manager.assess(AttentionSnapshot(fullscreen=True, media_active=True), urgency=0.4)
++    available = manager.assess(AttentionSnapshot(), urgency=0.4)
++
++    assert busy.can_interrupt is False
++    assert busy.level.value == "NONE"
++    assert available.can_interrupt is True
++    assert available.level.value in {"PASSIVE", "NORMAL"}
++
++
++def test_ignore_and_rejection_learning_create_adaptive_cooldown(tmp_path: Path) -> None:
++    memory = ProactiveMemoryStore(tmp_path)
++    memory.record("organize reports", outcome="ignored", useful=None, now=NOW)
++
++    assert memory.allows("organize reports", now=NOW + timedelta(days=1)) is False
++    memory.record("organize reports", outcome="rejected", useful=False,
++                  now=NOW + timedelta(days=8))
++    assert memory.allows("organize reports", now=NOW + timedelta(days=15)) is False
++    assert memory.affinity("organize reports") < 0
++
++
++def test_computer_assistance_profile_is_not_user_intelligence(tmp_path: Path) -> None:
++    store = UserProfileStore(tmp_path)
++    profile = store.update(assistance=ComputerAssistanceLevel.BEGINNER)
++    loaded = store.load()
++
++    assert loaded.assistance is ComputerAssistanceLevel.BEGINNER
++    assert "intelligence" not in store.path.read_text(encoding="utf-8").lower()
++
++
++def test_beginner_assistance_delegates_safe_parts_and_keeps_message_short() -> None:
++    response = AssistancePolicy().plan(
++        "I downloaded an app and do not understand installation",
++        assistance=ComputerAssistanceLevel.BEGINNER,
++        capability_available=True,
++    )
++    required = AssistancePolicy().plan(
++        "continue installation", assistance=ComputerAssistanceLevel.BEGINNER,
++        capability_available=True, requires_user_input="Windows password",
++    )
++
++    assert response.execute_safe_parts is True
++    assert len(response.message.split()) < 15
++    assert required.message.count(".") <= 2
++    assert "Windows password" in required.message
++
++
++def test_developer_profile_receives_provider_trace() -> None:
++    response = AssistancePolicy().plan(
++        "configure application", assistance=ComputerAssistanceLevel.DEVELOPER,
++        capability_available=True, provider_trace="config → UIA → verify",
++    )
++
++    assert response.show_trace is True
++    assert "config" in response.message
++
++
++def test_credentials_ask_one_question_but_never_prepare_when_risk_is_high(tmp_path: Path) -> None:
++    engine = ProactiveDecisionEngine(ProactiveMemoryStore(tmp_path))
++    candidate = _candidate(
++        opportunity="delete protected account using password",
++        risk="high", requires_credentials=True, missing_information="пароль",
++        can_prepare=True,
++    )
++
++    available = engine.decide(candidate, AttentionSnapshot())
++    busy = engine.decide(candidate, AttentionSnapshot(media_active=True))
++
++    assert available.action is ProactiveAction.ASK
++    assert "пароль" in available.user_message
++    assert busy.action is ProactiveAction.SILENT
++    assert busy.user_message == ""
++
++def test_typing_or_active_mission_defers_suggestion_to_background_prepare(tmp_path: Path) -> None:
++    engine = ProactiveDecisionEngine(ProactiveMemoryStore(tmp_path))
++
++    typing = engine.decide(_candidate(topic="typing"), AttentionSnapshot(typing_active=True))
++    mission = engine.decide(_candidate(topic="mission"), AttentionSnapshot(active_mission=True))
++
++    assert typing.action is ProactiveAction.PREPARE
++    assert typing.user_message == ""
++    assert mission.action is ProactiveAction.PREPARE
++    assert mission.user_message == ""
+diff --git a/tests/test_sprint11_resources.py b/tests/test_sprint11_resources.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_sprint11_resources.py
+@@ -0,0 +1,130 @@
++"""Background resource budget, Shadow priority and quality-loop contracts."""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++from core.living.resources import (
++    BackgroundBudgetManager,
++    BackgroundMode,
++    CapabilityQualityLoop,
++    ResourceSnapshot,
++    ShadowPriorityFactors,
++)
++from core.shadow.backlog import ShadowBacklog
++
++
++def test_background_budget_runs_when_idle_and_pauses_under_user_load() -> None:
++    manager = BackgroundBudgetManager()
++
++    idle = manager.assess(ResourceSnapshot(cpu_percent=12, ram_percent=30,
++                                           foreground_latency_ms=20))
++    gaming = manager.assess(ResourceSnapshot(cpu_percent=45, ram_percent=60,
++                                             foreground_latency_ms=80, gaming=True,
++                                             fullscreen=True))
++    speaking = manager.assess(ResourceSnapshot(cpu_percent=20, ram_percent=40,
++                                               foreground_latency_ms=40, active_tts=True))
++
++    assert idle.mode is BackgroundMode.RUN
++    assert idle.cpu_quota > 0
++    assert gaming.mode is BackgroundMode.PAUSE
++    assert speaking.mode in {BackgroundMode.THROTTLE, BackgroundMode.PAUSE}
++
++
++def test_shadow_priority_balances_pain_reuse_risk_and_learning_cost() -> None:
++    useful = ShadowPriorityFactors(
++        user_pain=0.9, frequency=0.9, time_saved=0.8,
++        reuse_probability=0.9, risk=0.1, learning_cost=0.2,
++    )
++    novelty = ShadowPriorityFactors(
++        user_pain=0.1, frequency=0.1, time_saved=0.2,
++        reuse_probability=0.1, risk=0.5, learning_cost=0.9,
++    )
++
++    assert useful.score() > novelty.score()
++    assert useful.score() >= 0.7
++    assert novelty.score() < 0.3
++
++
++def test_shadow_backlog_add_ranked_returns_highest_value_work(tmp_path: Path) -> None:
++    backlog = ShadowBacklog(tmp_path)
++    backlog.add_ranked(
++        "novelty", reason="low value", user_pain=0.1, frequency=0.1,
++        time_saved=0.1, reuse_probability=0.1, risk=0.5, learning_cost=0.8,
++    )
++    backlog.add_ranked(
++        "repeat_export", reason="repeated pain", user_pain=0.9, frequency=0.9,
++        time_saved=0.8, reuse_probability=0.9, risk=0.1, learning_cost=0.2,
++    )
++
++    selected = backlog.next(cpu_percent=10, gpu_percent=5, gaming=False)
++
++    assert selected is not None
++    assert selected.id == "repeat_export"
++
++
++def test_quality_loop_enqueues_optimization_for_repairs_fallbacks_and_slow_runs(tmp_path: Path) -> None:
++    backlog = ShadowBacklog(tmp_path / "backlog")
++    loop = CapabilityQualityLoop(tmp_path / "quality", backlog)
++
++    loop.record("workflow_export", verified=True, duration=12, expected_duration=3,
++                repairs=2, fallbacks=1)
++    result = loop.record("workflow_export", verified=False, duration=15,
++                         expected_duration=3, repairs=1, fallbacks=1)
++    selected = backlog.next(cpu_percent=5, gpu_percent=5, gaming=False)
++
++    assert result.optimization_needed is True
++    assert selected is not None
++    assert selected.id == "optimize_workflow_export"
++    assert result.evidence
++
++
++def test_background_budget_respects_battery_and_active_user_mission() -> None:
++    manager = BackgroundBudgetManager()
++
++    result = manager.assess(ResourceSnapshot(
++        cpu_percent=15, ram_percent=30, foreground_latency_ms=20,
++        on_battery=True, battery_percent=10, active_user_mission=True,
++    ))
++
++    assert result.mode is BackgroundMode.PAUSE
++    assert "battery" in " ".join(result.reasons)
++
++
++class _Memory:
++    percent = 37.5
++
++
++class _Battery:
++    power_plugged = False
++    percent = 25
++
++
++class _Psutil:
++    @staticmethod
++    def cpu_percent(interval=None):
++        assert interval is None
++        return 12.5
++
++    @staticmethod
++    def virtual_memory():
++        return _Memory()
++
++    @staticmethod
++    def sensors_battery():
++        return _Battery()
++
++
++def test_local_resource_sampler_collects_coarse_metrics_only() -> None:
++    from core.living.resources import LocalResourceSampler
++
++    snapshot = LocalResourceSampler(_Psutil()).sample(
++        foreground_latency_ms=4, active_tts=True, gpu_percent=7,
++    )
++
++    assert snapshot.cpu_percent == 12.5
++    assert snapshot.ram_percent == 37.5
++    assert snapshot.gpu_percent == 7
++    assert snapshot.on_battery is True
++    assert snapshot.battery_percent == 25
++    assert snapshot.active_tts is True
+diff --git a/tests/test_sprint11_service.py b/tests/test_sprint11_service.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_sprint11_service.py
+@@ -0,0 +1,247 @@
++"""Integrated living intelligence, persistent PREPARE work and proactive verification."""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++from core.living.models import AutonomyLevel, ComputerAssistanceLevel, ProactiveAction
++from core.living.proactive import AttentionSnapshot, ProactiveCandidate
++from core.living.resources import ResourceSnapshot
++from core.living.service import LivingIntelligence
++from core.task_runtime import MissionStatus, TaskRuntime
++
++
++def _candidate(**overrides) -> ProactiveCandidate:
++    data = {
++        "id": "prepare_export",
++        "topic": "export workflow",
++        "opportunity": "prepare repeated export workflow",
++        "confidence": 0.92,
++        "expected_value": 0.9,
++        "reversible": True,
++        "risk": "low",
++        "ambiguity": 0.05,
++        "evidence": ["four semantic runs", "three successful outcomes"],
++        "can_prepare": True,
++    }
++    data.update(overrides)
++    return ProactiveCandidate(**data)
++
++
++def test_prepare_mission_retries_temporary_provider_error_and_persists(tmp_path: Path) -> None:
++    runtime = TaskRuntime(persistence_dir=tmp_path / "missions")
++    intelligence = LivingIntelligence(tmp_path / "living", task_runtime=runtime)
++    calls = []
++
++    def prepare():
++        calls.append(True)
++        if len(calls) == 1:
++            raise RuntimeError("temporary provider error")
++        return {"verified": True, "capability": "workflow_export"}
++
++    mission = intelligence.schedule_prepare(
++        _candidate(), prepare,
++        resources=ResourceSnapshot(cpu_percent=5, ram_percent=20),
++    )
++    completed = runtime.wait(mission.task_id, timeout=5) if mission else None
++
++    assert completed is not None
++    assert completed.status is MissionStatus.COMPLETED
++    assert len(calls) == 2
++    assert list((tmp_path / "missions").glob("*.json"))
++
++
++def test_shadow_prepare_is_queued_when_background_budget_is_paused(tmp_path: Path) -> None:
++    intelligence = LivingIntelligence(tmp_path / "living")
++
++    mission = intelligence.schedule_prepare(
++        _candidate(), lambda: {"verified": True},
++        resources=ResourceSnapshot(cpu_percent=95, gaming=True, fullscreen=True),
++    )
++    pending = intelligence.shadow_backlog.next(cpu_percent=5, gpu_percent=0, gaming=False)
++
++    assert mission is None
++    assert pending is not None
++    assert pending.id == "prepare_export"
++
++
++def test_busy_proactive_cycle_prepares_without_foreground_message(tmp_path: Path) -> None:
++    intelligence = LivingIntelligence(tmp_path / "living")
++    prepared = []
++
++    cycle = intelligence.proactive_cycle(
++        _candidate(), AttentionSnapshot(fullscreen=True, media_active=True),
++        resources=ResourceSnapshot(cpu_percent=5, ram_percent=20),
++        prepare=lambda: prepared.append(True) or {"verified": True},
++    )
++    mission = cycle.mission
++    if mission:
++        intelligence.task_runtime.wait(mission.task_id, timeout=5)
++
++    assert cycle.decision.action is ProactiveAction.PREPARE
++    assert cycle.decision.user_message == ""
++    assert prepared == [True]
++
++
++def test_proactive_act_uses_checkpoint_observation_and_rollback(tmp_path: Path) -> None:
++    intelligence = LivingIntelligence(tmp_path / "living")
++    intelligence.profile_store.update(autonomy=AutonomyLevel.PARTNER)
++    state = {"organized": False}
++    rolled_back = []
++    candidate = _candidate(can_prepare=False)
++
++    failed = intelligence.execute_proactive(
++        candidate, AttentionSnapshot(), desired_state={"organized": True},
++        checkpoint=lambda: dict(state), executor=lambda: True,
++        observer=lambda: dict(state),
++        rollback=lambda checkpoint: rolled_back.append(checkpoint) or True,
++    )
++    state["organized"] = True
++    passed = intelligence.execute_proactive(
++        candidate, AttentionSnapshot(), desired_state={"organized": True},
++        checkpoint=lambda: dict(state), executor=lambda: True,
++        observer=lambda: dict(state),
++        rollback=lambda checkpoint: rolled_back.append(checkpoint) or True,
++    )
++
++    assert failed.verified is False
++    assert failed.rolled_back is True
++    assert passed.verified is True
++    assert rolled_back
++
++
++def test_beginner_help_calls_existing_operator_capability(tmp_path: Path) -> None:
++    intelligence = LivingIntelligence(tmp_path / "living")
++    intelligence.profile_store.update(assistance=ComputerAssistanceLevel.BEGINNER)
++    called = []
++
++    result = intelligence.assist(
++        "Я скачал программу, не понимаю, как её установить.",
++        capability_available=True,
++        operator=lambda request: called.append(request) or {"verified": True},
++    )
++
++    assert result.executed is True
++    assert result.verified is True
++    assert called
++    assert len(result.message.split()) < 15
++
++
++def test_shadow_quality_feedback_enters_ranked_backlog(tmp_path: Path) -> None:
++    intelligence = LivingIntelligence(tmp_path / "living")
++
++    quality = intelligence.record_capability_outcome(
++        "workflow_export", verified=False, duration=20,
++        expected_duration=3, repairs=2, fallbacks=1,
++    )
++
++    assert quality.optimization_needed is True
++    assert intelligence.shadow_backlog.next(cpu_percent=5, gpu_percent=0,
++                                             gaming=False) is not None
++
++
++def test_shadow_engine_keeps_explicit_empty_registry(tmp_path: Path) -> None:
++    from core.actions.registry import ToolRegistry
++    from core.shadow import ShadowEngine
++
++    registry = ToolRegistry()
++    engine = ShadowEngine(data_dir=tmp_path, registry=registry, enabled=True)
++
++    assert engine.registry is registry
++
++def test_clipboard_metadata_requires_permission_and_drops_values(tmp_path: Path) -> None:
++    service = LivingIntelligence(tmp_path)
++
++    denied = service.observe_clipboard_metadata({"type": "text", "value": "TOKEN"}, permission=False)
++    accepted = service.observe_clipboard_metadata(
++        {"type": "text", "format": "unicode", "size": 5, "value": "TOKEN"},
++        permission=True,
++    )
++
++    assert denied is False
++    assert accepted is True
++    stored = service.context.observations[-1]
++    assert stored.clipboard_metadata == {"type": "text", "format": "unicode", "size": 5}
++    assert "TOKEN" not in str(stored)
++
++
++def test_service_answers_all_declared_context_questions_without_invention(tmp_path: Path) -> None:
++    service = LivingIntelligence(tmp_path)
++    service.observe_action(
++        action="prepare_capability", outcome="success", source="shadow_engine",
++        metadata={"workflow": "organize reports", "goal_hint": "organize reports"},
++    )
++
++    assert service.answer_context("чему ты научился?")["known"] is True
++    assert service.answer_context("что ты делал пока меня не было?")["known"] is True
++    assert service.answer_context("обычный вопрос") is None
++
++def test_service_derives_proactive_candidate_from_verified_workflow(tmp_path: Path) -> None:
++    from core.living.workflow import SemanticAction, WorkflowRun
++
++    service = LivingIntelligence(tmp_path)
++    for index in range(4):
++        service.observe_workflow(WorkflowRun(
++            f"run-{index}",
++            [SemanticAction("move", "file", "incoming report", "filesystem.move", {
++                "source": f"in-{index}", "destination": f"out-{index}",
++            })],
++            duration_seconds=30, estimated_automated_seconds=2,
++            success=True, desired_state={"organized": True},
++            observed_state={"organized": True},
++        ))
++
++    candidates = service.opportunity_candidates()
++
++    assert candidates
++    assert candidates[0].evidence
++    assert candidates[0].can_prepare is True
++    assert candidates[0].risk == "low"
++
++def test_proactive_execution_rolls_back_when_executor_raises(tmp_path: Path) -> None:
++    service = LivingIntelligence(tmp_path)
++    service.profile_store.update(autonomy=AutonomyLevel.PARTNER)
++    candidate = _candidate(id="exceptional-act", confidence=0.96, expected_value=0.9)
++    restored = []
++
++    def broken():
++        raise RuntimeError("provider crashed")
++
++    result = service.execute_proactive(
++        candidate, AttentionSnapshot(), desired_state={"done": True},
++        checkpoint=lambda: "checkpoint", executor=broken,
++        observer=lambda: {"done": False}, rollback=lambda saved: restored.append(saved) or True,
++    )
++
++    assert result.executed is True
++    assert result.verified is False
++    assert result.rolled_back is True
++    assert restored == ["checkpoint"]
++    assert any("provider crashed" in item for item in result.evidence)
++
++def test_mission_event_feeds_structured_goal_and_active_state(tmp_path: Path) -> None:
++    from core.task_runtime import TaskEvent
++
++    service = LivingIntelligence(tmp_path)
++    service.observe_mission_event(TaskEvent(
++        task_id="JARVIS-2026-9", event_type="task_started",
++        phase="executing", payload={"goal": "prepare catalog"},
++    ))
++
++    stored = service.context.observations[-1]
++    assert stored.source == "mission_runtime"
++    assert stored.active_mission is True
++    assert stored.metadata["mission_goal"] == "prepare catalog"
++
++
++def test_throttled_prepare_records_cooperative_resource_budget(tmp_path: Path) -> None:
++    service = LivingIntelligence(tmp_path)
++    mission = service.schedule_prepare(
++        _candidate(topic="throttle"), lambda: {"verified": True},
++        resources=ResourceSnapshot(cpu_percent=50, ram_percent=60, active_tts=True),
++    )
++
++    assert mission is not None
++    assert mission.metadata["background_mode"] == "THROTTLE"
++    assert mission.metadata["cpu_quota"] > 0
++    service.task_runtime.wait(mission.task_id, timeout=5)

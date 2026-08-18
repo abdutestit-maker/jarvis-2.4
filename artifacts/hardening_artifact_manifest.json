@@ -1,0 +1,7 @@
+{
+  "patch": "E:\\jarvis-project\\artifacts\\hardening.patch",
+  "patch_sha256": "B6124FBCBD990E9B29F97E3443C7C41B8D03586E3DB1F05A0B0364612D03077E",
+  "snapshot": "E:\\jarvis-project\\artifacts/archive/hardening_last_verified",
+  "snapshot_manifest": "E:\\jarvis-project\\artifacts/archive/hardening_last_verified/manifest.json",
+  "rollback": "E:\\jarvis-project\\scripts/rollback_stability_hardening.ps1"
+}

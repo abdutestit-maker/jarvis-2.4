@@ -1,0 +1,32 @@
+{
+  "goal": "организуй локальные файлы по расширению",
+  "capability": "organize_files_by_extension",
+  "task_class": "organize_files_by_extension",
+  "successful_strategy": [
+    "list_files",
+    "file_move",
+    "list_files_recursive"
+  ],
+  "failures": [],
+  "repairs": [],
+  "verification": [
+    "organized_by_extension=True"
+  ],
+  "generalized_procedure": [
+    "observe current state",
+    "apply minimal delta",
+    "verify desired state"
+  ],
+  "tools_used": [
+    "list_files",
+    "file_move",
+    "list_files_recursive"
+  ],
+  "important_observations": [],
+  "risk_profile": "low",
+  "duration": 0.015549799998552771,
+  "environment_assumptions": {},
+  "confidence": 0.935,
+  "episode_id": "69f447d7232343aeb812a18ef8c3f5d3",
+  "created_at": "2026-08-17T14:12:34.585227+00:00"
+}

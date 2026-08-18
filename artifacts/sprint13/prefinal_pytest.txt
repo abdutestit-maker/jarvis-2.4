@@ -1,0 +1,17 @@
+.............................................ss......................... [ 19%]
+........................................................................ [ 39%]
+........................................................................ [ 58%]
+........................................................................ [ 78%]
+........................................................................ [ 97%]
+........                                                                 [100%]
+============================== warnings summary ===============================
+core\ws_server.py:58
+  E:\jarvis-project\core\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated
+    from websockets.server import serve
+
+C:\Users\WwW\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\websockets\legacy\__init__.py:6
+  C:\Users\WwW\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\websockets\legacy\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+    warnings.warn(  # deprecated in 14.0 - 2024-11-09
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+EXIT_CODE=0

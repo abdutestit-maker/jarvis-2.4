@@ -1,0 +1,104 @@
+{
+  "success": true,
+  "session_id": "live-session",
+  "dom_hash": "a09bd384fcdab2b768ff08aca373f9842ca507732865f329ba71899ad93360a9",
+  "input": {
+    "success": true,
+    "ok": true,
+    "action_taken": true,
+    "requires_confirmation": false,
+    "blocked_reason": null,
+    "observed_state": {
+      "session_id": "live-session",
+      "url": "file:///C:/Users/WwW/AppData/Local/Temp/browser-bridge-a0wmwazi/fixture.html",
+      "title": "Browser Bridge Fixture",
+      "dom_hash": "8c6bf9762fbc21acbdbe755126469b0a8d6625ec5b73e878ea12a7cd368485b3",
+      "node_count": 5
+    },
+    "verification": {
+      "ok": true,
+      "method": "semantic_value_readback",
+      "detail": "value readback matched",
+      "value_present": null
+    },
+    "error": null,
+    "session_id": "live-session"
+  },
+  "apply": {
+    "success": true,
+    "ok": true,
+    "action_taken": true,
+    "requires_confirmation": false,
+    "blocked_reason": null,
+    "observed_state": {
+      "session_id": "live-session",
+      "url": "file:///C:/Users/WwW/AppData/Local/Temp/browser-bridge-a0wmwazi/fixture.html",
+      "title": "Browser Bridge Fixture",
+      "dom_hash": "9d69cf8f72bf127b212a756b9c9006685c0a68478799144676015e54bac69e07",
+      "node_count": 5
+    },
+    "verification": {
+      "ok": true,
+      "method": "post_click_observation",
+      "detail": "post-action observation completed"
+    },
+    "error": null,
+    "session_id": "live-session"
+  },
+  "observed_status": {
+    "ok": true,
+    "text": "applied:SAMPLE",
+    "element": {
+      "tag": "output",
+      "role": "output",
+      "name": "applied:SAMPLE",
+      "automation_id": "status",
+      "test_id": "",
+      "type": "",
+      "value": "applied:SAMPLE",
+      "href": "",
+      "disabled": false,
+      "requires_confirmation": false
+    }
+  },
+  "risky_blocked": {
+    "success": false,
+    "ok": false,
+    "action_taken": false,
+    "requires_confirmation": true,
+    "blocked_reason": "CONFIRMATION_REQUIRED",
+    "observed_state": {
+      "session_id": "live-session",
+      "dom_hash": "9d69cf8f72bf127b212a756b9c9006685c0a68478799144676015e54bac69e07"
+    },
+    "verification": {
+      "ok": false,
+      "method": "policy",
+      "detail": "CONFIRMATION_REQUIRED"
+    },
+    "error": "CONFIRMATION_REQUIRED",
+    "session_id": "live-session"
+  },
+  "risky_authorized": {
+    "success": true,
+    "ok": true,
+    "action_taken": true,
+    "requires_confirmation": false,
+    "blocked_reason": null,
+    "observed_state": {
+      "session_id": "live-session",
+      "url": "file:///C:/Users/WwW/AppData/Local/Temp/browser-bridge-a0wmwazi/fixture.html",
+      "title": "Browser Bridge Fixture",
+      "dom_hash": "a09bd384fcdab2b768ff08aca373f9842ca507732865f329ba71899ad93360a9",
+      "node_count": 5
+    },
+    "verification": {
+      "ok": true,
+      "method": "post_click_observation",
+      "detail": "post-action observation completed"
+    },
+    "error": null,
+    "session_id": "live-session"
+  },
+  "coordinates_present": false
+}

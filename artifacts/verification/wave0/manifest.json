@@ -1,0 +1,10 @@
+{
+  "wave": 0,
+  "pass": true,
+  "roles": [
+    "manifest.json",
+    "verification.json",
+    "diff.patch",
+    "rollback.ps1"
+  ]
+}

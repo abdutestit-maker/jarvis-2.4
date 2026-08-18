@@ -1,0 +1,316 @@
+{
+  "sprint": 12,
+  "status": "VERIFIED",
+  "timestamp_local": "2026-08-17T18:34:00+05:00",
+  "scope": "JARVIS Personality + Relationship Layer; Sprint 13 not started",
+  "baseline": {
+    "command": "python -m pytest -o addopts='' -q",
+    "input": "repository Python test suite",
+    "exit_status": 0,
+    "literal_output": ".............................................ss......................... [ 24%]\n........................................................................ [ 48%]\n........................................................................ [ 72%]\n........................................................................ [ 96%]\n.........                                                                [100%]\n============================== warnings summary ===============================\ncore\\ws_server.py:58\n  E:\\jarvis-project\\core\\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated\n    from websockets.server import serve\n\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6\n  C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions\n    warnings.warn(  # deprecated in 14.0 - 2024-11-09\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n295 passed, 2 skipped, 2 warnings in 75.18s (0:01:15)",
+    "summary": {
+      "passed": 295,
+      "skipped": 2,
+      "failed": 0
+    },
+    "voice_command": "PYTHONIOENCODING=utf-8 PYTHONUTF8=1 python scripts\\\\voice_runtime_smoke.py E:\\\\jarvis-project\\\\artifacts\\\\sprint12\\\\baseline_voice.wav",
+    "voice_input": "Сэр, я вас понял. Это тестовый ответ Джарвиса.",
+    "voice_exit_status": 0,
+    "voice_literal_output": "2026-08-17 18:02:47 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\\jarvis-project\\config\\settings.json\n2026-08-17 18:02:47 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-17 18:02:48 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n{\n  \"success\": true,\n  \"input\": \"Сэр, я вас понял. Это тестовый ответ Джарвиса.\",\n  \"runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"expected_runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"output\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint12\\\\baseline_voice.wav\",\n  \"channels\": 1,\n  \"sample_rate\": 22050,\n  \"sample_width\": 2,\n  \"frames\": 71028,\n  \"duration_seconds\": 3.221,\n  \"error\": null\n}"
+  },
+  "modified": {
+    "command": "python -m pytest -o addopts='' -q",
+    "input": "repository Python test suite including Sprint 12",
+    "exit_status": 0,
+    "literal_output": ".............................................ss......................... [ 21%]\n........................................................................ [ 43%]\n........................................................................ [ 65%]\n........................................................................ [ 87%]\n........................................                                 [100%]\n============================== warnings summary ===============================\ncore\\ws_server.py:58\n  E:\\jarvis-project\\core\\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated\n    from websockets.server import serve\n\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6\n  C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions\n    warnings.warn(  # deprecated in 14.0 - 2024-11-09\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n326 passed, 2 skipped, 2 warnings in 76.13s (0:01:16)",
+    "summary": {
+      "passed": 326,
+      "skipped": 2,
+      "failed": 0
+    },
+    "voice_command": "PYTHONIOENCODING=utf-8 PYTHONUTF8=1 python scripts\\\\voice_runtime_smoke.py E:\\\\jarvis-project\\\\artifacts\\\\sprint12\\\\final_voice.wav",
+    "voice_input": "Сэр, я вас понял. Это тестовый ответ Джарвиса.",
+    "voice_exit_status": 0,
+    "voice_literal_output": "2026-08-17 18:24:05 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\\jarvis-project\\config\\settings.json\n2026-08-17 18:24:05 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-17 18:24:06 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n{\n  \"success\": true,\n  \"input\": \"Сэр, я вас понял. Это тестовый ответ Джарвиса.\",\n  \"runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"expected_runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"output\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint12\\\\final_voice.wav\",\n  \"channels\": 1,\n  \"sample_rate\": 22050,\n  \"sample_width\": 2,\n  \"frames\": 71540,\n  \"duration_seconds\": 3.244,\n  \"error\": null\n}"
+  },
+  "live_demo": {
+    "command": "python scripts\\\\sprint12_live_demo.py --output-dir E:\\\\jarvis-project\\\\artifacts\\\\sprint12\\\\live_demo_final",
+    "exit_status": 0,
+    "literal_output": "2026-08-17 18:24:13 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']\n{\n  \"sprint\": 12,\n  \"mode\": \"local_production_components\",\n  \"inputs\": {\n    \"short_requests\": 3,\n    \"accepted_help_events\": 3,\n    \"preference_change\": \"detailed\"\n  },\n  \"observed\": {\n    \"short_style\": {\n      \"tone\": \"professional_friendly\",\n      \"verbosity\": \"short\",\n      \"max_sentences\": 3,\n      \"explanation_depth\": \"concise\",\n      \"structured\": false,\n      \"formality\": \"respectful\",\n      \"humor_level\": 0.35,\n      \"initiative\": \"assistant\",\n      \"address\": \"сэр\"\n    },\n    \"short_response\": \"Проверил первый пункт. Второй тоже в порядке. Ошибок нет.\",\n    \"acceptance_confidence\": [\n      0.667,\n      0.75,\n      0.8\n    ],\n    \"changed_style\": {\n      \"tone\": \"professional_friendly\",\n      \"verbosity\": \"detailed\",\n      \"max_sentences\": 12,\n      \"explanation_depth\": \"step_by_step\",\n      \"structured\": false,\n      \"formality\": \"respectful\",\n      \"humor_level\": 0.07,\n      \"initiative\": \"assistant\",\n      \"address\": \"сэр\"\n    },\n    \"persisted_communication_style\": \"detailed\",\n    \"relationship_records\": 2\n  },\n  \"checks\": {\n    \"repeated_short_requests_learned\": true,\n    \"short_response_bounded\": true,\n    \"accepted_help_confidence_increased\": true,\n    \"sprint11_feedback_recorded\": true,\n    \"changed_preference_applied\": true,\n    \"changed_preference_persisted\": true,\n    \"secret_not_stored\": true\n  },\n  \"verified\": true\n}",
+    "result": {
+      "sprint": 12,
+      "mode": "local_production_components",
+      "inputs": {
+        "short_requests": 3,
+        "accepted_help_events": 3,
+        "preference_change": "detailed"
+      },
+      "observed": {
+        "short_style": {
+          "tone": "professional_friendly",
+          "verbosity": "short",
+          "max_sentences": 3,
+          "explanation_depth": "concise",
+          "structured": false,
+          "formality": "respectful",
+          "humor_level": 0.35,
+          "initiative": "assistant",
+          "address": "сэр"
+        },
+        "short_response": "Проверил первый пункт. Второй тоже в порядке. Ошибок нет.",
+        "acceptance_confidence": [
+          0.667,
+          0.75,
+          0.8
+        ],
+        "changed_style": {
+          "tone": "professional_friendly",
+          "verbosity": "detailed",
+          "max_sentences": 12,
+          "explanation_depth": "step_by_step",
+          "structured": false,
+          "formality": "respectful",
+          "humor_level": 0.07,
+          "initiative": "assistant",
+          "address": "сэр"
+        },
+        "persisted_communication_style": "detailed",
+        "relationship_records": 2
+      },
+      "checks": {
+        "repeated_short_requests_learned": true,
+        "short_response_bounded": true,
+        "accepted_help_confidence_increased": true,
+        "sprint11_feedback_recorded": true,
+        "changed_preference_applied": true,
+        "changed_preference_persisted": true,
+        "secret_not_stored": true
+      },
+      "verified": true
+    }
+  },
+  "artifact_roles": {
+    "modified_artifact": {
+      "package": "E:\\jarvis-project\\artifacts\\sprint12\\jarvis_sprint12_modified.zip",
+      "sha256": "bc1810628e68a4b5d661a2cbf45c9b22fa25fcdaee54250fbf8d674fa7de9766",
+      "members": 28,
+      "testzip_bad_member": null,
+      "hash_mismatches": [],
+      "verified": true
+    },
+    "patch": {
+      "path": "E:\\jarvis-project\\artifacts\\sprint12\\sprint12.patch",
+      "sha256": "96466775a22289c9163d59a840ce6c2f7ac674b0a0eafdfac61752dcebc9bb61",
+      "check_command": "git -c core.autocrlf=false -c core.safecrlf=false apply --check --whitespace=nowarn --directory=artifacts/sprint12/rollback_probe_1825 artifacts/sprint12/sprint12.patch",
+      "check_exit": 0,
+      "apply_command": "git -c core.autocrlf=false -c core.safecrlf=false apply --whitespace=nowarn --directory=artifacts/sprint12/rollback_probe_1825 artifacts/sprint12/sprint12.patch",
+      "apply_exit": 0,
+      "file_count": 27,
+      "hash_mismatches": [],
+      "verified": true
+    },
+    "verification_record": {
+      "path": "E:\\jarvis-project\\artifacts\\sprint12\\verification_record.json"
+    },
+    "rollback": {
+      "path": "E:\\jarvis-project\\scripts\\rollback_sprint12.ps1",
+      "sha256": "48d429d43749840a68abf6ab8cc832e5a86db2c460cf700eebcb0838a11923a7",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rollback_sprint12.ps1 -ProjectRoot artifacts/sprint12/rollback_probe_1825 -BackupRoot artifacts/sprint12/original",
+      "exit_code": 0,
+      "restored_hash_mismatches": [],
+      "added_product_files_remaining": [],
+      "rollback_script_remains_runnable": true,
+      "verified": true
+    }
+  },
+  "changed_files": [
+    {
+      "path": "core/agent.py",
+      "status": "modified",
+      "sha256": "c1268e179c118a94031636f8c594b3db0d13842e0c66f9c4b6a195ee319565a0",
+      "bytes": 89150
+    },
+    {
+      "path": "core/orchestrator.py",
+      "status": "modified",
+      "sha256": "578a5e86c50c5766e47b9d74db8bd80be49885e5c84d7cc433ff277ff4bd4649",
+      "bytes": 28125
+    },
+    {
+      "path": "core/living/service.py",
+      "status": "modified",
+      "sha256": "2778386d218be7a9cd6e49c0e6aa1d1bb93858f0572dae72599f3bb2b0b462b0",
+      "bytes": 16082
+    },
+    {
+      "path": "core/voice/greeting.py",
+      "status": "modified",
+      "sha256": "b70ff7a77afba0f8ac370c9a9d57966346c440030295414fccb8079867844ebc",
+      "bytes": 3076
+    },
+    {
+      "path": "core/ws_server.py",
+      "status": "modified",
+      "sha256": "7c1fbbdfd39b67877fe95abb4a3f801a60a5dae994e1fdc741ff74d13fb0efe0",
+      "bytes": 46012
+    },
+    {
+      "path": "core/memory/__init__.py",
+      "status": "modified",
+      "sha256": "1a6df8ec4059b5b62d4aa048bd2c62849091cc9663a00c19f7c25e5b4b93d55b",
+      "bytes": 1716
+    },
+    {
+      "path": "persona/system_prompt.py",
+      "status": "modified",
+      "sha256": "9be7b9976a4b48e50a6db074eebd8bce4d43a4fec0a2e99983cd40df686a0252",
+      "bytes": 10850
+    },
+    {
+      "path": "core/personality/__init__.py",
+      "status": "added",
+      "sha256": "eb34a24ba17500d5cb688528cd62160d88b6cbcd1344319d38ca868e70754cc5",
+      "bytes": 465
+    },
+    {
+      "path": "core/personality/communication.py",
+      "status": "added",
+      "sha256": "5e5c9d4e4905dac0fdf78596a5b83413621c314dd2f51d5facf5a7a67efe9d3b",
+      "bytes": 3859
+    },
+    {
+      "path": "core/personality/engine.py",
+      "status": "added",
+      "sha256": "9dad3618977d5a1e7b644a801d82525523f4fe5cfb5b84d1175ad1f868d8e4a7",
+      "bytes": 5780
+    },
+    {
+      "path": "core/personality/humor.py",
+      "status": "added",
+      "sha256": "8796c9705bd9ec3541d0a657e7c71209ff80daa0db32ae595870223b28ea0034",
+      "bytes": 842
+    },
+    {
+      "path": "core/personality/models.py",
+      "status": "added",
+      "sha256": "c63b2a1f5014dba9ac9ac8b0b4ac7b00fab5bdcfb6f5c6191b15130efba6525f",
+      "bytes": 2481
+    },
+    {
+      "path": "core/memory/relationship/__init__.py",
+      "status": "added",
+      "sha256": "19f4e08690c55ff59bfcdcb5bf197d08b481de5f17077189d365c19a30eb9e36",
+      "bytes": 478
+    },
+    {
+      "path": "core/memory/relationship/hierarchy.py",
+      "status": "added",
+      "sha256": "30faefe0a86c24de78664e6f522b76f635e352c5666d9c3647520285c5cbadfc",
+      "bytes": 2091
+    },
+    {
+      "path": "core/memory/relationship/learning.py",
+      "status": "added",
+      "sha256": "205a3264b34d562b45b6308cb0c9337c05fa0584a032a5992e5520a644fce8e3",
+      "bytes": 9172
+    },
+    {
+      "path": "core/memory/relationship/models.py",
+      "status": "added",
+      "sha256": "bd27ea05e0f134e7dcc79aad4c256df4e453892a548d3272b8c5e694cb3a492f",
+      "bytes": 2167
+    },
+    {
+      "path": "core/memory/relationship/store.py",
+      "status": "added",
+      "sha256": "c797d39ef3b08e7e99fea9c1d081ea63690ce84027a77ce1a346a3887ab8a9a2",
+      "bytes": 7000
+    },
+    {
+      "path": "persona/identity.json",
+      "status": "added",
+      "sha256": "51779dae2bdb6ffa23597d9b09a835ac94742cb09616c10db6e567beab450f4f",
+      "bytes": 164
+    },
+    {
+      "path": "persona/personality.json",
+      "status": "added",
+      "sha256": "81216a4a091c4a4f5675bbc2a8004d381fca5c0b452e34c33bf6cacf7faa6dfc",
+      "bytes": 181
+    },
+    {
+      "path": "tests/test_sprint12_personality.py",
+      "status": "added",
+      "sha256": "9720f5e944674506dd456b305227e36b46ed8dc8769ecad5ef6e9058f3d1c576",
+      "bytes": 4776
+    },
+    {
+      "path": "tests/test_sprint12_relationship.py",
+      "status": "added",
+      "sha256": "13adad68eff45cbf9e82f0264e85e7f227a54fc8576ce0335a972d185da074ae",
+      "bytes": 7865
+    },
+    {
+      "path": "tests/test_sprint12_integration.py",
+      "status": "added",
+      "sha256": "dc030eadf26053c8c194abdc8eada3f2657305685b45e7d5ca301c25781b2676",
+      "bytes": 4783
+    },
+    {
+      "path": "scripts/sprint12_live_demo.py",
+      "status": "added",
+      "sha256": "0420ba7ffc7cd60040d80ad4cde013416b37a6dd34936190d92db718675d0e2d",
+      "bytes": 4326
+    },
+    {
+      "path": "scripts/rollback_sprint12.ps1",
+      "status": "added",
+      "sha256": "48d429d43749840a68abf6ab8cc832e5a86db2c460cf700eebcb0838a11923a7",
+      "bytes": 3452
+    },
+    {
+      "path": "docs/sprints/SPRINT12_SPEC.md",
+      "status": "added",
+      "sha256": "9cfe050dc8efb6f85d103f03008214cfd9dda1fd8406c5d2974b459545c11436",
+      "bytes": 2173
+    },
+    {
+      "path": "tasks/sprint12_plan.md",
+      "status": "added",
+      "sha256": "2045ae8febb160f4fec020b52ed402069a9383668654cac1cae819d81842f1b9",
+      "bytes": 438
+    },
+    {
+      "path": "tasks/sprint12_todo.md",
+      "status": "added",
+      "sha256": "5df9996cb514d10c7b98912b5f3bc4da8c44070143bced3bd99babd2ff38b999",
+      "bytes": 583
+    }
+  ],
+  "preserved": [
+    "Capability Engine",
+    "Living Context",
+    "Shadow Engine",
+    "Risk Gate",
+    "Voice pipeline",
+    "Sprint 10 operator",
+    "Sprint 11 proactive intelligence",
+    "local Qwen model policy",
+    "frontend"
+  ],
+  "code_review": {
+    "correctness": "typed contracts, expiry, confidence, rejection, persistence and context-shape paths covered",
+    "architecture": "additive packages; backward-compatible optional integrations; no frontend or model changes",
+    "security": "canonical secret filter plus sensitive/direct-identifier filtering; bounded local storage/retrieval",
+    "performance": "300-record cap, top-4 retrieval and bounded prompt; no network or unbounded history",
+    "verdict": "APPROVED"
+  },
+  "known_limitations": [
+    "Explicit preference extraction currently recognizes a bounded Russian/English phrase set.",
+    "Cross-process writes are not coordinated; atomic replace and locks cover one runtime process.",
+    "Contextual greeting requires a high-confidence unfinished Sprint 11 episode from the last seven days.",
+    "Hard sentence bounding is limited to non-streaming plain conversation so streamed text is never rewritten after display.",
+    "HumorPolicy calibrates the permitted level; the local conversation model still authors any actual humor."
+  ],
+  "verified": true
+}

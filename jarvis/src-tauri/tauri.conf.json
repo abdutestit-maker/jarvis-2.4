@@ -7,16 +7,16 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "frontendDist": "../../dist"
   },
   "app": {
     "windows": [
       {
         "title": "J.A.R.V.I.S.",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 1000,
-        "minHeight": 650,
+        "width": 360,
+        "height": 520,
+        "minWidth": 360,
+        "minHeight": 520,
         "transparent": true,
         "decorations": false,
         "resizable": true,

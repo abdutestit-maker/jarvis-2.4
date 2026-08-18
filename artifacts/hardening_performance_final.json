@@ -1,0 +1,14 @@
+{
+  "cold_start_ms": 825.45,
+  "cold_start_samples_ms": [
+    932.42,
+    847.51,
+    825.45,
+    820.26,
+    820.92
+  ],
+  "pid": 24580,
+  "rss_mb": 18.88,
+  "threads": 1,
+  "cpu_percent_sample": 0.0
+}

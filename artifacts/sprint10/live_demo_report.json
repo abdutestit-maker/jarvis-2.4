@@ -1,0 +1,227 @@
+{
+  "run_id": "20260817T155951Z",
+  "application": "Notepad++",
+  "package_id": "Notepad++.Notepad++",
+  "reference": "E:\\jarvis-project\\artifacts\\sprint10\\notepadpp_reference.txt",
+  "execution_ladder": [
+    "package_manager",
+    "config",
+    "uia"
+  ],
+  "raw_coordinates_used": false,
+  "config": "C:\\Users\\WwW\\AppData\\Roaming\\Notepad++\\config.xml",
+  "config_sha256_before": "92682eee9c15b1712874b7cba42148f85bbe577ff2fb7908472bd88cd704429b",
+  "config_sha256_after": "9d6cbc01b627dc3c1cccf4026c02ff681d228ac893242382e5d22d0555a18d53",
+  "first_run": {
+    "completed": true,
+    "state": "completed",
+    "user_message": "Готово. Проверяйте, сэр.",
+    "desired_state": {
+      "remember_last_session": false,
+      "word_wrap": true
+    },
+    "current_before": {
+      "remember_last_session": false,
+      "word_wrap": true
+    },
+    "observed": {
+      "remember_last_session": false,
+      "word_wrap": true
+    },
+    "changes": {},
+    "repairs": [],
+    "action_trace": [
+      {
+        "phase": "research",
+        "status": "resolved",
+        "source": "winget://Notepad++.Notepad++"
+      },
+      {
+        "phase": "install",
+        "status": "verified",
+        "failed_checks": []
+      },
+      {
+        "phase": "explore",
+        "status": "mapped",
+        "controls": 68
+      },
+      {
+        "phase": "diff",
+        "changes": [],
+        "matches": [
+          "remember_last_session",
+          "word_wrap"
+        ]
+      },
+      {
+        "phase": "verification",
+        "status": "verified",
+        "observed": {
+          "remember_last_session": false,
+          "word_wrap": true
+        }
+      },
+      {
+        "phase": "learning",
+        "status": "saved",
+        "knowledge": "E:\\jarvis-project\\data\\app_knowledge\\Notepad.json",
+        "episode": "bdec46d61e1d4bd3a809a0906a7370bf"
+      }
+    ],
+    "installer": {
+      "installer_exit": 2316632107,
+      "installed": true,
+      "verified": true,
+      "executable": "C:\\Program Files\\Notepad++\\notepad++.exe",
+      "version": "8.9.7",
+      "signature_status": "Valid",
+      "launched": true,
+      "window": {
+        "handle": 460714,
+        "title": "новый 1 - Notepad++",
+        "process_id": 18744
+      },
+      "checks": {
+        "architecture_compatible": true,
+        "installed_package": true,
+        "version_detected": true,
+        "executable_exists": true,
+        "signature": true,
+        "application_launched": true,
+        "window_appeared": true
+      },
+      "failed_checks": []
+    },
+    "knowledge_path": "E:\\jarvis-project\\data\\app_knowledge\\Notepad.json",
+    "episode_id": "bdec46d61e1d4bd3a809a0906a7370bf",
+    "reused_knowledge": false,
+    "reused_episode": false,
+    "metrics": {
+      "research_calls": 1,
+      "discovery_steps": 1,
+      "repairs": 0,
+      "duration": 10.103690199999619
+    }
+  },
+  "deliberate_drift": {
+    "remember_last_session": true,
+    "word_wrap": false
+  },
+  "drift_rollback_checkpoint": {
+    "checkpoint_id": "2202585e25c243eca92a71cefb981f02",
+    "kind": "file",
+    "target": "C:\\Users\\WwW\\AppData\\Roaming\\Notepad++\\config.xml",
+    "existed": true,
+    "backup": "E:\\jarvis-project\\artifacts\\sprint10\\live_checkpoints\\20260817T155951Z\\2202585e25c243eca92a71cefb981f02\\content.bin",
+    "metadata": {}
+  },
+  "second_run": {
+    "completed": true,
+    "state": "completed",
+    "user_message": "Готово. Проверяйте, сэр.",
+    "desired_state": {
+      "remember_last_session": false,
+      "word_wrap": true
+    },
+    "current_before": {
+      "remember_last_session": true,
+      "word_wrap": false
+    },
+    "observed": {
+      "remember_last_session": false,
+      "word_wrap": true
+    },
+    "changes": {},
+    "repairs": [],
+    "action_trace": [
+      {
+        "phase": "explore",
+        "status": "reused",
+        "selectors": 2
+      },
+      {
+        "phase": "diff",
+        "changes": [
+          "remember_last_session",
+          "word_wrap"
+        ],
+        "matches": []
+      },
+      {
+        "phase": "execution",
+        "path": "remember_last_session",
+        "status": "accepted"
+      },
+      {
+        "phase": "execution",
+        "path": "word_wrap",
+        "status": "accepted"
+      },
+      {
+        "phase": "verification",
+        "status": "verified",
+        "observed": {
+          "remember_last_session": false,
+          "word_wrap": true
+        }
+      },
+      {
+        "phase": "learning",
+        "status": "saved",
+        "knowledge": "E:\\jarvis-project\\data\\app_knowledge\\Notepad.json",
+        "episode": "4cdaad3267674f5ab29b0486b674c5a7"
+      }
+    ],
+    "installer": null,
+    "knowledge_path": "E:\\jarvis-project\\data\\app_knowledge\\Notepad.json",
+    "episode_id": "4cdaad3267674f5ab29b0486b674c5a7",
+    "reused_knowledge": true,
+    "reused_episode": true,
+    "metrics": {
+      "research_calls": 0,
+      "discovery_steps": 0,
+      "repairs": 0,
+      "duration": 0.8058897000000798
+    }
+  },
+  "app_knowledge": {
+    "path": "E:\\jarvis-project\\data\\app_knowledge\\Notepad.json",
+    "controls": 68,
+    "menus": 17,
+    "best_execution_method": "config",
+    "reuse_count": 1
+  },
+  "final_state": {
+    "remember_last_session": false,
+    "word_wrap": true
+  },
+  "final_window": {
+    "handle": 1116032,
+    "title": "новый 1 - Notepad++",
+    "process_id": 16876
+  },
+  "second_run_reuse": {
+    "reused_knowledge": true,
+    "reused_episode": true,
+    "calls_after_first": {
+      "resolver": 1,
+      "installer": 1,
+      "explorer": 1
+    },
+    "calls_after_second": {
+      "resolver": 1,
+      "installer": 1,
+      "explorer": 1
+    },
+    "research_calls": [
+      1,
+      0
+    ],
+    "discovery_steps": [
+      1,
+      0
+    ]
+  },
+  "verified": true
+}

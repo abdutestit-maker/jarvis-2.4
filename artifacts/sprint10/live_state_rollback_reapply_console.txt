@@ -1,0 +1,21 @@
+2026-08-17 16:40:57 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']
+{
+  "rollback": {
+    "restored": true,
+    "target": "C:\\Users\\WwW\\AppData\\Roaming\\Notepad++\\config.xml"
+  },
+  "rolled_back_state": {
+    "remember_last_session": true,
+    "word_wrap": false
+  },
+  "reapplied_state": {
+    "remember_last_session": false,
+    "word_wrap": true
+  },
+  "window": {
+    "handle": 7407864,
+    "title": "новый 1 - Notepad++",
+    "process_id": 21704
+  },
+  "verified": true
+}

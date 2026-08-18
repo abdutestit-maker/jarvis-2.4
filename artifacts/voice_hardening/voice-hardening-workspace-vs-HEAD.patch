@@ -1,0 +1,2591 @@
+diff --git a/config/settings.example.json b/config/settings.example.json
+index 73e8072..99127ed 100644
+--- a/config/settings.example.json
++++ b/config/settings.example.json
+@@ -59,8 +59,13 @@
+ 
+   "voice": {
+     "tts_enabled": true,
++    "tts_always_on": true,
++    "provider": "piper",
++    "language": "ru",
++    "voice": "ru_RU-dmitri-medium",
++    "fallback": "none",
+     "stt_enabled": false,
+-    "piper_model_path": "data/models/piper/jarvis-medium.onnx",
++    "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
+     "piper_binary_path": "piper",
+     "speed": 1.0,
+     "volume": 1.0,
+@@ -68,24 +73,15 @@
+     "piper_length_scale": 1.0,
+     "piper_noise_scale": 0.667,
+     "piper_noise_w": 0.8,
+-    "piper_voices": [
+-      {
+-        "model_path": "data/models/piper/jarvis-medium.onnx",
+-        "language": "en",
+-        "speaker_id": 0,
+-        "length_scale": 1.0,
+-        "noise_scale": 0.667,
+-        "noise_w": 0.8
+-      },
+-      {
+-        "model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
+-        "language": "ru",
+-        "speaker_id": 0,
+-        "length_scale": 1.0,
+-        "noise_scale": 0.667,
+-        "noise_w": 0.8
+-      }
+-    ]
++    "piper_voices": [],
++    "modes": {
++      "normal": {"rate": 1.0, "volume": 1.0},
++      "focused": {"rate": 1.03, "volume": 1.0},
++      "quiet": {"rate": 0.96, "volume": 0.72},
++      "urgent": {"rate": 1.04, "volume": 1.0},
++      "amused": {"rate": 1.02, "volume": 0.95},
++      "background": {"rate": 0.98, "volume": 0.85}
++    }
+   },
+ 
+   "paths": {
+@@ -116,6 +112,26 @@
+     "max_action_iterations": 6
+   },
+ 
++  "stt": {
++    "enabled": false,
++    "model": "faster-whisper-small",
++    "vad": "webrtc",
++    "language": "auto",
++    "hotkey_mode": "hold_ctrl_space"
++  },
++  "wake_word": {
++    "enabled": false,
++    "phrase": "JARVIS",
++    "sensitivity": 0.5
++  },
++  "shadow": {
++    "enabled": true,
++    "auto_generate": true,
++    "interval_sec": 300,
++    "code_model_path": "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
++  },
++  "system_triggers": [],
++
+   "logging": {
+     "level": "INFO",
+     "console": true,
+diff --git a/config/settings.py b/config/settings.py
+index e6ed30b..c85008b 100644
+--- a/config/settings.py
++++ b/config/settings.py
+@@ -50,6 +50,10 @@ __all__ = [
+     "LimitsConfig",
+     "LoggingConfig",
+     "ProxyConfig",
++    "LauncherConfig",
++    "STTConfig",
++    "WakeWordConfig",
++    "ShadowConfig",
+     "Settings",
+     "ConfigError",
+     "load_config",
+@@ -261,15 +265,37 @@ class LocalCoderModelConfig(_Section):
+         return None
+ 
+ 
++class VoiceModeConfig(_Section):
++    rate: float = Field(default=1.0, ge=0.5, le=2.0)
++    volume: float = Field(default=1.0, ge=0.0, le=1.0)
++
++
++def _default_voice_modes() -> dict[str, VoiceModeConfig]:
++    return {
++        "normal": VoiceModeConfig(rate=1.00, volume=1.00),
++        "focused": VoiceModeConfig(rate=1.03, volume=1.00),
++        "quiet": VoiceModeConfig(rate=0.96, volume=0.72),
++        "urgent": VoiceModeConfig(rate=1.04, volume=1.00),
++        "amused": VoiceModeConfig(rate=1.02, volume=0.95),
++        "background": VoiceModeConfig(rate=0.98, volume=0.85),
++    }
++
++
+ class VoiceConfig(_Section):
+     """Голосовой ввод-вывод. У пользователя нет микрофона -> stt выключен."""
+ 
+     tts_enabled: bool = True
++    #: Sprint 5: озвучивать КАЖДЫЙ ответ backend (любой канал ввода).
++    tts_always_on: bool = True
++    provider: str = "piper"
++    language: str = "ru"
++    voice: str = "ru_RU-dmitri-medium"
++    fallback: str = "none"
+     stt_enabled: bool = False
+     # P5 §5.9: параметры STT-движка (faster-whisper, MIT).
+     stt_model: str = "small"          # размер модели faster-whisper
+     stt_device: str = "cpu"           # cpu / cuda
+-    piper_model_path: str = "data/models/piper/jarvis-medium.onnx"
++    piper_model_path: str = "data/models/piper/ru_RU-dmitri-medium.onnx"
+     piper_binary_path: str = "piper"
+     speed: float = 1.0
+     volume: float = 1.0
+@@ -278,6 +304,7 @@ class VoiceConfig(_Section):
+     piper_noise_scale: float = 0.667
+     piper_noise_w: float = 0.8
+     piper_voices: list[dict] = Field(default_factory=list)
++    modes: dict[str, VoiceModeConfig] = Field(default_factory=_default_voice_modes)
+ 
+     @property
+     def resolved_piper_model(self) -> Optional[Path]:
+@@ -343,20 +370,68 @@ class LimitsConfig(_Section):
+     rag_top_k: int = 3
+     memory_top_k: int = 5
+     max_action_iterations: int = 6
++    # Разговорный FAST-тир: сбой провайдера должен признаваться БЫСТРО.
++    # 3×15 c ожидания для простого «привет» неприемлемы — короткий таймаут
++    # и минимум попыток, затем честный фолбэк/ошибка. Аналитические тиры
++    # (analyst/coder/architect) остаются на общих response_timeout_sec/max_retries.
++    fast_tier_timeout_sec: float = 7.0
++    fast_tier_max_retries: int = 2
++    # Sprint 3 TIER 3: глубокие тиры (coder/architect) — качество важнее
++    # скорости, им нужен щедрый бюджет (30-60 c), а не общий 15-секундный.
++    deep_tier_timeout_sec: float = 45.0
++    # Sprint 3 STEP 3: executor safety — таймауты инструментов по категориям.
++    tool_timeout_file_sec: float = 10.0
++    tool_timeout_web_sec: float = 30.0
++    tool_timeout_system_sec: float = 5.0
++    #: Максимум параллельных вызовов инструментов (изоляция ресурсов).
++    max_parallel_tools: int = 4
++    #: Потолок вывода одного инструмента, байты (50 KB; больше — усечение).
++    tool_output_max_bytes: int = 50 * 1024
++    # Sprint 4 — bounded memory:
++    #: Сообщений в session memory (10 пар user/assistant; FIFO).
++    session_memory_messages: int = 20
++    #: Контекстные бюджеты, токены (оценка ~3 символа/токен).
++    context_budget_fast_tokens: int = 2000    # TIER 1: разговор
++    context_budget_plan_tokens: int = 4000    # TIER 2: планирование
++    context_budget_deep_tokens: int = 8000    # TIER 3: research/coding
++
++    @field_validator("session_memory_messages")
++    @classmethod
++    def _non_negative_session(cls, value: int) -> int:
++        if value < 0:
++            raise ValueError("не может быть отрицательным")
++        return value
++
++    @field_validator("context_budget_fast_tokens", "context_budget_plan_tokens",
++                     "context_budget_deep_tokens")
++    @classmethod
++    def _positive_budget(cls, value: int) -> int:
++        if value <= 0:
++            raise ValueError("бюджет должен быть больше нуля")
++        return value
+ 
+     @field_validator("short_memory_size", "max_retries", "rag_top_k",
+-                     "memory_top_k", "max_action_iterations")
++                     "memory_top_k", "max_action_iterations", "fast_tier_max_retries")
+     @classmethod
+     def _non_negative(cls, value: int) -> int:
+         if value < 0:
+             raise ValueError("значение не может быть отрицательным")
+         return value
+ 
+-    @field_validator("response_timeout_sec")
++    @field_validator("response_timeout_sec", "fast_tier_timeout_sec",
++                     "deep_tier_timeout_sec", "tool_timeout_file_sec",
++                     "tool_timeout_web_sec", "tool_timeout_system_sec")
+     @classmethod
+     def _positive_timeout(cls, value: float) -> float:
+         if value <= 0:
+-            raise ValueError("response_timeout_sec должен быть больше нуля")
++            raise ValueError("таймаут должен быть больше нуля")
++        return value
++
++    @field_validator("max_parallel_tools", "tool_output_max_bytes")
++    @classmethod
++    def _positive_limit(cls, value: int) -> int:
++        if value <= 0:
++            raise ValueError("лимит должен быть больше нуля")
+         return value
+ 
+ 
+@@ -394,6 +469,63 @@ class ProxyConfig(_Section):
+     proxy_token: str = ""       # локальный маркер доступа к proxy (НЕ ключ провайдера)
+ 
+ 
++class LauncherConfig(_Section):
++    """Sprint 5: запуск приложения — автостарт, hotkey, backend-процесс.
++
++    Секция читается и Python'ом (приветствие/TTS), и Tauri/Rust
++    (реестр автозапуска, глобальный hotkey, spawn python-backend).
++    """
++
++    #: Автозагрузка Windows (HKCU\\...\\Run) — включает фронтенд при старте.
++    autostart: bool = False
++    #: Глобальный hotkey (Tauri globalShortcut; работает и в полноэкранных играх).
++    hotkey: str = "Ctrl+Space"
++    #: Команда запуска python-backend (Tauri поднимает её при старте).
++    backend_command: List[str] = Field(default_factory=lambda: [
++        "python", "-m", "core.ws_server",
++    ])
++    #: Рабочая директория backend (корень проекта).
++    backend_workdir: str = ""
++    #: Приветствие при старте сессии (голос + текст).
++    greeting_enabled: bool = True
++
++class STTConfig(_Section):
++    enabled: bool = False
++    model: str = "faster-whisper-small"
++    vad: str = "webrtc"
++    language: str = "auto"
++    hotkey_mode: str = "hold_ctrl_space"
++
++class WakeWordConfig(_Section):
++    enabled: bool = False
++    phrase: str = "JARVIS"
++    sensitivity: float = 0.5
++
++
++class ShadowConfig(_Section):
++    """Local, opt-in settings for Sprint 8 Shadow Engine.
++
++    It is opt-in because command history and screen summaries are personal
++    data. Enabling it never grants screen-capture permission by itself.
++    """
++
++    enabled: bool = False
++    auto_generate: bool = True
++    interval_sec: int = 300
++    code_model_path: str = "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
++
++    @field_validator("interval_sec")
++    @classmethod
++    def _valid_interval(cls, value: int) -> int:
++        if value < 30:
++            raise ValueError("interval_sec должен быть не меньше 30")
++        return value
++
++    @property
++    def resolved_code_model_path(self) -> Optional[Path]:
++        return resolve_path(self.code_model_path)
++
++
+ # --------------------------------------------------------------------------- #
+ #  Корневая модель
+ # --------------------------------------------------------------------------- #
+@@ -418,6 +550,9 @@ class Settings(BaseModel):
+     #: остаётся только офлайн-фолбэком. Значение должно быть одним из ключей
+     #: model_tiers (обычно 'analyst'). Пустая строка/None -> 'analyst'.
+     primary_brain: str = "analyst"
++    #: Local-only safety switch. Disabled on bare Settings() for test/API
++    #: compatibility; production config enables it explicitly.
++    offline_mode: bool = False
+ 
+     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
+     local_coder_model: LocalCoderModelConfig = Field(default_factory=LocalCoderModelConfig)
+@@ -427,6 +562,11 @@ class Settings(BaseModel):
+     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
++    launcher: LauncherConfig = Field(default_factory=LauncherConfig)
++    stt: STTConfig = Field(default_factory=STTConfig)
++    wake_word: WakeWordConfig = Field(default_factory=WakeWordConfig)
++    shadow: ShadowConfig = Field(default_factory=ShadowConfig)
++    system_triggers: List[Dict[str, Any]] = Field(default_factory=list)
+ 
+     #: Откуда конфиг был загружен (не сериализуется в JSON).
+     source_path: Optional[Path] = Field(default=None, exclude=True)
+@@ -469,6 +609,8 @@ class Settings(BaseModel):
+ 
+     def get_provider(self, tier: Union[str, "Tier"]) -> str:
+         """Провайдер, обслуживающий тир ('local' / 'deepseek' / ...)."""
++        if self.offline_mode:
++            return LOCAL_PROVIDER
+         from core.llm.tiers import resolve_tier, tier_to_backend_key
+         key = tier_to_backend_key(resolve_tier(str(tier)))
+         return self.tier_providers.get(key)
+@@ -659,4 +801,4 @@ def default_config_path() -> Path:
+ 
+ def example_config_path() -> Path:
+     """Путь к шаблону конфигурации."""
+-    return PROJECT_ROOT / "config" / EXAMPLE_FILENAME
+\ No newline at end of file
++    return PROJECT_ROOT / "config" / EXAMPLE_FILENAME
+diff --git a/core/orchestrator.py b/core/orchestrator.py
+index ee0310e..4484a34 100644
+--- a/core/orchestrator.py
++++ b/core/orchestrator.py
+@@ -33,7 +33,10 @@ from core.router import CouncilRouter
+ from core.router.intent_router import resolve_keyword_tool
+ from core.state import JarvisState, ActionResult, new_state, push_message, trim_short_memory
+ from core.task_runtime import Mission, MissionStatus, TaskEvent, TaskRuntime
+-from core.voice import PiperTTS, TTSQueue, show_toast
++from core.voice import (
++    AssistantOutput, PiperTTS, SpeechRenderer, TTSQueue,
++    assistant_output_from_outcome, show_toast,
++)
+ from core.proactive import Proactor, BackgroundScheduler
+ from core.actions.reminders import TaskManager, get_default_manager
+ from core.utils.logger import get_logger
+@@ -80,11 +83,18 @@ class Orchestrator:
+         # Агент исполняет миссии, TaskRuntime даёт им асинхронную жизнь.
+         # НЕТ watchdog по умолчанию: миссия живёт столько, сколько нужно (§4).
+         self._agent = Agent(settings, council=self._council, model_router=self._model_router)
+-        self._runtime = TaskRuntime(default_watchdog_sec=None)
++        # Shadow Engine is owned by Agent but its cadence belongs to the
++        # orchestrator lifecycle, alongside other background services.
++        self._shadow = self._agent._shadow
++        self._runtime = TaskRuntime(
++            default_watchdog_sec=None,
++            persistence_dir=settings.data_dir / "missions",
++        )
+ 
+         # TTS
+         self._tts = PiperTTS(settings)
+-        self._tts_queue = TTSQueue(self._tts)
++        self._speech_renderer = SpeechRenderer(settings.voice)
++        self._tts_queue = TTSQueue(self._tts, renderer=self._speech_renderer)
+ 
+         # Reminders
+         self._task_manager = get_default_manager()
+@@ -109,6 +119,24 @@ class Orchestrator:
+     #  Публичный API
+     # --------------------------------------------------------------------- #
+ 
++    def install_stream_sink(self, sink) -> None:
++        """Sprint 1: проброс stream-sink в агент для ТЕКУЩЕГО потока запроса."""
++        install = getattr(self._agent, "install_stream_sink", None)
++        if callable(install):
++            install(sink)
++
++    def clear_stream_sink(self) -> None:
++        clear = getattr(self._agent, "clear_stream_sink", None)
++        if callable(clear):
++            clear()
++
++    def consume_streamed_mission(self):
++        """Sprint 1: task_id миссии, стримленной в текущем потоке (или None)."""
++        consume = getattr(self._agent, "consume_streamed_mission", None)
++        if callable(consume):
++            return consume()
++        return None
++
+     def start(self) -> None:
+         """Запускает все фоновые сервисы."""
+         with self._lock:
+@@ -131,6 +159,8 @@ class Orchestrator:
+             # Proactive
+             self._proactor.start()
+             self._scheduler.start()
++            shadow_cfg = getattr(self._settings, "shadow", None)
++            self._shadow.start(interval_sec=int(getattr(shadow_cfg, "interval_sec", 300)))
+ 
+             log.info("Оркестратор запущен")
+ 
+@@ -143,6 +173,7 @@ class Orchestrator:
+ 
+         self._proactor.stop()
+         self._scheduler.stop()
++        self._shadow.stop()
+         self._tts_queue.stop(wait=True)
+ 
+         log.info("Оркестратор остановлен")
+@@ -182,7 +213,10 @@ class Orchestrator:
+             self._session.push("user", text)
+             self._session.to_state(state)
+             state["response"] = ack
+-            state["tts_text"] = ack
++            ack_output = AssistantOutput.natural(ack, speech_mode="focused")
++            rendered = self._speech_renderer.render(ack_output)
++            state["tts_text"] = rendered.text if rendered else None
++            state["assistant_output"] = ack_output.to_dict()
+             state["mission_id"] = mission.task_id
+             return state
+ 
+@@ -190,7 +224,8 @@ class Orchestrator:
+         # (intent -> risk -> MODEL SELECTION -> tool -> verify -> repair).
+         outcome = self._agent.execute(text)
+ 
+-        response = (outcome.text or "").strip() or "(пустой ответ, сэр)."
++        output = assistant_output_from_outcome(outcome)
++        response = output.display_text or "(пустой ответ, сэр)."
+ 
+         state = new_state(text)
+         self._session.push("user", text)
+@@ -207,16 +242,14 @@ class Orchestrator:
+         self._session.push("assistant", response)
+         self._session.to_state(state)
+ 
+-        # TTS queue
+-        if self._settings.voice.tts_enabled and self._tts.is_available():
+-            from core.voice.tts_sanitizer import sanitize_for_tts
+-            self._tts_queue.add_to_queue(sanitize_for_tts(response))
++        spoken = self._queue_assistant_output(output)
+ 
+         # Output callback (печать/тост)
+         self._output_callback(response)
+ 
+         state["response"] = response
+-        state["tts_text"] = response
++        state["tts_text"] = spoken
++        state["assistant_output"] = output.to_dict()
+         if outcome.needs_confirmation:
+             state["confirmation_id"] = getattr(outcome, "confirmation_id", None)
+             state["needs_confirmation"] = True
+@@ -257,12 +290,15 @@ class Orchestrator:
+         if outcome is None:
+             return None
+ 
+-        text = (outcome.text or "").strip() or "(пустой ответ, сэр)."
++        output = assistant_output_from_outcome(outcome)
++        text = output.display_text or "(пустой ответ, сэр)."
+         self._output_callback(text)
++        spoken = self._queue_assistant_output(output)
+ 
+         state: JarvisState = new_state("")
+         state["response"] = text
+-        state["tts_text"] = text
++        state["tts_text"] = spoken
++        state["assistant_output"] = output.to_dict()
+         if outcome.needs_confirmation:
+             state["confirmation_id"] = getattr(outcome, "confirmation_id", None)
+             state["needs_confirmation"] = True
+@@ -338,9 +374,7 @@ class Orchestrator:
+ 
+         # Немедленное подтверждение пользователю (§5).
+         self._output_callback(ack)
+-        if self._settings.voice.tts_enabled and self._tts.is_available():
+-            from core.voice.tts_sanitizer import sanitize_for_tts
+-            self._tts_queue.add_to_queue(sanitize_for_tts(ack))
++        self._queue_assistant_output(AssistantOutput.natural(ack, speech_mode="focused"))
+ 
+         if unsubscribe is not None:
+             mission.metadata["_unsubscribe"] = unsubscribe
+@@ -364,9 +398,7 @@ class Orchestrator:
+                 self._session.push("assistant", result_text)
+ 
+             self._output_callback(result_text)
+-            if self._settings.voice.tts_enabled and self._tts.is_available():
+-                from core.voice.tts_sanitizer import sanitize_for_tts
+-                self._tts_queue.add_to_queue(sanitize_for_tts(result_text))
++            self._queue_assistant_output(AssistantOutput.natural(result_text))
+ 
+         return result_text
+ 
+@@ -382,6 +414,15 @@ class Orchestrator:
+         """Отменяет миссию по ID (§24)."""
+         return self._runtime.cancel(task_id)
+ 
++    def pause_mission(self, task_id: str) -> bool:
++        return self._runtime.pause(task_id)
++
++    def skip_mission_step(self, task_id: str) -> bool:
++        return self._runtime.skip_step(task_id)
++
++    def explain_mission_step(self, task_id: str) -> str:
++        return self._runtime.explain_current_step(task_id)
++
+     def get_mission(self, task_id: str) -> Optional[Mission]:
+         """Возвращает миссию по ID (для UI/статуса)."""
+         return self._runtime.get(task_id)
+@@ -488,10 +529,20 @@ class Orchestrator:
+         """Вывод проактивного сообщения."""
+         print(f"💡 [Проактивно] {text}")
+         if self._settings.voice.tts_enabled:
+-            from core.voice.tts_sanitizer import sanitize_for_tts
+-            self._tts_queue.add_to_queue(sanitize_for_tts(text))
++            self._queue_assistant_output(
++                AssistantOutput.natural(text, speech_mode="background")
++            )
+             show_toast("Джарвис (проактивно)", text[:100])
+ 
++    def _queue_assistant_output(self, output: AssistantOutput) -> Optional[str]:
++        """Single typed path into TTS; returns the final safe spoken text."""
++        rendered = self._speech_renderer.render(output)
++        if rendered is None:
++            return None
++        if self._settings.voice.tts_enabled and self._tts.is_available():
++            self._tts_queue.add_output(output)
++        return rendered.text
++
+     def _check_reminders(self) -> bool:
+         """Проверка сработавших напоминаний для proactor.
+ 
+@@ -534,4 +585,4 @@ class Orchestrator:
+ 
+     @property
+     def proactor(self) -> Proactor:
+-        return self._proactor
+\ No newline at end of file
++        return self._proactor
+diff --git a/core/state.py b/core/state.py
+index 66a1751..1d68894 100644
+--- a/core/state.py
++++ b/core/state.py
+@@ -93,6 +93,7 @@ class JarvisState(TypedDict, total=False):
+     action_results: List[ActionResult]      # результаты инструментов
+     response: Optional[str]                # финальный текст ответа
+     tts_text: Optional[str]                # текст для озвучки (может быть короче response)
++    assistant_output: Dict[str, Any]       # typed display/speech/debug/error contract
+     timestamp: str                         # ISO-8601 UTC начала витка
+     error: Optional[str]                   # человекочитаемая ошибка витка
+ 
+@@ -132,6 +133,7 @@ def new_state(
+         action_results=[],
+         response=None,
+         tts_text=None,
++        assistant_output={},
+         timestamp=utc_timestamp(),
+         error=None,
+         source=source,
+diff --git a/core/voice/__init__.py b/core/voice/__init__.py
+index 10f3846..e9c549e 100644
+--- a/core/voice/__init__.py
++++ b/core/voice/__init__.py
+@@ -8,14 +8,30 @@
+ from __future__ import annotations
+ 
+ from core.voice.notifications import show_toast
+-from core.voice.stt import STTEngine, STT_DISABLED_MSG
++from core.voice.stt import STTEngine, STT_DISABLED_MSG, VoiceActivityDetector
++from core.voice.wake_word import WakeWordDetector, NoOpWakeWord
+ from core.voice.tts import PiperTTS
+ from core.voice.tts_queue import TTSQueue
++from core.voice.output import (
++    AssistantOutput, ErrorCategory, ErrorInfo, UserFriendlyErrorMapper,
++    assistant_output_from_outcome,
++)
++from core.voice.speech_renderer import RenderedSpeech, SpeechRenderer
+ 
+ __all__ = [
+     "PiperTTS",
+     "TTSQueue",
+     "STTEngine",
+     "STT_DISABLED_MSG",
++    "VoiceActivityDetector",
++    "WakeWordDetector",
++    "NoOpWakeWord",
++    "AssistantOutput",
++    "ErrorCategory",
++    "ErrorInfo",
++    "UserFriendlyErrorMapper",
++    "RenderedSpeech",
++    "SpeechRenderer",
++    "assistant_output_from_outcome",
+     "show_toast",
+-]
+\ No newline at end of file
++]
+diff --git a/core/voice/tts.py b/core/voice/tts.py
+index fb4b3ab..8e8e02e 100644
+--- a/core/voice/tts.py
++++ b/core/voice/tts.py
+@@ -1,9 +1,7 @@
+-"""Text-to-Speech через Piper (локальный, быстрый, качественный).
++"""Локальный Russian-only Text-to-Speech через Piper.
+ 
+-``PiperTTS`` поддерживает несколько голосов и выбирает их по языку текста:
+-- Английский (en) -> Jarvis voice (en_GB)
+-- Русский (ru) -> irina voice (ru_RU)
+-- Другие -> fallback на ru голос
++Voice выбирается конфигурацией, а не эвристикой языка входной строки. Это
++исключает старый путь ``Error 455 -> English jarvis-medium``.
+ 
+ Если piper_binary_path / piper_model_path не найдены — ``is_available()`` = False,
+ ``speak()`` логирует warning и не падает (текстовый режим остаётся рабочим).
+@@ -17,6 +15,7 @@ import tempfile
+ import threading
+ import time
+ import wave
++from array import array
+ from pathlib import Path
+ from typing import Optional
+ 
+@@ -28,9 +27,6 @@ __all__ = ["PiperTTS"]
+ log = get_logger(__name__)
+ 
+ # Регулярка для определения кириллицы
+-_CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
+-
+-
+ class VoiceConfig:
+     """Конфигурация одного голоса Piper."""
+ 
+@@ -65,6 +61,10 @@ class PiperTTS:
+                       voice.piper_voices - список дополнительных голосов).
+         """
+         self._settings = settings
++        self._voice_settings = getattr(settings, "voice", None)
++        language = str(getattr(self._voice_settings, "language", "ru")).lower()
++        self._target_language = language.split("_")[0].split("-")[0]
++        self._provider = str(getattr(self._voice_settings, "provider", "piper")).lower()
+         self._binary = self._resolve_binary()
+ 
+         # Загружаем конфигурацию голосов
+@@ -72,7 +72,9 @@ class PiperTTS:
+         self._default_voice: Optional[str] = None
+         self._load_voices()
+ 
+-        self._available = self._binary is not None and len(self._voices) > 0
++        self._available = (
++            self._provider == "piper" and self._binary is not None and len(self._voices) > 0
++        )
+ 
+         if self._available:
+             voice_names = ", ".join(self._voices.keys())
+@@ -110,24 +112,28 @@ class PiperTTS:
+     def _load_voices(self) -> None:
+         """Загружает конфигурацию голосов из settings."""
+         voice_cfg = getattr(self._settings, "voice", None)
+-        if not voice_cfg:
++        if not voice_cfg or self._provider != "piper":
+             return
+ 
+         # Основной голос (для обратной совместимости)
+         main_model = getattr(voice_cfg, "resolved_piper_model", None)
+         if main_model and main_model.exists():
+-            # Определяем язык по имени файла
+-            lang = "ru"  # дефолт
+-            if "jarvis" in main_model.stem.lower():
+-                lang = "en"
+-            elif "irina" in main_model.stem.lower():
+-                lang = "ru"
+-
+             config_path = main_model.with_suffix(main_model.suffix + ".json")
+             if not config_path.exists():
+                 # Попробуем найти .onnx.json
+                 config_path = main_model.with_name(main_model.name + ".json")
+ 
++            lang = self._model_language(config_path, main_model.stem)
++            if lang != self._target_language:
++                log.warning("Piper model %s skipped: language=%s, required=%s",
++                            main_model.name, lang, self._target_language)
++                main_model = None
++
++        if main_model and main_model.exists():
++            config_path = main_model.with_suffix(main_model.suffix + ".json")
++            if not config_path.exists():
++                config_path = main_model.with_name(main_model.name + ".json")
++            lang = self._model_language(config_path, main_model.stem)
+             # ВАЖНО: не переопределяем noise/length параметры модели своими
+             # громкими значениями, если сама модель в своём .onnx.json не
+             # задаёт их. Иначе голос искажается («robot/garbled» звук,
+@@ -159,7 +165,9 @@ class PiperTTS:
+                 if not p.exists():
+                     continue
+ 
+-                lang = v.get("language", "ru")
++                lang = str(v.get("language", "ru")).lower()
++                if lang != self._target_language:
++                    continue
+                 config_path = p.with_suffix(p.suffix + ".json")
+                 if not config_path.exists():
+                     config_path = p.with_name(p.name + ".json")
+@@ -183,16 +191,12 @@ class PiperTTS:
+             for onnx_file in piper_dir.glob("*.onnx"):
+                 if onnx_file.stem in self._voices:
+                     continue
+-                # Определяем язык по имени
+-                lang = "ru"
+-                if "jarvis" in onnx_file.stem.lower():
+-                    lang = "en"
+-                elif "irina" in onnx_file.stem.lower():
+-                    lang = "ru"
+-
+                 config_path = onnx_file.with_suffix(".json")
+                 if not config_path.exists():
+                     config_path = onnx_file.with_name(onnx_file.name + ".json")
++                lang = self._model_language(config_path, onnx_file.stem)
++                if lang != self._target_language:
++                    continue
+ 
+                 self._voices[onnx_file.stem] = VoiceConfig(
+                     name=onnx_file.stem,
+@@ -209,6 +213,24 @@ class PiperTTS:
+         import shutil
+         return shutil.which(cmd) is not None
+ 
++    @staticmethod
++    def _model_language(config_path: Path, stem: str = "") -> str:
++        try:
++            import json
++            data = json.loads(config_path.read_text(encoding="utf-8"))
++            language = data.get("language", {})
++            code = language.get("family") or language.get("code")
++            if code:
++                return str(code).split("_")[0].split("-")[0].lower()
++        except Exception:
++            pass
++        low = stem.lower()
++        if low.startswith("ru_") or "dmitri" in low or "irina" in low:
++            return "ru"
++        if low.startswith("en_") or "jarvis" in low:
++            return "en"
++        return "unknown"
++
+     @staticmethod
+     def _config_has_tuning(config_path: Path) -> bool:
+         """True, если .onnx.json модели сам задаёт noise/length-параметры.
+@@ -232,28 +254,100 @@ class PiperTTS:
+         return self._available
+ 
+     def _select_voice(self, text: str) -> Optional[VoiceConfig]:
+-        """Выбирает голос по языку текста."""
++        """Выбирает только configured Russian voice; input language irrelevant."""
+         if not self._voices:
+             return None
+-
+-        # Определяем язык текста
+-        has_cyrillic = bool(_CYRILLIC_RE.search(text))
+-        lang = "ru" if has_cyrillic else "en"
+-
+-        # Ищем голос для языка
+-        for voice in self._voices.values():
+-            if voice.language == lang:
+-                return voice
+-
+-        # Fallback на дефолтный
++        selected_name = str(getattr(self._voice_settings, "voice", ""))
++        if (selected_name in self._voices
++                and self._voices[selected_name].language == self._target_language):
++            return self._voices[selected_name]
+         if self._default_voice and self._default_voice in self._voices:
+-            return self._voices[self._default_voice]
++            default = self._voices[self._default_voice]
++            if default.language == self._target_language:
++                return default
++        if str(getattr(self._voice_settings, "fallback", "none")).lower() == "none":
++            return None
++        return next((v for v in self._voices.values()
++                     if v.language == self._target_language), None)
+ 
+-        # Любой доступный
+-        return next(iter(self._voices.values()))
++    def synthesize_to_file(self, text: str, output_path: Path | str,
++                           *, rate: float = 1.0, volume: float = 1.0) -> bool:
++        """Генерирует WAV локальным Russian Piper без воспроизведения."""
++        if not text or not text.strip() or not self._available:
++            return False
++        voice = self._select_voice(text)
++        if voice is None or voice.language != self._target_language:
++            log.warning("Piper synthesis skipped: compatible %s voice not found",
++                        self._target_language)
++            return False
++        target = Path(output_path)
++        target.parent.mkdir(parents=True, exist_ok=True)
++        adjusted_length = voice.length_scale / max(0.5, min(2.0, float(rate)))
++        has_tuning = (
++            voice.noise_scale > 0 or voice.noise_w > 0
++            or abs(adjusted_length - 1.0) > 0.001
++        )
++        cmd = [
++            str(self._binary), "--model", str(voice.model_path),
++            "--speaker", str(voice.speaker_id), "--output_file", str(target),
++        ]
++        if has_tuning:
++            cmd += ["--length_scale", str(adjusted_length)]
++            if voice.noise_scale > 0:
++                cmd += ["--noise_scale", str(voice.noise_scale)]
++            if voice.noise_w > 0:
++                cmd += ["--noise_w", str(voice.noise_w)]
++        try:
++            proc = subprocess.run(
++                cmd, input=text.strip().encode("utf-8"),
++                capture_output=True, timeout=30,
++            )
++        except subprocess.TimeoutExpired:
++            log.error("Piper таймаут (>30s)")
++            target.unlink(missing_ok=True)
++            return False
++        except Exception as exc:
++            log.error("Piper synthesis ошибка: %s", exc)
++            target.unlink(missing_ok=True)
++            return False
++        if proc.returncode != 0 or not target.exists() or target.stat().st_size == 0:
++            log.error("Piper ошибка (code=%d): %s", proc.returncode,
++                      proc.stderr.decode(errors="ignore"))
++            target.unlink(missing_ok=True)
++            return False
++        self._apply_volume(target, volume)
++        log.info("Piper WAV generated: provider=piper voice=%s language=%s rate=%s",
++                 voice.name, voice.language, rate)
++        return True
+ 
+-    def speak(self, text: str, blocking: bool = True) -> None:
+-        """Озвучивает текст, выбирая голос по языку.
++    @staticmethod
++    def _apply_volume(path: Path, volume: float) -> None:
++        """Scales Piper's 16-bit PCM WAV using only the standard library."""
++        factor = max(0.0, min(1.0, float(volume)))
++        if abs(factor - 1.0) < 0.001:
++            return
++        try:
++            with wave.open(str(path), "rb") as source:
++                params = source.getparams()
++                frames = source.readframes(source.getnframes())
++            if params.sampwidth != 2:
++                log.warning("Piper volume control skipped: sample_width=%s", params.sampwidth)
++                return
++            samples = array("h")
++            samples.frombytes(frames)
++            for index, sample in enumerate(samples):
++                samples[index] = max(-32768, min(32767, int(sample * factor)))
++            temp_path = path.with_suffix(path.suffix + ".volume.tmp")
++            with wave.open(str(temp_path), "wb") as target:
++                target.setparams(params)
++                target.writeframes(samples.tobytes())
++            temp_path.replace(path)
++        except Exception as exc:
++            log.warning("Piper volume control skipped: %s", exc)
++
++    def speak(self, text: str, blocking: bool = True, *, rate: float = 1.0,
++              volume: float = 1.0) -> None:
++        """Озвучивает уже отрендеренный текст локальным русским voice.
+ 
+         Args:
+             text: текст для озвучки.
+@@ -267,60 +361,20 @@ class PiperTTS:
+             log.warning("speak: Piper недоступен, текст не озвучен: %s", text[:60])
+             return
+ 
+-        voice = self._select_voice(text)
+-        if not voice:
+-            log.warning("speak: нет доступных голосов")
++        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
++            tmp_path = Path(tmp.name)
++        tmp_path.unlink(missing_ok=True)
++        if not self.synthesize_to_file(text, tmp_path, rate=rate, volume=volume):
+             return
++        if blocking:
++            self._play_wav(tmp_path)
++        else:
++            threading.Thread(target=self._play_wav, args=(tmp_path,), daemon=True).start()
+ 
+-        # Передаём Piper параметры тюнинга ТОЛЬКО если они заданы (>0).
+-        # Если noise_scale/length_scale == 0 — значит модель сама знает свои
+-        # родные значения из .onnx.json, и мы НЕ переопределяем их (это
+-        # предотвращает искажение/«garbled» звук).
+-        has_tuning = (voice.noise_scale > 0) or (voice.noise_w > 0) or (voice.length_scale != 1.0)
+-
+-        log.debug("speak: voice=%s, lang=%s, text=%s", voice.name, voice.language, text[:50])
+-
+-        # Генерируем WAV во временный файл
+-        try:
+-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+-                tmp_path = Path(tmp.name)
+-
+-            cmd = [
+-                str(self._binary),
+-                "--model", str(voice.model_path),
+-                "--speaker", str(voice.speaker_id),
+-                "--output_file", str(tmp_path),
+-            ]
+-            if has_tuning:
+-                cmd += [
+-                    "--length_scale", str(voice.length_scale),
+-                    "--noise_scale", str(voice.noise_scale),
+-                    "--noise_w", str(voice.noise_w),
+-                ]
+-
+-            # Piper читает текст из stdin
+-            proc = subprocess.run(
+-                cmd,
+-                input=text.strip().encode("utf-8"),
+-                capture_output=True,
+-                timeout=30,
+-            )
+-
+-            if proc.returncode != 0:
+-                log.error("Piper ошибка (code=%d): %s", proc.returncode, proc.stderr.decode(errors="ignore"))
+-                tmp_path.unlink(missing_ok=True)
+-                return
+-
+-            # Воспроизводим
+-            if blocking:
+-                self._play_wav(tmp_path)
+-            else:
+-                threading.Thread(target=self._play_wav, args=(tmp_path,), daemon=True).start()
+-
+-        except subprocess.TimeoutExpired:
+-            log.error("Piper таймаут (>30s)")
+-        except Exception as exc:
+-            log.error("Piper speak ошибка: %s", exc)
++    def speak_rendered(self, rendered) -> None:
++        """Typed queue-provider boundary used by :class:`TTSQueue`."""
++        self.speak(rendered.text, blocking=True,
++                   rate=rendered.rate, volume=rendered.volume)
+ 
+     def _play_wav(self, path: Path) -> None:
+         """Воспроизводит WAV через winsound (Windows) или удаляет файл после."""
+@@ -350,9 +404,26 @@ class PiperTTS:
+         winsound не поддерживает остановку, поэтому просто логируем.
+         Для полноценной остановки нужна отдельная очередь (см. tts_queue.py).
+         """
+-        log.debug("stop_speaking: запрос остановки (winsound не поддерживает прерывание)")
++        try:
++            import winsound
++            winsound.PlaySound(None, winsound.SND_PURGE)
++        except Exception:
++            pass
++        log.debug("stop_speaking: playback purge requested")
+ 
+     @property
+     def available_voices(self) -> list[str]:
+         """Список доступных голосов."""
+-        return list(self._voices.keys())
+\ No newline at end of file
++        return list(self._voices.keys())
++
++    @property
++    def provider_info(self) -> dict[str, object]:
++        selected = self._select_voice("")
++        return {
++            "provider": "piper",
++            "local": True,
++            "language": selected.language if selected else self._target_language,
++            "voice": selected.name if selected else None,
++            "fallback": str(getattr(self._voice_settings, "fallback", "none")),
++            "available": self._available,
++        }
+diff --git a/core/voice/tts_queue.py b/core/voice/tts_queue.py
+index 6f1a672..31b0795 100644
+--- a/core/voice/tts_queue.py
++++ b/core/voice/tts_queue.py
+@@ -13,6 +13,8 @@ import time
+ from typing import Optional
+ 
+ from core.utils.logger import get_logger
++from core.voice.output import AssistantOutput
++from core.voice.speech_renderer import RenderedSpeech, SpeechRenderer
+ 
+ __all__ = ["TTSQueue"]
+ 
+@@ -22,14 +24,15 @@ log = get_logger(__name__)
+ class TTSQueue:
+     """Очередь TTS задач в отдельном потоке."""
+ 
+-    def __init__(self, tts_engine) -> None:
++    def __init__(self, tts_engine, *, renderer: Optional[SpeechRenderer] = None) -> None:
+         """
+         Args:
+             tts_engine: экземпляр с методом ``speak(text: str, blocking: bool)``
+                 и ``stop_speaking()`` (например, ``PiperTTS``).
+         """
+         self._tts = tts_engine
+-        self._queue: "queue.Queue[Optional[str]]" = queue.Queue()
++        self._renderer = renderer or SpeechRenderer()
++        self._queue: "queue.Queue[Optional[RenderedSpeech]]" = queue.Queue()
+         self._thread: Optional[threading.Thread] = None
+         self._running = False
+         self._paused = False
+@@ -74,19 +77,28 @@ class TTSQueue:
+ 
+         log.info("TTSQueue остановлен")
+ 
+-    def add_to_queue(self, text: str) -> None:
+-        """Добавляет текст в очередь озвучки.
++    def add_output(self, output: AssistantOutput) -> bool:
++        """Рендерит typed response и ставит в очередь только безопасную речь."""
++        rendered = self._renderer.render(output)
++        if rendered is None:
++            return False
++        if not self._running:
++            log.warning("TTSQueue не запущен, безопасная реплика пропущена")
++            return False
++        self._queue.put(rendered)
++        log.debug("TTSQueue: добавлена реплика (%d символов, mode=%s)",
++                  len(rendered.text), rendered.mode)
++        return True
+ 
+-        Args:
+-            text: текст для озвучивания.
++    def add_to_queue(self, text: str) -> bool:
++        """Legacy-вход с обязательным defense-in-depth renderer.
++
++        Production integration использует :meth:`add_output`; старые плагины
++        также больше не способны передать сырой текст напрямую в provider.
+         """
+         if not text or not text.strip():
+-            return
+-        if not self._running:
+-            log.warning("TTSQueue не запущен, текст не добавлен: %s", text[:50])
+-            return
+-        self._queue.put(text.strip())
+-        log.debug("TTSQueue: добавлен текст (%d символов)", len(text))
++            return False
++        return self.add_output(AssistantOutput.natural(text.strip()))
+ 
+     def clear(self) -> int:
+         """Очищает очередь. Возвращает число удалённых элементов."""
+@@ -167,24 +179,27 @@ class TTSQueue:
+     def _worker(self) -> None:
+         while self._running:
+             try:
+-                text = self._queue.get(timeout=0.2)
++                item = self._queue.get(timeout=0.2)
+             except queue.Empty:
+                 continue
+ 
+-            if text is None:  # сигнал остановки
++            if item is None:  # сигнал остановки
+                 break
+ 
+             with self._lock:
+                 if self._paused:
+                     # Положили обратно и ждём
+-                    self._queue.put(text)
++                    self._queue.put(item)
+                     time.sleep(0.5)
+                     continue
+ 
+             try:
+-                # blocking=True — ждём завершения воспроизведения
+-                self._tts.speak(text, blocking=True)
++                speak_rendered = getattr(self._tts, "speak_rendered", None)
++                if callable(speak_rendered):
++                    speak_rendered(item)
++                else:
++                    self._tts.speak(item.text, blocking=True)
+             except Exception as exc:
+                 log.error("TTSQueue worker ошибка: %s", exc)
+ 
+-        log.debug("TTSQueue worker завершён")
+\ No newline at end of file
++        log.debug("TTSQueue worker завершён")
+diff --git a/core/voice/tts_sanitizer.py b/core/voice/tts_sanitizer.py
+index 58e98e5..fcca1d3 100644
+--- a/core/voice/tts_sanitizer.py
++++ b/core/voice/tts_sanitizer.py
+@@ -18,9 +18,11 @@ import json
+ import re
+ from typing import Optional
+ 
+-# Сырые ошибки/исключения.
++# Сырые ошибки/исключения. Bare ``Error 455`` включён намеренно: раньше
++# эта строка проходила фильтр и выбирала английский Piper voice.
+ _RE_TRACEBACK = re.compile(
+     r"(?i)(traceback\s*\(most\s+recent\s+call\s+last\)|"
++    r"\b(?:error|exception)\b(?:\s*[:#-]?\s*\d{3})?|"
+     r"\b\w+(error|exception)\b\s*[:\(]|"
+     r"line\s+\d+,\s+in\s+\w+|"
+     r"raise\s+\w+|"
+@@ -55,6 +57,17 @@ _RE_PROVIDER_ERR = re.compile(
+     r")"
+ )
+ 
++_RE_CODE_BLOCK = re.compile(r"```[\s\S]*?```|~~~[\s\S]*?~~~", re.MULTILINE)
++_RE_INLINE_CODE = re.compile(r"`[^`\n]+`")
++_RE_MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://|file:)[^)]+\)", re.I)
++_RE_URL = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
++_RE_WINDOWS_PATH = re.compile(r"(?i)(?:[a-z]:\\(?:[^\s\\]+\\)*[^\s]*|\\\\[^\s]+)")
++_RE_UNIX_PATH = re.compile(r"(?<!\w)/(?:home|Users|var|tmp|etc|opt|usr)/\S+")
++_RE_UUID = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b")
++_RE_REQUEST_ID = re.compile(r"(?i)\b(?:request|correlation|trace)[_-]?id\s*[:=]\s*\S+")
++_RE_LOG_LINE = re.compile(r"(?im)^\s*\d{4}-\d{2}-\d{2}[^\n]*(?:ERROR|WARNING|DEBUG|INFO)[^\n]*$")
++_RE_MARKDOWN = re.compile(r"(?:\*\*|__|~~|(?<!\w)[*_#>]+)")
++
+ __all__ = ["sanitize_for_tts", "looks_unsafe_for_tts"]
+ 
+ 
+@@ -62,7 +75,11 @@ def looks_unsafe_for_tts(text: str) -> bool:
+     """True, если строка содержит сырые ошибки/JSON/секреты/служебное."""
+     if not text or not text.strip():
+         return False
+-    for rx in (_RE_SECRET, _RE_JSON, _RE_EVENT, _RE_TRACEBACK, _RE_FRAGMENT, _RE_PROVIDER_ERR):
++    for rx in (
++        _RE_SECRET, _RE_JSON, _RE_EVENT, _RE_TRACEBACK, _RE_FRAGMENT,
++        _RE_PROVIDER_ERR, _RE_CODE_BLOCK, _RE_URL, _RE_WINDOWS_PATH,
++        _RE_UNIX_PATH, _RE_UUID, _RE_REQUEST_ID, _RE_LOG_LINE,
++    ):
+         if rx.search(text):
+             return True
+     # Попытка распарсить как JSON — если это чистый JSON, озвучивать нельзя.
+@@ -76,7 +93,7 @@ def looks_unsafe_for_tts(text: str) -> bool:
+     return False
+ 
+ 
+-def sanitize_for_tts(text: str, *, fallback: str = "Сэр, сейчас не могу дозвониться до модели. Попробуйте чуть позже.") -> str:
++def sanitize_for_tts(text: str, *, fallback: str = "") -> str:
+     """Возвращает безопасный для озвучки текст.
+ 
+     Если в исходнике есть сырые ошибки/JSON/секреты — возвращает
+@@ -91,13 +108,37 @@ def sanitize_for_tts(text: str, *, fallback: str = "Сэр, сейчас не м
+     if not text or not text.strip():
+         return ""
+ 
+-    if looks_unsafe_for_tts(text):
+-        # Сырые ошибки/ключи/JSON не должны попадать в эфир.
++    stripped = text.strip()
++    if stripped.startswith(("{", "[")):
++        try:
++            json.loads(stripped)
++            return fallback
++        except (ValueError, json.JSONDecodeError):
++            pass
++
++    # Ошибки, traceback, secrets, JSON и логи блокируются целиком. Естественная
++    # terminal-failure реплика создаётся ErrorMapper до этого слоя.
++    if any(rx.search(text) for rx in (
++        _RE_SECRET, _RE_JSON, _RE_EVENT, _RE_TRACEBACK, _RE_FRAGMENT,
++        _RE_PROVIDER_ERR, _RE_REQUEST_ID, _RE_LOG_LINE,
++    )):
+         return fallback
+ 
+-    # Очистка служебного мусора, который мог проскочить, но не опасен сам по себе.
+-    cleaned = _RE_EVENT.sub("", text)
++    # Представление, а не переозвучивание UI: code удаляется, markdown links
++    # оставляют только понятную подпись, identifiers/paths/URLs исчезают.
++    cleaned = _RE_CODE_BLOCK.sub(" ", text)
++    cleaned = _RE_INLINE_CODE.sub(" ", cleaned)
++    cleaned = _RE_MARKDOWN_LINK.sub(r"\1", cleaned)
++    cleaned = _RE_URL.sub(" ", cleaned)
++    cleaned = _RE_WINDOWS_PATH.sub(" ", cleaned)
++    cleaned = _RE_UNIX_PATH.sub(" ", cleaned)
++    cleaned = _RE_UUID.sub(" ", cleaned)
++    cleaned = _RE_EVENT.sub("", cleaned)
++    cleaned = _RE_MARKDOWN.sub("", cleaned)
++    # Sprint 3: визуальный индикатор деградации ответа не читаем вслух.
++    cleaned = re.sub(r"(?i)^\s*\[\s*degraded\s*\]\s*:?\s*", "", cleaned)
+     cleaned = re.sub(r"^\s*<\s*think\s*>", "", cleaned, flags=re.IGNORECASE)
++    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+     if not cleaned:
+         return ""
+diff --git a/core/ws_server.py b/core/ws_server.py
+index a7f9408..3bd263b 100644
+--- a/core/ws_server.py
++++ b/core/ws_server.py
+@@ -36,6 +36,7 @@ import threading
+ import time
+ from typing import Any, Dict, Optional, Set
+ from urllib.parse import urlparse
++from uuid import uuid4
+ 
+ from config import load_config
+ from config.settings import Settings
+@@ -113,50 +114,171 @@ class JarvisWSServer:
+         self._running = False
+         self._loop: Optional[asyncio.AbstractEventLoop] = None
+         self._unsub: Optional[Any] = None
++        # Sprint 1: per-request контекст (thread-local). Каждый WS-запрос
++        # обрабатывается в своём потоке executor'а, поэтому параллельные
++        # запросы имеют независимые correlation ID и не перемешиваются.
++        self._tls = threading.local()
++        # Sprint 5: приветствие отправляется ОДИН раз за сессию сервера —
++        # при подключении первого клиента (не при каждом открытии окна).
++        self._greeted = False
++        self._system_monitor = None
++        self._stt_engine = None
++        try:
++            from core.voice.stt import STTEngine
++            candidate = STTEngine(self._settings)
++            if candidate.is_available(): self._stt_engine = candidate
++        except Exception as exc:
++            log.debug("STT startup probe failed: %s", exc)
+         # Перехватываем output_callback, чтобы синхронный fast-path
+         # ответ тоже доходил до фронта (handle_input сам его печатает).
+         self._orig_output = orchestrator._output_callback
+ 
+-        def _cb(text: str) -> None:
+-            # Дефолтный вывод оркестратора (print + TTS)
+-            try:
+-                self._orig_output(text)
+-            except Exception:
+-                pass
+-            # Транслируем в событие J.A.R.V.I.S. ответа.
+-            # ВАЖНО (P5 §5.4/frontend): фронт рендерит пузырь ответа ТОЛЬКО после
+-            # event:jarvis:start (useBackendBridge создаёт пузырь по start, а token/end
+-            # лишь обновляют его). Без start пузырь не создаётся и ответ не виден в
+-            # чате. Поэтому шлём start непосредственно перед end (fast-path без
+-            # токенов), чтобы контракт совпадал с streaming-путём.
+-            self._emit({
+-                "type": "event",
+-                "event": {
+-                    "type": "event:jarvis:start",
+-                    "payload": {
+-                        "id": f"sync-{_now_ms()}",
+-                        "kind": "jarvis",
+-                        "content": "",
+-                    },
+-                    "timestamp": _now_ms(),
+-                },
+-            })
++        def _emit_jarvis_event(etype: str, rid: str, payload: Dict[str, Any]) -> None:
+             self._emit({
+                 "type": "event",
+                 "event": {
+-                    "type": "event:jarvis:end",
+-                    "payload": {
+-                        "id": f"sync-{_now_ms()}",
+-                        "kind": "jarvis",
+-                        "content": text,
+-                        "model": "local",
+-                    },
++                    "type": etype,
++                    "payload": {"id": rid, "kind": "jarvis", **payload},
+                     "timestamp": _now_ms(),
+                 },
+             })
++
++        def _cb(text: str) -> None:
++            # Оркестратор уже отправил typed AssistantOutput в TTS. Callback
++            # отвечает только за UI transport — повторная raw озвучка запрещена.
++            try:
++                self._orig_output(text)
++            except Exception:
++                pass
++            # Транслируем в события J.A.R.V.I.S.
++            # ВАЖНО (P5 §5.4/frontend): фронт рендерит пузырь ответа ТОЛЬКО после
++            # event:jarvis:start (useBackendBridge создаёт пузырь по start, а
++            # token/end лишь обновляют его).
++            #
++            # Sprint 1 STEP 1: correlation ID создаётся ОДИН РАЗ на весь
++            # логический ответ (uuid, без timestamp-гонки). Если этот запрос
++            # стримился (пузырь с rid уже открыт) — закрываем ЕГО тем же rid.
++            tls = self._tls
++            rid = getattr(tls, "cid", None)
++            if rid and getattr(tls, "started", False) and not getattr(tls, "ended", False):
++                tls.ended = True
++                _emit_jarvis_event("event:jarvis:end", rid, {"content": text, "model": "local"})
++                self._emit({"type": "state", "state": "idle"})
++                return
++            # Стримленная миссия этого потока: финальный текст закрывает
++            # её пузырь (тот же task_id), не создавая второй ответ.
++            consume = getattr(self._orch, "consume_streamed_mission", None)
++            mission_rid = consume() if callable(consume) else None
++            if mission_rid:
++                self._streaming_started.discard(mission_rid)
++                _emit_jarvis_event("event:jarvis:end", mission_rid,
++                                   {"content": text, "model": "local"})
++                self._emit({"type": "state", "state": "idle"})
++                return
++            response_id = uuid4().hex
++            _emit_jarvis_event("event:jarvis:start", response_id, {"content": ""})
++            _emit_jarvis_event("event:jarvis:end", response_id, {"content": text, "model": "local"})
+             self._emit({"type": "state", "state": "idle"})
+ 
+         orchestrator._output_callback = _cb
++        # Proactor is an existing system-trigger source.  Preserve its output
++        # callback (notifications/TTS) and mirror it as a distinct UI event;
++        # it never becomes a user command or an action request.
++        proactor = getattr(orchestrator, "proactor", None)
++        if proactor is not None and hasattr(proactor, "_output"):
++            original_proactive = proactor._output
++
++            def _proactive_cb(text: str) -> None:
++                original_proactive(text)
++                self._emit({
++                    "type": "event",
++                    "event": {
++                        "type": "event:system_initiated",
++                        "payload": {"text": text},
++                        "timestamp": _now_ms(),
++                    },
++                })
++
++            proactor._output = _proactive_cb
++        try:
++            from core.triggers import SystemMonitor, SystemTriggerEngine
++            configured = getattr(self._settings, "system_triggers", []) or []
++            self._system_monitor = SystemMonitor(SystemTriggerEngine(configured, emit=lambda event, text: self._emit({"type": "event", "event": {"type": "event:system_initiated", "payload": {"text": text}, "timestamp": _now_ms()}}))) if configured else None
++        except Exception as exc:
++            log.warning("System triggers disabled: %s", exc)
++
++    # ----------------------------------------------------------------- #
++    #  Sprint 5 — ALWAYS-ON TTS + приветствие
++    # ----------------------------------------------------------------- #
++
++    def _tts_queue(self):
++        """TTSQueue оркестратора (None, если недоступен)."""
++        return getattr(self._orch, "_tts_queue", None)
++
++    def _speak(self, output) -> None:
++        """Typed greeting/system path; arbitrary WS messages are never spoken."""
++        try:
++            from core.voice.output import AssistantOutput
++            if not isinstance(output, AssistantOutput):
++                raise TypeError("WS speech boundary accepts AssistantOutput only")
++            voice = getattr(self._settings, "voice", None)
++            if not getattr(voice, "tts_enabled", True):
++                return
++            if not getattr(voice, "tts_always_on", True):
++                return
++            tts = self._tts_queue()
++            if tts is None:
++                return
++            tts.add_output(output)
++        except Exception as exc:  # noqa: BLE001 — TTS не ломает ответы
++            log.debug("TTS-озвучка пропущена: %s", exc)
++
++    def _tts_interrupt(self) -> None:
++        """Barge-in (Sprint 5 STEP 5.3): прерывает текущую речь и очередь."""
++        try:
++            tts = self._tts_queue()
++            if tts is not None:
++                tts.interrupt()
++        except Exception as exc:  # noqa: BLE001
++            log.debug("TTS-interrupt пропущен: %s", exc)
++
++    def _send_startup_greeting(self) -> None:
++        """Приветствие при старте сессии (Sprint 5 STEP 3).
++
++        Условия: launcher.greeting_enabled, ещё не отправляли, профиль
++        читается для персонального обращения. Идёт через обычный WS
++        pipeline (event:jarvis:start/end) и озвучивается always-on TTS.
++        """
++        launcher = getattr(self._settings, "launcher", None)
++        if not getattr(launcher, "greeting_enabled", True):
++            return
++        try:
++            from core.voice.greeting import build_startup_greeting
++            text = build_startup_greeting(self._settings)
++        except Exception as exc:  # noqa: BLE001
++            log.warning("Приветствие не сформировано: %s", exc)
++            return
++        rid = uuid4().hex
++        log.info("Приветствие сессии: %s", text)
++        self._emit({
++            "type": "event",
++            "event": {
++                "type": "event:jarvis:start",
++                "payload": {"id": rid, "kind": "jarvis", "content": ""},
++                "timestamp": _now_ms(),
++            },
++        })
++        self._emit({
++            "type": "event",
++            "event": {
++                "type": "event:jarvis:end",
++                "payload": {"id": rid, "kind": "jarvis",
++                            "content": text, "model": "local"},
++                "timestamp": _now_ms(),
++            },
++        })
++        from core.voice.output import AssistantOutput
++        self._speak(AssistantOutput.natural(text))
+ 
+     # ----------------------------------------------------------------- #
+     #  Управление подключениями
+@@ -166,8 +288,23 @@ class JarvisWSServer:
+         log.info("WS клиент подключён: %s", peer)
+         with self._lock:
+             self._clients.add(ws)
++            # Sprint 5 STEP 3: приветствие — ОДИН раз за сессию сервера,
++            # при подключении первого клиента (не при каждом открытии окна).
++            first_client = len(self._clients) == 1 and not self._greeted
++            if first_client:
++                self._greeted = True
+         try:
+             await ws.send(json.dumps({"type": "state", "state": "idle"}))
++            try:
++                from core.memory.profile import load_profile
++                has_name = bool((load_profile(self._settings).get("name") or "").strip())
++            except Exception:
++                has_name = False
++            await ws.send(json.dumps({"type": "profile", "has_name": has_name}))
++            if first_client:
++                # Пауза, чтобы фронт успел подписаться на события.
++                await asyncio.sleep(0.5)
++                self._send_startup_greeting()
+             async for raw in ws:
+                 await self._on_message(ws, raw)
+         except websockets.exceptions.ConnectionClosed:  # type: ignore
+@@ -196,6 +333,84 @@ class JarvisWSServer:
+             "api_key_masked": f"••••{suffix}" if key else "",
+         }
+ 
++    # ----------------------------------------------------------------- #
++    #  Sprint 5 — Launcher API (autostart / hotkey / greeting)
++    # ----------------------------------------------------------------- #
++
++    def _launcher_payload(self) -> Dict[str, Any]:
++        """Текущая конфигурация launcher для UI."""
++        launcher = getattr(self._settings, "launcher", None)
++        if launcher is None:
++            return {}
++        return {
++            "autostart": getattr(launcher, "autostart", False),
++            "hotkey": getattr(launcher, "hotkey", "Ctrl+Space"),
++            "backend_command": getattr(launcher, "backend_command", []),
++            "backend_workdir": getattr(launcher, "backend_workdir", ""),
++            "greeting_enabled": getattr(launcher, "greeting_enabled", True),
++        }
++
++    def _update_launcher(self, patch: Any) -> Dict[str, Any]:
++        """Валидирует и применяет allowlist-патч launcher config."""
++        if not isinstance(patch, dict):
++            raise ValueError("launcher должен быть объектом")
++        allowed = {"autostart", "hotkey", "greeting_enabled"}
++        unknown = set(patch) - allowed
++        if unknown:
++            raise ValueError(f"Недопустимые поля launcher: {', '.join(sorted(unknown))}")
++
++        launcher = self._settings.launcher
++        if "autostart" in patch:
++            v = patch["autostart"]
++            if not isinstance(v, bool):
++                raise ValueError("autostart должен быть boolean")
++            launcher.autostart = v
++            self._apply_autostart(v)
++
++        if "hotkey" in patch:
++            v = patch["hotkey"]
++            if not isinstance(v, str) or not v.strip():
++                raise ValueError("hotkey должен быть непустой строкой")
++            launcher.hotkey = v.strip()
++
++        if "greeting_enabled" in patch:
++            v = patch["greeting_enabled"]
++            if not isinstance(v, bool):
++                raise ValueError("greeting_enabled должен быть boolean")
++            launcher.greeting_enabled = v
++
++        self._settings.save_config()
++        return self._launcher_payload()
++
++    @staticmethod
++    def _apply_autostart(enable: bool) -> None:
++        """HKCU\\...\\Run — автозапуск Jarvis при логоне пользователя.
++
++        Запись/удаление через winreg; на других ОС — no-op (безопасно).
++        """
++        import sys
++        if sys.platform != "win32":
++            return
++        try:
++            import winreg  # type: ignore[import-untyped]
++            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
++            name = "JARVIS"
++            exe = sys.executable  # python.exe из текущего venv
++            # Команда: python -m core.ws_server из backend_workdir
++            cmd = f'"{exe}" -m core.ws_server'
++            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0,
++                                winreg.KEY_SET_VALUE) as hk:
++                if enable:
++                    winreg.SetValueEx(hk, name, 0, winreg.REG_SZ, cmd)
++                else:
++                    try:
++                        winreg.DeleteValue(hk, name)
++                    except FileNotFoundError:
++                        pass
++        except Exception as exc:  # noqa: BLE001
++            log.warning("HKCU autostart %s не удался: %s",
++                        "запись" if enable else "удаление", exc)
++
+     @staticmethod
+     def _validate_cloud_provider(value: Any) -> str:
+         if not isinstance(value, str):
+@@ -287,6 +502,30 @@ class JarvisWSServer:
+             return
+ 
+         mtype = (msg.get("type") or "").lower()
++        if mtype == "voice_input":
++            text = (msg.get("text") or "").strip()
++            confidence = msg.get("confidence", 1.0)
++            if isinstance(confidence, (int, float)) and confidence < 0.7:
++                await ws.send(json.dumps({"type": "event", "event": {"type": "event:system", "payload": {"content": "Не расслышал, повтори."}, "timestamp": _now_ms()}}))
++                return
++            mtype = "command"
++            msg["text"] = text
++        elif mtype == "wake_word_detected":
++            self._emit({"type": "event", "event": {"type": "event:wake_word_detected", "payload": {}, "timestamp": _now_ms()}})
++            return
++        elif mtype == "voice_listen":
++            if not getattr(getattr(self._settings, "stt", None), "enabled", False) and not getattr(getattr(self._settings, "voice", None), "stt_enabled", False):
++                return
++            loop = self._loop
++            def _listen() -> None:
++                try:
++                    if self._stt_engine is None: return
++                    text, confidence = self._stt_engine.transcribe_with_confidence_from_mic()
++                    self._emit({"type": "voice_input", "text": text, "confidence": confidence})
++                except Exception as exc:
++                    self._emit({"type": "error", "message": str(exc)})
++            if loop is not None: loop.call_soon_threadsafe(lambda: loop.run_in_executor(None, _listen))
++            return
+         if mtype == "settings:get":
+             await ws.send(json.dumps({"type": "settings", "settings": self._cloud_settings_payload()}))
+         elif mtype == "settings:update":
+@@ -302,6 +541,9 @@ class JarvisWSServer:
+             text = (msg.get("text") or "").strip()
+             if not text:
+                 return
++            # Sprint 5 STEP 5.3 (barge-in): новый ввод прерывает текущую
++            # речь Джарвиса — новая команда важнее договариваемой фразы.
++            self._tts_interrupt()
+             # Единый путь (P5 §5.7): тот же handle_input, что и в REPL.
+             # Гоним через executor, чтобы не блокировать asyncio-цикл
+             # во время модельного inference, и ловим возвращаемый state,
+@@ -311,8 +553,51 @@ class JarvisWSServer:
+             loop = self._loop
+ 
+             def _dispatch(t: str) -> None:
++                # Sprint 1 STEP 1/2: один correlation ID на весь логический
++                # ответ. Sink принимает кумулятивный текст реального SSE-потока
++                # модели и транслирует его в event:jarvis:token. Если бэкенд
++                # не поддерживает streaming — sink ни разу не вызовется и
++                # ответ пойдёт классическим start/end через _cb (fallback).
++                tls = self._tls
++                rid = uuid4().hex
++                tls.cid = rid
++                tls.started = False
++                tls.ended = False
++                tls.streamed = ""
++
++                def _sink(visible: str) -> None:
++                    tls.streamed = visible
++                    if not tls.started:
++                        tls.started = True
++                        self._emit({
++                            "type": "event",
++                            "event": {
++                                "type": "event:jarvis:start",
++                                "payload": {"id": tls.cid, "kind": "jarvis", "content": ""},
++                                "timestamp": _now_ms(),
++                            },
++                        })
++                    self._emit({
++                        "type": "event",
++                        "event": {
++                            "type": "event:jarvis:token",
++                            "payload": {"id": tls.cid, "token": visible},
++                            "timestamp": _now_ms(),
++                        },
++                    })
++
++                install = getattr(self._orch, "install_stream_sink", None)
+                 try:
++                    if callable(install):
++                        install(_sink)
+                     state = self._orch.handle_input(t)
++                    if isinstance(state, dict) and state.get("assistant_output"):
++                        # Typed diagnostics channel for Developer Mode. The
++                        # frontend has no speech synthesis path for this event.
++                        self._emit({
++                            "type": "assistant_output",
++                            "output": state["assistant_output"],
++                        })
+                     if isinstance(state, dict) and state.get("needs_confirmation"):
+                         self._emit({
+                             "type": "confirmation_required",
+@@ -325,6 +610,35 @@ class JarvisWSServer:
+                 except Exception as exc:
+                     log.error("Ошибка обработки команды из WS: %s", exc, exc_info=True)
+                     self._emit({"type": "error", "message": str(exc)})
++                finally:
++                    clear = getattr(self._orch, "clear_stream_sink", None)
++                    if callable(clear):
++                        try:
++                            clear()
++                        except Exception:  # pragma: no cover
++                            pass
++                    # Пузырь остался открытым (экзотический путь без _cb):
++                    # закрываем честно накопленным текстом.
++                    if getattr(tls, "started", False) and not getattr(tls, "ended", False):
++                        tls.ended = True
++                        self._emit({
++                            "type": "event",
++                            "event": {
++                                "type": "event:jarvis:end",
++                                "payload": {
++                                    "id": tls.cid,
++                                    "kind": "jarvis",
++                                    "content": tls.streamed or "Сэр, ответ не сформирован.",
++                                    "model": "local",
++                                },
++                                "timestamp": _now_ms(),
++                            },
++                        })
++                        self._emit({"type": "state", "state": "idle"})
++                    tls.cid = None
++                    tls.started = False
++                    tls.ended = False
++                    tls.streamed = ""
+ 
+             if loop is not None:
+                 loop.call_soon_threadsafe(
+@@ -334,10 +648,24 @@ class JarvisWSServer:
+             cid = msg.get("confirmation_id")
+             approve = bool(msg.get("approve", False))
+             if cid:
+-                try:
+-                    self._orch.answer_confirmation(cid, approve)
+-                except Exception as exc:
+-                    log.error("Ошибка ответа на подтверждение из WS: %s", exc)
++                # Sprint 1 STEP 3: подтверждение запускает реальное выполнение
++                # инструмента — тоже через executor, чтобы не блокировать цикл.
++                loop = self._loop
++
++                def _dispatch_confirm(cid_: str, approve_: bool) -> None:
++                    try:
++                        self._orch.answer_confirmation(cid_, approve_)
++                    except Exception as exc:
++                        log.error("Ошибка ответа на подтверждение из WS: %s", exc)
++
++                if loop is not None:
++                    loop.call_soon_threadsafe(
++                        lambda c=cid, a=approve: loop.run_in_executor(
++                            None, _dispatch_confirm, c, a
++                        )
++                    )
++                else:
++                    _dispatch_confirm(cid, approve)
+         elif mtype == "interrupt":
+             # Отменяем все активные миссии (best-effort).
+             try:
+@@ -345,6 +673,57 @@ class JarvisWSServer:
+                     self._orch.cancel_mission(m.task_id)
+             except Exception as exc:  # pragma: no cover
+                 log.debug("interrupt error: %s", exc)
++        elif mtype == "hotkey_pressed":
++            # Sprint 5 STEP 4: overlay открыт глобальным hotkey — текущая
++            # речь прерывается (пользователь перебивает, чтобы ввести новое).
++            self._tts_interrupt()
++        elif mtype == "ambient_initiated":
++            # Sprint 6: system sources can ask the already-connected UI to
++            # present a proactive phrase.  It is deliberately an event, not
++            # a command: it never enters the action/conversation router.
++            text = (msg.get("text") or "").strip()
++            if text:
++                self._emit({
++                    "type": "event",
++                    "event": {
++                        "type": "event:system_initiated",
++                        "payload": {"text": text},
++                        "timestamp": _now_ms(),
++                    },
++                })
++                self._speak(text)
++        elif mtype == "screen_capture":
++            if msg.get("permission") is not True:
++                await ws.send(json.dumps({"type": "error", "message": "Screen capture requires explicit permission"}))
++                return
++            try:
++                from core.vision.screen import ScreenCapture
++                result = ScreenCapture().capture(permission=True)
++                await ws.send(json.dumps({"type": "screen_capture", "text": result.text, "active_window": result.active_window, "url": result.url}))
++            except Exception as exc:
++                await ws.send(json.dumps({"type": "error", "message": str(exc)}))
++        elif mtype == "first_launch":
++            # The ritual owns exactly one durable datum: the name.  Save it
++            # through the existing profile store instead of inventing a
++            # second onboarding database or changing command routing.
++            name = (msg.get("name") or "").strip()
++            if name:
++                try:
++                    from core.memory.profile import update_profile
++                    update_profile(self._settings, "name", name)
++                except Exception as exc:  # pragma: no cover - disk edge
++                    log.warning("Не удалось сохранить имя первого запуска: %s", exc)
++        elif mtype == "launcher:get":
++            await ws.send(json.dumps({"type": "launcher", "launcher": self._launcher_payload()}))
++        elif mtype == "launcher:update":
++            try:
++                updated = self._update_launcher(msg.get("launcher"))
++            except Exception as exc:
++                log.warning("Отклонено обновление launcher: %s", exc)
++                await ws.send(json.dumps({"type": "error", "message": str(exc)}))
++                return
++            await ws.send(json.dumps({"type": "launcher:saved", "ok": True,
++                                      "launcher": updated}))
+         elif mtype == "ping":
+             await ws.send(json.dumps({"type": "pong"}))
+ 
+@@ -357,8 +736,11 @@ class JarvisWSServer:
+             targets = list(self._clients)
+         for ws in targets:
+             try:
+-                await ws.send(data)
+-            except Exception:  # pragma: no cover - dropped client
++                # Sprint 1 STEP 3: один медленный/зависший клиент не должен
++                # задерживать рассылку остальным (стриминг не должен
++                # «замерзать» из-за backpressure одного соединения).
++                await asyncio.wait_for(ws.send(data), timeout=5.0)
++            except Exception:  # pragma: no cover - dropped/медленный клиент
+                 pass
+ 
+     def _emit(self, payload: Dict[str, Any]) -> None:
+@@ -370,8 +752,11 @@ class JarvisWSServer:
+             loop.call_soon_threadsafe(
+                 lambda p=payload: asyncio.ensure_future(self._broadcast(p))
+             )
+-        except Exception:  # pragma: no cover
+-            pass
++        except Exception:  # pragma: no cover - loop закрыт
++            # Sprint 1: потеря события больше не «тихая» — иначе UI слепнет
++            # без следа в логах.
++            log.warning("WS emit не удался (event loop закрыт?): type=%s",
++                        payload.get("type"))
+ 
+     def _on_task_event(self, event: TaskEvent) -> None:
+         """Подписка на TaskRuntime -> трансляция в WS."""
+@@ -384,6 +769,23 @@ class JarvisWSServer:
+             self._emit({"type": "state", "state": "idle"})
+         elif et == EVENT_TASK_FAILED:
+             self._emit({"type": "state", "state": "error"})
++            if event.task_id in self._streaming_started:
++                # Sprint 1 STEP 5: стримленный пузырь не должен висеть
++                # открытым — закрываем понятным текстом, детали в лог.
++                self._streaming_started.discard(event.task_id)
++                self._emit({
++                    "type": "event",
++                    "event": {
++                        "type": "event:jarvis:end",
++                        "payload": {
++                            "id": event.task_id,
++                            "kind": "jarvis",
++                            "content": "Сэр, задача не завершилась. Попробуйте ещё раз.",
++                            "model": "local",
++                        },
++                        "timestamp": _now_ms(),
++                    },
++                })
+ 
+         if et == EVENT_STREAM_CHUNK:
+             # Фронт создаёт пузырь ответа только после event:jarvis:start
+@@ -435,6 +837,26 @@ class JarvisWSServer:
+             self._emit({"type": "state", "state": "idle"})
+         elif et == EVENT_TASK_COMPLETED:
+             result = payload.get("result", "")
++            if event.task_id in self._streaming_started:
++                # Sprint 1: миссия стримилась — пузырь с этим task_id уже
++                # закрыт финальным output_callback (consume_streamed_mission).
++                # Карточку-дубль не создаём.
++                self._streaming_started.discard(event.task_id)
++                if payload.get("status") == "cancelled":
++                    self._emit({
++                        "type": "event",
++                        "event": {
++                            "type": "event:jarvis:end",
++                            "payload": {
++                                "id": event.task_id,
++                                "kind": "jarvis",
++                                "content": "Задача отменена.",
++                                "model": "local",
++                            },
++                            "timestamp": _now_ms(),
++                        },
++                    })
++                return
+             self._emit({
+                 "type": "event",
+                 "event": {
+@@ -459,6 +881,8 @@ class JarvisWSServer:
+             return
+         # Запускаем оркестратор (он поднимет фоновые сервисы)
+         self._orch.start()
++        if self._system_monitor is not None:
++            self._system_monitor.start()
+         self._unsub = self._orch.subscribe_events(self._on_task_event)
+         self._running = True
+ 
+@@ -482,6 +906,8 @@ class JarvisWSServer:
+ 
+     def shutdown(self) -> None:
+         self._running = False
++        if self._system_monitor is not None:
++            self._system_monitor.stop()
+         if self._unsub is not None:
+             try:
+                 self._unsub()
+diff --git a/tests/test_p1_sprint.py b/tests/test_p1_sprint.py
+index 71da603..3c54184 100644
+--- a/tests/test_p1_sprint.py
++++ b/tests/test_p1_sprint.py
+@@ -93,14 +93,14 @@ def test_p1_runtime_cancel_queued():
+ # --------------------------------------------------------------------------- #
+ 
+ def test_p1_no_local_heavy_escalation(monkeypatch):
+-    """Фабрика НЕ строит локальный бэкенд для coder/architect (П1 §1.1).
++    """Offline CODER keeps its role while reusing the configured local GGUF.
+ 
+-    Локальный провайдер разрешён ТОЛЬКО для FAST-тира. Любая попытка
+-    поднять тяжёлую локальную модель (7B) запрещена — совет мудрецов
+-    должен честно деградировать до FAST, а не грузить 7B.
++    Sprint 9 separates task role from model availability: no legacy heavy
++    coder model is loaded, and the task does not become conversational FAST.
+     """
+     from config import load_config
+-    from core.llm import BackendConfigError, get_llm_backend
++    from core.llm import get_llm_backend
++    from core.llm.factory import clear_backend_cache
+     from core.llm.tiers import Tier
+ 
+     settings = load_config()
+@@ -108,18 +108,17 @@ def test_p1_no_local_heavy_escalation(monkeypatch):
+     # для coder = 'local' через setattr (симуляция старой/сломанной конфигурации).
+     monkeypatch.setattr(settings.tier_providers, "coder", "local")
+     settings.model_tiers.coder = "qwen-coder-local"
+-    # gguf_path пуст (как и должно быть после П1) — но сам факт local-провайдера
+-    # для coder уже должен вызывать ошибку конфигурации.
+-    with pytest.raises(BackendConfigError):
+-        get_llm_backend(settings, Tier.CODER)
++    clear_backend_cache()
++    coder = get_llm_backend(settings, Tier.CODER)
++    assert coder.task_role == "coder"
++    assert coder.gguf_path == settings.local_model.resolved_gguf_path
+ 
+     # FAST-тир с локальным провайдером — разрешён (лицо Qwen 4B).
+     # (Не падает на BackendConfigError по причине local-provider;
+     #  может упасть только если GGUF реально не найден — это норма офлайн-теста.)
+-    try:
+-        get_llm_backend(settings, Tier.FAST)
+-    except BackendConfigError:
+-        pytest.fail("FAST-тир с локальным провайдером не должен падать на local-provider")
++    fast = get_llm_backend(settings, Tier.FAST)
++    assert fast.task_role == "fast"
++    clear_backend_cache()
+ 
+ 
+ def test_p1_council_escalate_no_local_heavy():
+@@ -142,11 +141,11 @@ def test_p1_tts_sanitizer_blocks_raw_errors_and_secrets():
+     from core.voice.tts_sanitizer import looks_unsafe_for_tts, sanitize_for_tts
+ 
+     # Сырый traceback / исключение -> санитайзер НЕ читает сырьё вслух,
+-    # а возвращает честный fallback без сырого Traceback.
++    # и остаётся тишиной: terminal phrase создаёт typed ErrorMapper.
+     assert looks_unsafe_for_tts("Traceback (most recent call last):\n  File ...")
+     cleaned_trace = sanitize_for_tts("Traceback (most recent call last):\n  File ...")
+     assert "Traceback" not in cleaned_trace, "сырой traceback не должен попадать в голос"
+-    assert "дозвониться до модели" in cleaned_trace or "техническая заминка" in cleaned_trace
++    assert cleaned_trace == ""
+ 
+     # Внутренний JSON плана -> тоже fallback, без сырого JSON.
+     assert looks_unsafe_for_tts('{"tool": "write_file", "arguments": {"path": "x"}}')
+@@ -167,8 +166,8 @@ def test_p1_tts_sanitizer_blocks_raw_errors_and_secrets():
+ def test_p1_tts_sanitizer_blocks_provider_http_errors():
+     """Сырые HTTP-коды/ошибки провайдера НЕ читаются вслух (пункт 1 из live-теста).
+ 
+-    Голос должен звучать по-человечески («сэр, сейчас не могу дозвониться до
+-    модели…»), без кодов 401/404/429/503 и технических деталей. При этом живой
++    Голосовой sanitizer должен вернуть тишину без кодов 401/404/429/503 и
++    технических деталей. Естественную terminal phrase создаёт ErrorMapper. Живой
+     язык модели (числа, время, суммы) НЕ должен глушиться ложными срабатываниями.
+     """
+     from core.voice.tts_sanitizer import looks_unsafe_for_tts, sanitize_for_tts
+@@ -188,7 +187,7 @@ def test_p1_tts_sanitizer_blocks_provider_http_errors():
+         # Никаких сырых кодов/деталей в голосе.
+         assert "401" not in out and "404" not in out and "429" not in out and "503" not in out, \
+             f"HTTP-код не должен попадать в голос: {out!r}"
+-        assert "дозвониться до модели" in out, f"ожидали дружелюбную фразу: {out!r}"
++        assert out == "", f"технический сбой должен быть беззвучным: {out!r}"
+ 
+     # Живой язык модели НЕ глушится (ложноположительные срабатывания недопустимы).
+     safe_live = [
+--- /dev/null
++++ b/core/voice/output.py
+@@ -0,0 +1,141 @@
++"""Typed boundary between assistant results, UI diagnostics and speech."""
++
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field
++from enum import Enum
++from typing import Any, Optional
++
++
++class ErrorCategory(str, Enum):
++    PROVIDER_UNAVAILABLE = "provider_unavailable"
++    NETWORK_PROBLEM = "network_problem"
++    MODEL_FAILURE = "model_failure"
++    TOOL_FAILURE = "tool_failure"
++    PERMISSION_REQUIRED = "permission_required"
++    TTS_FAILURE = "tts_failure"
++    UNKNOWN_FAILURE = "unknown_failure"
++
++
++@dataclass(frozen=True)
++class ErrorInfo:
++    category: ErrorCategory
++    technical_message: str = ""
++    recovered: bool = False
++    provider: Optional[str] = None
++    request_id: Optional[str] = None
++    status_code: Optional[int] = None
++    details: dict[str, Any] = field(default_factory=dict)
++
++    def to_dict(self) -> dict[str, Any]:
++        data = asdict(self)
++        data["category"] = self.category.value
++        return data
++
++
++@dataclass(frozen=True)
++class AssistantOutput:
++    display_text: str
++    speech_text: Optional[str] = None
++    debug: Optional[dict[str, Any]] = None
++    error: Optional[ErrorInfo] = None
++    speak: bool = True
++    speech_mode: str = "normal"
++
++    @classmethod
++    def natural(cls, text: str, *, speech_mode: str = "normal",
++                debug: Optional[dict[str, Any]] = None) -> "AssistantOutput":
++        return cls(text, text, debug=debug, speech_mode=speech_mode)
++
++    @classmethod
++    def failure(cls, *, display_text: str, error: ErrorInfo,
++                debug: Optional[dict[str, Any]] = None) -> "AssistantOutput":
++        # Technical failure data is deliberately not copied into speech_text.
++        return cls(display_text, None, debug=debug, error=error, speak=False)
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "display_text": self.display_text,
++            "speech_text": self.speech_text,
++            "debug": self.debug,
++            "error": self.error.to_dict() if self.error else None,
++            "speak": self.speak,
++            "speech_mode": self.speech_mode,
++        }
++
++
++class UserFriendlyErrorMapper:
++    """Maps categorical terminal errors to short Russian voice responses."""
++
++    _speech = {
++        ErrorCategory.PROVIDER_UNAVAILABLE:
++            "Сейчас этот сервис недоступен. Я попробую другим способом.",
++        ErrorCategory.NETWORK_PROBLEM:
++            "Сэр, возникла проблема со связью. Попробую ещё раз позже.",
++        ErrorCategory.MODEL_FAILURE:
++            "Сэр, здесь возникла проблема. Я пока не смог её обойти.",
++        ErrorCategory.TOOL_FAILURE:
++            "С этим возникла проблема. Сейчас попробую иначе.",
++        ErrorCategory.PERMISSION_REQUIRED:
++            "Сэр, здесь нужно ваше подтверждение.",
++        ErrorCategory.TTS_FAILURE: "",
++        ErrorCategory.UNKNOWN_FAILURE:
++            "Сэр, здесь что-то пошло не так. Я пока не смог это обойти.",
++    }
++
++    def map(self, error: ErrorInfo, *, display_text: str = "") -> AssistantOutput:
++        if error.recovered:
++            return AssistantOutput(
++                display_text=display_text,
++                speech_text=None,
++                error=error,
++                speak=False,
++            )
++        speech = self._speech[error.category]
++        visible = display_text or speech or "Голосовой вывод временно пропущен."
++        return AssistantOutput(
++            display_text=visible,
++            speech_text=speech or None,
++            error=error,
++            speak=bool(speech),
++        )
++
++
++def assistant_output_from_outcome(outcome: Any) -> AssistantOutput:
++    """Adapts AgentOutcome without importing the agent into the voice layer."""
++    display = str(getattr(outcome, "text", "") or "").strip()
++    mode = str(getattr(outcome, "mode", "") or "")
++    trace = list(getattr(outcome, "trace", []) or [])
++    debug = {
++        "mode": mode,
++        "verified": bool(getattr(outcome, "verified", False)),
++        "trace": trace,
++    }
++    technical = "\n".join(str(item) for item in trace)
++    mapper = UserFriendlyErrorMapper()
++    if mode == "model_error":
++        mapped = mapper.map(
++            ErrorInfo(ErrorCategory.MODEL_FAILURE, technical_message=technical),
++            display_text=display,
++        )
++        return AssistantOutput(
++            mapped.display_text, mapped.speech_text, debug=debug,
++            error=mapped.error, speak=mapped.speak, speech_mode="normal",
++        )
++    if bool(getattr(outcome, "needs_confirmation", False)):
++        mapped = mapper.map(
++            ErrorInfo(ErrorCategory.PERMISSION_REQUIRED, technical_message=technical),
++            display_text=display,
++        )
++        return AssistantOutput(
++            mapped.display_text, mapped.speech_text, debug=debug,
++            error=mapped.error, speak=mapped.speak, speech_mode="focused",
++        )
++    speech_mode = "focused" if mode in {"capability", "tool", "confirmation_required"} else "normal"
++    return AssistantOutput.natural(display, speech_mode=speech_mode, debug=debug)
++
++
++__all__ = [
++    "AssistantOutput", "ErrorCategory", "ErrorInfo", "UserFriendlyErrorMapper",
++    "assistant_output_from_outcome",
++]
+--- /dev/null
++++ b/core/voice/speech_renderer.py
+@@ -0,0 +1,63 @@
++"""Natural-language speech rendering after the typed response boundary."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Optional
++
++from core.voice.output import AssistantOutput
++from core.voice.tts_sanitizer import sanitize_for_tts
++
++
++@dataclass(frozen=True)
++class VoiceMode:
++    rate: float
++    volume: float
++
++
++@dataclass(frozen=True)
++class RenderedSpeech:
++    text: str
++    mode: str = "normal"
++    rate: float = 1.0
++    volume: float = 1.0
++
++
++DEFAULT_MODES: dict[str, VoiceMode] = {
++    "normal": VoiceMode(1.00, 1.00),
++    "focused": VoiceMode(1.03, 1.00),
++    "quiet": VoiceMode(0.96, 0.72),
++    "urgent": VoiceMode(1.04, 1.00),
++    "amused": VoiceMode(1.02, 0.95),
++    "background": VoiceMode(0.98, 0.85),
++}
++
++
++class SpeechRenderer:
++    def __init__(self, voice_settings: Any = None) -> None:
++        self._modes = dict(DEFAULT_MODES)
++        configured = getattr(voice_settings, "modes", None)
++        if configured:
++            items = configured.items() if hasattr(configured, "items") else []
++            for name, raw in items:
++                rate = raw.get("rate", 1.0) if isinstance(raw, dict) else getattr(raw, "rate", 1.0)
++                volume = raw.get("volume", 1.0) if isinstance(raw, dict) else getattr(raw, "volume", 1.0)
++                self._modes[str(name)] = VoiceMode(
++                    max(0.9, min(1.1, float(rate))),
++                    max(0.05, min(1.0, float(volume))),
++                )
++
++    def render(self, output: AssistantOutput) -> Optional[RenderedSpeech]:
++        if not isinstance(output, AssistantOutput):
++            raise TypeError("SpeechRenderer accepts AssistantOutput only")
++        if not output.speak or not output.speech_text:
++            return None
++        text = sanitize_for_tts(output.speech_text, fallback="")
++        if not text:
++            return None
++        mode_name = output.speech_mode if output.speech_mode in self._modes else "normal"
++        mode = self._modes[mode_name]
++        return RenderedSpeech(text, mode_name, mode.rate, mode.volume)
++
++
++__all__ = ["DEFAULT_MODES", "RenderedSpeech", "SpeechRenderer", "VoiceMode"]
+--- /dev/null
++++ b/tests/test_voice_hardening.py
+@@ -0,0 +1,245 @@
++"""Voice/TTS hardening regression and contract tests."""
++
++from __future__ import annotations
++
++import time
++import wave
++from array import array
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++
++from config.settings import load_config
++from core.voice.output import (
++    AssistantOutput,
++    ErrorCategory,
++    ErrorInfo,
++    UserFriendlyErrorMapper,
++    assistant_output_from_outcome,
++)
++from core.voice.speech_renderer import RenderedSpeech, SpeechRenderer
++from core.voice.tts import PiperTTS, VoiceConfig
++from core.voice.tts_queue import TTSQueue
++
++
++HTTP_CODES = (401, 403, 404, 408, 429, 455, 500, 503)
++
++
++@pytest.mark.parametrize("code", HTTP_CODES)
++def test_raw_http_error_codes_never_become_speech(code: int) -> None:
++    renderer = SpeechRenderer()
++
++    rendered = renderer.render(AssistantOutput(display_text=f"Error {code}", speech_text=f"Error {code}"))
++
++    assert rendered is None
++
++
++@pytest.mark.parametrize(
++    "technical",
++    [
++        'Traceback (most recent call last):\n  File "worker.py", line 7\nValueError: bad',
++        r"C:\Users\WwW\AppData\Local\secret.txt",
++        "/home/user/.config/private.json",
++        "https://provider.invalid/request?id=123",
++        "request_id=8a595baf-6f80-46b8-b150-2eb333cab08a",
++        "8a595baf-6f80-46b8-b150-2eb333cab08a",
++        '{"error": "provider unavailable", "status": 455}',
++        "2026-08-17 10:01:02 | ERROR | internal.provider | failed",
++        "```python\nraise RuntimeError('boom')\n```",
++    ],
++)
++def test_technical_payloads_are_not_spoken(technical: str) -> None:
++    renderer = SpeechRenderer()
++
++    rendered = renderer.render(AssistantOutput(display_text=technical, speech_text=technical))
++
++    assert rendered is None
++
++
++def test_markdown_is_reduced_to_natural_text() -> None:
++    renderer = SpeechRenderer()
++    output = AssistantOutput(
++        display_text="**Готово**, сэр. [Отчёт](https://internal.invalid/report)",
++        speech_text="**Готово**, сэр. [Отчёт](https://internal.invalid/report)",
++    )
++
++    rendered = renderer.render(output)
++
++    assert rendered is not None
++    assert rendered.text == "Готово, сэр. Отчёт"
++
++
++def test_assistant_output_keeps_technical_error_out_of_speech_contract() -> None:
++    output = AssistantOutput.failure(
++        display_text="Операция завершилась с ошибкой.",
++        error=ErrorInfo(
++            category=ErrorCategory.MODEL_FAILURE,
++            technical_message="HTTP 455 provider=request-123",
++            provider="remote_api",
++            request_id="request-123",
++        ),
++    )
++
++    assert output.speech_text is None
++    assert output.error is not None
++    assert "455" in output.error.technical_message
++
++
++def test_recovered_provider_failure_is_silent_but_final_answer_is_spoken() -> None:
++    mapper = UserFriendlyErrorMapper()
++    renderer = SpeechRenderer()
++    recovered = mapper.map(
++        ErrorInfo(
++            category=ErrorCategory.PROVIDER_UNAVAILABLE,
++            technical_message="HTTP 455",
++            recovered=True,
++        )
++    )
++    final = AssistantOutput.natural("Готово, сэр.")
++
++    assert renderer.render(recovered) is None
++    assert renderer.render(final).text == "Готово, сэр."
++
++
++def test_agent_outcome_conversion_keeps_trace_in_debug_not_speech() -> None:
++    outcome = SimpleNamespace(
++        text="Сэр, здесь возникла проблема.",
++        mode="model_error",
++        trace=["provider remote_api returned HTTP 455 request_id=abc"],
++        verified=False,
++        needs_confirmation=False,
++    )
++
++    output = assistant_output_from_outcome(outcome)
++
++    assert output.error is not None
++    assert "455" in output.debug["trace"][0]
++    assert "455" not in (output.speech_text or "")
++    assert SpeechRenderer().render(output).text.startswith("Сэр,")
++
++
++def test_terminal_failure_uses_short_natural_russian_sentence() -> None:
++    mapper = UserFriendlyErrorMapper()
++
++    output = mapper.map(ErrorInfo(
++        category=ErrorCategory.UNKNOWN_FAILURE,
++        technical_message="Exception: HTTP 455 request_id=abc",
++    ))
++
++    assert output.speech_text == "Сэр, здесь что-то пошло не так. Я пока не смог это обойти."
++    assert "455" not in output.speech_text
++    assert "error" not in output.speech_text.lower()
++
++
++@pytest.mark.parametrize("mode", ("normal", "focused", "quiet", "urgent", "amused", "background"))
++def test_all_voice_personality_modes_produce_bounded_profiles(mode: str) -> None:
++    rendered = SpeechRenderer().render(AssistantOutput.natural("Готово, сэр.", speech_mode=mode))
++
++    assert isinstance(rendered, RenderedSpeech)
++    assert rendered.mode == mode
++    assert 0.9 <= rendered.rate <= 1.1
++    assert 0.0 < rendered.volume <= 1.0
++
++
++def test_runtime_config_selects_local_russian_piper_and_no_english_fallback() -> None:
++    settings = load_config()
++    tts = PiperTTS(settings)
++
++    selected = tts._select_voice("English text must not select an English system voice")
++
++    assert settings.voice.provider == "piper"
++    assert settings.voice.language == "ru"
++    assert settings.voice.fallback == "none"
++    assert settings.voice.resolved_piper_model.name == "ru_RU-dmitri-medium.onnx"
++    assert selected is not None
++    assert selected.language == "ru"
++    assert "jarvis-medium" not in tts.available_voices
++
++
++def test_missing_russian_voice_never_falls_back_to_english_voice(tmp_path: Path) -> None:
++    tts = PiperTTS.__new__(PiperTTS)
++    english = VoiceConfig("english", tmp_path / "english.onnx",
++                          tmp_path / "english.json", language="en")
++    tts._voices = {"english": english}
++    tts._default_voice = "english"
++    tts._target_language = "ru"
++    tts._voice_settings = SimpleNamespace(voice="english", fallback="none")
++
++    assert tts._select_voice("Hello") is None
++
++
++def test_piper_personality_volume_scales_pcm_wav(tmp_path: Path) -> None:
++    path = tmp_path / "quiet.wav"
++    with wave.open(str(path), "wb") as wav:
++        wav.setnchannels(1)
++        wav.setsampwidth(2)
++        wav.setframerate(22050)
++        wav.writeframes(array("h", [1000, -1000, 2000, -2000]).tobytes())
++
++    PiperTTS._apply_volume(path, 0.5)
++
++    with wave.open(str(path), "rb") as wav:
++        samples = array("h", wav.readframes(wav.getnframes()))
++    assert list(samples) == [500, -500, 1000, -1000]
++
++
++class _RecordingTTS:
++    def __init__(self) -> None:
++        self.spoken: list[str] = []
++        self.stopped = 0
++
++    def speak_rendered(self, item: RenderedSpeech) -> None:
++        self.spoken.append(item.text)
++
++    def stop_speaking(self) -> None:
++        self.stopped += 1
++
++
++def test_queue_accepts_structured_output_and_barge_in_still_interrupts() -> None:
++    engine = _RecordingTTS()
++    queue = TTSQueue(engine, renderer=SpeechRenderer())
++    queue.start()
++    try:
++        queue.add_output(AssistantOutput.natural("Готово, сэр."))
++        deadline = time.time() + 1
++        while not engine.spoken and time.time() < deadline:
++            time.sleep(0.01)
++        queue.interrupt()
++    finally:
++        queue.stop()
++
++    assert engine.spoken == ["Готово, сэр."]
++    assert engine.stopped >= 1
++
++
++def test_queue_defense_in_depth_blocks_legacy_raw_error() -> None:
++    engine = _RecordingTTS()
++    queue = TTSQueue(engine, renderer=SpeechRenderer())
++    queue.start()
++    try:
++        queue.add_to_queue("Error 455")
++        time.sleep(0.05)
++    finally:
++        queue.stop()
++
++    assert engine.spoken == []
++
++
++def test_websocket_speech_boundary_rejects_raw_event_messages() -> None:
++    from core.ws_server import JarvisWSServer
++
++    queued = []
++    server = JarvisWSServer.__new__(JarvisWSServer)
++    server._settings = SimpleNamespace(
++        voice=SimpleNamespace(tts_enabled=True, tts_always_on=True)
++    )
++    server._orch = SimpleNamespace(
++        _tts_queue=SimpleNamespace(add_output=lambda output: queued.append(output))
++    )
++
++    server._speak("Error 455")
++    server._speak(AssistantOutput.natural("Готово, сэр."))
++
++    assert len(queued) == 1
++    assert queued[0].speech_text == "Готово, сэр."
+--- /dev/null
++++ b/scripts/voice_hardening_smoke.py
+@@ -0,0 +1,93 @@
++"""Safe local Voice/TTS smoke: render, synthesize WAV, verify and report."""
++
++from __future__ import annotations
++
++import json
++import sys
++import time
++import wave
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++from config.settings import load_config
++from core.voice.output import (
++    AssistantOutput, ErrorCategory, ErrorInfo, UserFriendlyErrorMapper,
++)
++from core.voice.speech_renderer import SpeechRenderer
++from core.voice.tts import PiperTTS
++
++
++def _wav_info(path: Path) -> dict[str, object]:
++    with wave.open(str(path), "rb") as wav:
++        frames = wav.getnframes()
++        rate = wav.getframerate()
++        return {
++            "path": str(path.resolve()),
++            "bytes": path.stat().st_size,
++            "sample_rate": rate,
++            "channels": wav.getnchannels(),
++            "duration_sec": round(frames / float(rate), 3),
++        }
++
++
++def main() -> int:
++    settings = load_config()
++    renderer = SpeechRenderer(settings.voice)
++    tts = PiperTTS(settings)
++    mapper = UserFriendlyErrorMapper()
++    output_dir = ROOT / "artifacts" / "voice_test"
++    output_dir.mkdir(parents=True, exist_ok=True)
++
++    scenarios = [
++        ("normal.wav", AssistantOutput.natural("Готово, сэр.")),
++        ("focused.wav", AssistantOutput.natural(
++            "Сейчас разберусь, сэр.", speech_mode="focused")),
++        ("terminal_failure.wav", mapper.map(ErrorInfo(
++            ErrorCategory.UNKNOWN_FAILURE,
++            technical_message="Exception: HTTP 455 request_id=smoke",
++        ))),
++    ]
++    samples = []
++    latencies = []
++    for filename, output in scenarios:
++        rendered = renderer.render(output)
++        if rendered is None:
++            raise RuntimeError(f"Expected speech for {filename}")
++        target = output_dir / filename
++        started = time.perf_counter()
++        ok = tts.synthesize_to_file(
++            rendered.text, target, rate=rendered.rate, volume=rendered.volume,
++        )
++        latencies.append(round((time.perf_counter() - started) * 1000, 3))
++        if not ok:
++            raise RuntimeError(f"Piper synthesis failed for {filename}")
++        info = _wav_info(target)
++        info.update({"mode": rendered.mode, "text": rendered.text})
++        samples.append(info)
++
++    raw = renderer.render(AssistantOutput.natural("Error 455"))
++    recovered = renderer.render(mapper.map(ErrorInfo(
++        ErrorCategory.PROVIDER_UNAVAILABLE,
++        technical_message="HTTP 455 remote provider",
++        recovered=True,
++    )))
++    report = {
++        "provider": tts.provider_info,
++        "raw_error_spoken": raw.text if raw else None,
++        "recovered_failure_spoken": recovered.text if recovered else None,
++        "cold_latency_ms": latencies[0],
++        "warm_latency_ms": round(sum(latencies[1:]) / len(latencies[1:]), 3),
++        "samples": samples,
++        "barge_in": "TTSQueue interrupt/stop_speaking verified by automated test",
++    }
++    report_path = output_dir / "smoke_report.json"
++    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+--- /dev/null
++++ b/scripts/rollback_voice_hardening.ps1
+@@ -0,0 +1,39 @@
++[CmdletBinding(SupportsShouldProcess = $true)]
++param(
++    [Parameter(Mandatory = $false)]
++    [string]$VoiceHardeningCommit
++)
++
++$ErrorActionPreference = "Stop"
++$workspace = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
++Set-Location -LiteralPath $workspace
++
++if ([string]::IsNullOrWhiteSpace($VoiceHardeningCommit)) {
++    Write-Output "Rollback plan: git revert --no-edit <VOICE_HARDENING_COMMIT>"
++    Write-Output "No commit argument supplied; no files were changed."
++    exit 0
++}
++
++git cat-file -e "$VoiceHardeningCommit`^{commit}" 2>$null
++if ($LASTEXITCODE -ne 0) {
++    throw "VoiceHardeningCommit is not a valid local commit: $VoiceHardeningCommit"
++}
++git diff --quiet
++if ($LASTEXITCODE -ne 0) {
++    throw "Working tree has unstaged changes. Preserve or commit them first."
++}
++git diff --cached --quiet
++if ($LASTEXITCODE -ne 0) {
++    throw "Index has staged changes. Preserve or commit them first."
++}
++
++if ($PSCmdlet.ShouldProcess($workspace, "Revert Voice Hardening commit $VoiceHardeningCommit")) {
++    git revert --no-edit $VoiceHardeningCommit
++    if ($LASTEXITCODE -ne 0) {
++        throw "git revert failed; inspect the repository and resolve the revert."
++    }
++    python -m pytest -q
++    if ($LASTEXITCODE -ne 0) {
++        throw "Rollback completed, but the regression suite reported failures."
++    }
++}
+--- /dev/null
++++ b/docs/sprints/VOICE_HARDENING_CHANGESET.md
+@@ -0,0 +1,71 @@
++# JARVIS Voice/TTS Hardening changeset
++
++Date: 2026-08-17
++
++## Root cause evidence
++
++The pre-change runtime probe for `Error 455` returned:
++
++```json
++{
++  "unsafe_before": false,
++  "sanitized_before": "Error 455",
++  "selected_provider": "piper",
++  "selected_voice": "jarvis-medium",
++  "selected_language": "en"
++}
++```
++
++`config/settings.json` selected `data/models/piper/jarvis-medium.onnx`.
++`PiperTTS._select_voice` inferred language from Cyrillic presence, so a raw
++ASCII error selected the local English voice. Runtime logs independently show
++Piper loading `jarvis-medium` and `ru_RU-dmitri-medium`. Production frontend
++sources contain no browser `SpeechSynthesis`; Windows `winsound` only played
++the WAV generated by Piper.
++
++## Changed files
++
++- `config/settings.py` — typed provider/language/voice/fallback/mode settings.
++- `config/settings.example.json` — Russian local Piper example configuration.
++- `config/settings.json` — local runtime selection changed to Dmitri Russian.
++- `core/voice/output.py` — `AssistantOutput`, `ErrorInfo`, categorical mapper.
++- `core/voice/speech_renderer.py` — speech-only rendering and personality modes.
++- `core/voice/tts_sanitizer.py` — final technical-payload barrier.
++- `core/voice/tts.py` — config-driven Russian-only Piper selection and WAV API.
++- `core/voice/tts_queue.py` — typed queue boundary and legacy input filtering.
++- `core/voice/__init__.py` — public voice contract exports.
++- `core/orchestrator.py` — typed response construction and single TTS path.
++- `core/state.py` — persisted/transportable `assistant_output` field.
++- `core/ws_server.py` — typed Developer Mode event; raw WS errors stay silent.
++- `tests/test_voice_hardening.py` — 34 new voice regression scenarios.
++- `tests/test_p1_sprint.py` — old sanitizer expectation updated to silence.
++- `scripts/voice_hardening_smoke.py` — real local Piper smoke and WAV verification.
++- `scripts/rollback_voice_hardening.ps1` — guarded commit-level rollback.
++
++Capability Planner, DesiredStateVerifier, learning, Windows/browser providers
++and Shadow Engine were not modified by this sprint.
++
++## After pipeline
++
++```text
++AgentOutcome
++  -> AssistantOutput(display/speech/debug/error)
++  -> SpeechRenderer
++  -> defense-in-depth sanitizer
++  -> TTSQueue(RenderedSpeech)
++  -> local Russian Piper
++  -> WAV/audio
++```
++
++## Fallback policy
++
++Primary provider is local Piper, language `ru`, voice
++`ru_RU-dmitri-medium`, configured fallback `none`. An incompatible English
++voice is never selected. A TTS failure leaves `display_text` available and
++produces no speech.
++
++## Dirty-worktree note
++
++The workspace already contained extensive uncommitted Sprint 1–9 work before
++this sprint. The delivery patch is therefore labelled workspace-vs-HEAD.
++Rollback is commit-based so unrelated working changes are not overwritten.
+--- /dev/null
++++ b/docs/sprints/VOICE_HARDENING_VERIFICATION.md
+@@ -0,0 +1,41 @@
++# Voice/TTS Hardening verification
++
++## Baseline
++
++- Targeted voice/WS: **25 passed, 0 failed**.
++- Full suite: **177 passed, 0 failed, 2 skipped**; exit status `0`.
++- Two pre-existing `websockets` deprecation warnings.
++
++## Modified build
++
++- Targeted voice/WS/agent/Sprint 9: **99 passed, 0 failed**.
++- Full suite: **211 passed, 0 failed, 2 skipped**; 213 collected; exit `0`.
++- `python -m compileall -q core config tests`: exit `0`.
++- `git diff --check` for Voice Hardening paths: exit `0`.
++- Frontend source files were not changed, so no frontend build was required.
++
++## Real Piper smoke
++
++Command:
++
++```powershell
++python scripts\voice_hardening_smoke.py
++```
++
++Result: exit `0`.
++
++- Provider: `piper`, local `true`.
++- Voice: `ru_RU-dmitri-medium`, language `ru`, fallback `none`.
++- Sample rate: 22050 Hz, mono.
++- Cold synthesis: 2343.872 ms.
++- Warm mean: 2948.106 ms.
++- `Error 455`: `speech=None`.
++- Recovered provider failure: `speech=None`.
++- Queue interrupt/stop behavior: automated test passed.
++
++Generated samples:
++
++- `artifacts/voice_test/normal.wav`
++- `artifacts/voice_test/focused.wav`
++- `artifacts/voice_test/terminal_failure.wav`
++- `artifacts/voice_test/smoke_report.json`

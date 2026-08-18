@@ -1,0 +1,1 @@
+The diff artifact captures the selected working-tree paths, including edits that predated Sprint 16. The rollback script restores the pre-change backup manifest and removes only Sprint-16-owned paths; targeted inverse fragments handle files that had unrelated prior edits.

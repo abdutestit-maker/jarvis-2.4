@@ -1,0 +1,282 @@
+{
+  "sprint": 11,
+  "workspace": "E:\\jarvis-project",
+  "baseline": {
+    "tests": {
+      "command": "python -m pytest -o addopts='' -q",
+      "input": "Sprint 10 + Voice Runtime Hotfix tree",
+      "exit_status": 0,
+      "literal_output": ".............................................ss......................... [ 29%]\n........................................................................ [ 58%]\n........................................................................ [ 88%]\n.............................                                            [100%]\n============================== warnings summary ===============================\ncore\\ws_server.py:58\n  E:\\jarvis-project\\core\\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated\n    from websockets.server import serve\n\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6\n  C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions\n    warnings.warn(  # deprecated in 14.0 - 2024-11-09\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n243 passed, 2 skipped, 2 warnings in 70.60s (0:01:10)\n"
+    },
+    "voice": {
+      "command": "python scripts\\\\voice_runtime_smoke.py E:\\\\jarvis-project\\\\artifacts\\\\sprint11\\\\baseline_voice.wav",
+      "input": "Сэр, я вас понял. Это тестовый ответ Джарвиса.",
+      "exit_status": 0,
+      "literal_output": "2026-08-17 17:03:08 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\\jarvis-project\\config\\settings.json\n2026-08-17 17:03:08 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-17 17:03:10 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n{\n  \"success\": true,\n  \"input\": \"Сэр, я вас понял. Это тестовый ответ Джарвиса.\",\n  \"runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"expected_runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"output\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint11\\\\baseline_voice.wav\",\n  \"channels\": 1,\n  \"sample_rate\": 22050,\n  \"sample_width\": 2,\n  \"frames\": 71540,\n  \"duration_seconds\": 3.244,\n  \"error\": null\n}\n"
+    },
+    "manifest": {
+      "path": "E:\\jarvis-project\\artifacts\\sprint11\\baseline_manifest.sha256",
+      "sha256": "bff7eb0b2e0478ddc7a5945e6f5407ab327662a39595f8e280f43ae18e6f5f36"
+    }
+  },
+  "modified": {
+    "tests": {
+      "command": "python -m pytest -o addopts='' -q",
+      "input": "Sprint 11 complete tree",
+      "exit_status": 0,
+      "literal_output": ".............................................ss......................... [ 24%]\n........................................................................ [ 48%]\n........................................................................ [ 72%]\n........................................................................ [ 96%]\n.........                                                                [100%]\n============================== warnings summary ===============================\ncore\\ws_server.py:58\n  E:\\jarvis-project\\core\\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated\n    from websockets.server import serve\n\nC:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6\n  C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\legacy\\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions\n    warnings.warn(  # deprecated in 14.0 - 2024-11-09\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n295 passed, 2 skipped, 2 warnings in 74.16s (0:01:14)\n"
+    },
+    "voice": {
+      "command": "python scripts\\\\voice_runtime_smoke.py E:\\\\jarvis-project\\\\artifacts\\\\sprint11\\\\after_voice.wav",
+      "input": "Сэр, я вас понял. Это тестовый ответ Джарвиса.",
+      "exit_status": 0,
+      "literal_output": "2026-08-17 17:40:58 | INFO     | jarvis.config.settings       | Конфигурация загружена: E:\\jarvis-project\\config\\settings.json\n2026-08-17 17:40:58 | INFO     | jarvis.core.voice.tts        | PiperTTS инициализирован: binary=E:\\jarvis-project\\data\\runtime\\piper\\piper.exe, voices=[ru_RU-dmitri-medium]\n2026-08-17 17:40:58 | INFO     | jarvis.core.voice.tts        | Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0\n{\n  \"success\": true,\n  \"input\": \"Сэр, я вас понял. Это тестовый ответ Джарвиса.\",\n  \"runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"expected_runtime\": \"E:\\\\jarvis-project\\\\data\\\\runtime\\\\piper\\\\piper.exe\",\n  \"output\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint11\\\\after_voice.wav\",\n  \"channels\": 1,\n  \"sample_rate\": 22050,\n  \"sample_width\": 2,\n  \"frames\": 70516,\n  \"duration_seconds\": 3.198,\n  \"error\": null\n}\n"
+    },
+    "static": {
+      "commands": [
+        "python -m compileall -q core scripts",
+        "git diff --check"
+      ],
+      "exit_status": [
+        0,
+        0
+      ],
+      "literal_output": "COMMAND: python -m compileall -q core scripts\nEXIT: 0\nwarning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'config/settings.example.json', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'config/settings.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/actions/__init__.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/actions/executor.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/actions/filesystem.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/agent.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/capabilities.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/llm/__init__.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/llm/factory.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/memory/__init__.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/memory/profile.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/model_router.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/orchestrator.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/repair.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/research.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/safety.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/state.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/structured.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/task_runtime.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/voice/__init__.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/voice/stt.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/voice/tts_queue.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/voice/tts_sanitizer.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'core/ws_server.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/scripts/wsBackend.test.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src-tauri/Cargo.lock', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src-tauri/Cargo.toml', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src-tauri/capabilities/default.json', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src-tauri/src/main.rs', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src-tauri/tauri.conf.json', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/App.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/ActivityStream/ActivityEventCard.module.css', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/ActivityStream/ActivityEventCard.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/ActivityStream/ActivityStream.module.css', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/ActivityStream/ActivityStream.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/CommandPalette.module.css', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/ConfirmationCard.module.css', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/ConfirmationCard.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/SettingsPanel.module.css', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/SettingsPanel.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/TitleBar.module.css', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/components/TitleBar.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/hooks/useBackendBridge.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/integrations/backend.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/integrations/wsBackend.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/integrations/wsProtocol.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/main.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'jarvis/src/types/index.ts', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'persona/persona.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'persona/system_prompt.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'pyproject.toml', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'requirements.txt', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'tests/test_p0_sprint.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'tests/test_p1_sprint.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'tests/test_ws_server.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'tests/test_ws_settings.py', LF will be replaced by CRLF the next time Git touches it\nCOMMAND: git diff --check\nEXIT: 0\n"
+    },
+    "live": {
+      "command": "python scripts\\sprint11_live_demo.py",
+      "input": "four safe real local scenarios",
+      "exit_status": 0,
+      "literal_output": "2026-08-17 17:46:13 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']\n2026-08-17 17:46:17 | INFO     | jarvis.core.task_runtime     | Миссия JARVIS-2026-00001 завершена за 0.1s\n{\n  \"verified\": true,\n  \"report\": \"E:\\\\jarvis-project\\\\artifacts\\\\sprint11\\\\live_demo_report.json\",\n  \"workflow\": true,\n  \"attention\": true,\n  \"beginner\": true,\n  \"shadow\": true,\n  \"second_run_reuse\": true\n}\n",
+      "report": "E:\\jarvis-project\\artifacts\\sprint11\\live_demo_report.json",
+      "report_sha256": "505598dff1a523c56d1e58fc35c3c482ceefed71733a6018a6360dfbf30a3c68",
+      "verified": true
+    },
+    "patch_apply": {
+      "stage": "E:\\jarvis-project\\artifacts\\sprint11\\patch_stage_verified3",
+      "check_exit": 0,
+      "apply_exit": 0,
+      "files": 23,
+      "all_normalized_text_match": true,
+      "comparisons": [
+        {
+          "path": "core/agent.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/orchestrator.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/shadow/backlog.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/shadow/engine.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/__init__.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/context.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/inference.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/models.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/monitor.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/proactive.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/resources.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/service.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "core/living/workflow.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "scripts/sprint11_live_demo.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "scripts/rollback_sprint11.ps1",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "docs/sprints/SPRINT11_SPEC.md",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "tasks/sprint11_plan.md",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "tasks/sprint11_todo.md",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "tests/test_sprint11_context.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "tests/test_sprint11_workflow.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "tests/test_sprint11_proactive.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "tests/test_sprint11_resources.py",
+          "exists": true,
+          "normalized_text_match": true
+        },
+        {
+          "path": "tests/test_sprint11_service.py",
+          "exists": true,
+          "normalized_text_match": true
+        }
+      ],
+      "verified": true
+    },
+    "rollback_stage": {
+      "rollback_exit": 0,
+      "stage": "E:\\jarvis-project\\artifacts\\sprint11\\rollback_stage_verified",
+      "checks": {
+        "core\\agent.py": true,
+        "core\\orchestrator.py": true,
+        "core\\shadow\\backlog.py": true,
+        "core\\shadow\\engine.py": true,
+        "core_living_removed": true,
+        "data_living_removed": true,
+        "sprint11_test_removed": true,
+        "voice_preserved": true,
+        "sprint10_preserved": true
+      },
+      "verified": true
+    }
+  },
+  "intermediate_failures": [
+    {
+      "step": "first media fixture generation",
+      "exit_status": 1,
+      "literal_result": "Fontconfig error: Cannot load default config file",
+      "correction": "removed drawtext dependency; retained real generated H.264 media"
+    },
+    {
+      "step": "repeat live workflow during development",
+      "exit_status": 1,
+      "literal_result": "adaptive cooldown suppressed a repeated demo topic",
+      "correction": "isolated each live run while preserving production cooldown behavior"
+    },
+    {
+      "step": "Shadow live registration during development",
+      "exit_status": 2,
+      "literal_result": "prepared tool confidence=100 but explicit empty registry was replaced by DEFAULT_REGISTRY",
+      "correction": "fixed ShadowEngine to preserve an explicitly supplied empty ToolRegistry; regression test added"
+    },
+    {
+      "step": "first full regression",
+      "exit_status": 1,
+      "literal_result": "1 failed, 291 passed, 2 skipped; known web_search provider failure was classified unknown_task",
+      "correction": "known provider exhaustion now remains mode=tool, is queued for repair, and no duplicate unknown capability is created"
+    }
+  ],
+  "files": [
+    "core/agent.py",
+    "core/orchestrator.py",
+    "core/shadow/backlog.py",
+    "core/shadow/engine.py",
+    "core/living/__init__.py",
+    "core/living/context.py",
+    "core/living/inference.py",
+    "core/living/models.py",
+    "core/living/monitor.py",
+    "core/living/proactive.py",
+    "core/living/resources.py",
+    "core/living/service.py",
+    "core/living/workflow.py",
+    "scripts/sprint11_live_demo.py",
+    "scripts/rollback_sprint11.ps1",
+    "docs/sprints/SPRINT11_SPEC.md",
+    "tasks/sprint11_plan.md",
+    "tasks/sprint11_todo.md",
+    "tests/test_sprint11_context.py",
+    "tests/test_sprint11_workflow.py",
+    "tests/test_sprint11_proactive.py",
+    "tests/test_sprint11_resources.py",
+    "tests/test_sprint11_service.py"
+  ],
+  "original_preservation": [
+    {
+      "path": "core/agent.py",
+      "original": "E:\\jarvis-project\\artifacts\\sprint11\\original\\core\\agent.py",
+      "original_sha256": "803e37ef9bc3ad7e199017245a02b52808eff6e82b9ed0feb09a37478a75013d",
+      "modified_sha256": "2c33dd7bffcf1e60fdcf91f3702abcfa921c62da5060e4cb007dc570d4b45490"
+    },
+    {
+      "path": "core/orchestrator.py",
+      "original": "E:\\jarvis-project\\artifacts\\sprint11\\original\\core\\orchestrator.py",
+      "original_sha256": "e514322492d62fa04a305d0027b28a8b04e37f709274fec9b62fc7c7c0c58bce",
+      "modified_sha256": "bb175eb26cf53acc3d4539c4a274a74b857204ad677151a0224bbe3d88473561"
+    },
+    {
+      "path": "core/shadow/backlog.py",
+      "original": "E:\\jarvis-project\\artifacts\\sprint11\\original\\core\\shadow\\backlog.py",
+      "original_sha256": "459e95c1c1812e71aceb7ed6aa32f1b0c89dccf6c979a6d576095432fa96435d",
+      "modified_sha256": "20406fb34261e275916944b05ba16358c3c803e1874d97cd75872bc4d7db6e34"
+    },
+    {
+      "path": "core/shadow/engine.py",
+      "original": "E:\\jarvis-project\\artifacts\\sprint11\\original\\core\\shadow\\engine.py",
+      "original_sha256": "19468e6d8e6b8441a3a5e2bde6d4fe56d8f400911a23828ea25cd003900022d6",
+      "modified_sha256": "c5341323f0daf6d2047843e8df9e2cd9ac29ffaf4e70498145b250570287993f"
+    }
+  ],
+  "constraints": {
+    "frontend_changed": false,
+    "new_llm_models": [],
+    "cloud_context_export": false,
+    "continuous_screenshots": false,
+    "raw_keystrokes": false,
+    "passwords_saved": false
+  }
+}

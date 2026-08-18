@@ -14,13 +14,54 @@
   display: flex; flex-direction: column; gap: var(--space-3);
 }
 
-.empty {
-  height: 100%; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: var(--space-2);
+/* ---- Olympus welcome (empty state) ---- */
+.welcome {
+  height: 100%; min-height: 60vh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: var(--space-4);
+  text-align: center;
+  padding: 0 var(--space-6);
 }
-.emptyTitle { font-family: var(--font-mono); letter-spacing: 0.3em; color: var(--text-muted); font-size: var(--text-sm); }
-.emptySub { color: var(--text-muted); font-size: var(--text-xs); }
+.welcomeCore {
+  display: flex; align-items: center; justify-content: center;
+  width: 104px; height: 104px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, rgba(34,211,238,0.10), transparent 65%);
+  animation: coreBreathe 5.5s ease-in-out infinite;
+}
+.welcomeTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl); font-weight: 600;
+  letter-spacing: 0.01em; color: var(--text-primary);
+}
+.welcomeSub {
+  max-width: 42ch;
+  font-size: var(--text-base); line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+}
+.welcomeHints {
+  display: flex; align-items: center; gap: var(--space-4);
+  margin-top: var(--space-2);
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  letter-spacing: 0.04em; color: var(--text-muted);
+}
+.welcomeHints kbd {
+  padding: 1px 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+.welcomeDot {
+  width: 3px; height: 3px; border-radius: 50%;
+  background: var(--text-muted);
+}
+@keyframes coreBreathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50%      { transform: scale(1.06); opacity: 1; }
+}
 
+/* ---- live status line ---- */
 .live {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) 0;
@@ -33,7 +74,23 @@
 @keyframes blink { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
 .liveText { text-transform: uppercase; }
 
+/* thinking: three-dot wave */
+.dots { display: inline-flex; align-items: flex-end; gap: 4px; height: 12px; }
+.dots span {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--accent-cyan);
+  animation: dotWave 1.15s ease-in-out infinite;
+}
+.dots span:nth-child(2) { animation-delay: 0.15s; }
+.dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dotWave {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50%      { opacity: 1;   transform: translateY(-4px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stream { scroll-behavior: auto; }
   .liveDot { animation: none; }
+  .welcomeCore { animation: none; }
+  .dots span { animation: none; opacity: 0.7; }
 }

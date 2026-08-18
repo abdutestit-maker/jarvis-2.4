@@ -1,0 +1,109 @@
+.............................................ss......................... [ 17%]
+........................................................................ [ 34%]
+........................................................................ [ 52%]
+........................................................................ [ 69%]
+........................................................................ [ 86%]
+...........................................F...........                  [100%]
+================================== FAILURES ===================================
+_________________ test_ws_command_roundtrip_and_confirmation __________________
+
+    def test_ws_command_roundtrip_and_confirmation():
+        """Транспортный тест WS-моста (без pytest-asyncio: гоним через asyncio.run)."""
+    
+        async def _run() -> dict:
+            orch = FakeOrchestrator()
+            # Sprint 5: greeting отключён для чистоты assert'ов.
+            orch.settings = Settings()  # noqa: PLW2901
+            orch.settings.launcher.greeting_enabled = False
+            server = JarvisWSServer(orch, host="127.0.0.1", port=8799)
+            server.start()
+    
+            received: list[dict] = []
+    
+            # Клиент
+            async with websockets.connect("ws://127.0.0.1:8799") as ws:  # type: ignore
+                first = json.loads(await ws.recv())
+                assert first["type"] == "state" and first["state"] == "idle", first
+    
+                # Обычная команда -> ответ
+                await ws.send(json.dumps({"type": "command", "text": "привет"}))
+                deadline = time.time() + 5
+                got_jarvis_end = False
+                while time.time() < deadline:
+                    try:
+                        msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=1))
+                    except asyncio.TimeoutError:
+                        continue
+                    received.append(msg)
+                    if msg.get("type") == "event" and msg["event"]["type"] == "event:jarvis:end":
+                        got_jarvis_end = True
+                        break
+    
+                # Опасная команда -> confirmation_required
+                await ws.send(json.dumps({"type": "command", "text": "опасно удалить"}))
+                deadline = time.time() + 5
+                cid = None
+                while time.time() < deadline:
+                    try:
+                        msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=1))
+                    except asyncio.TimeoutError:
+                        continue
+                    received.append(msg)
+                    if msg.get("type") == "confirmation_required":
+                        cid = msg["confirmation_id"]
+                        await ws.send(json.dumps({
+                            "type": "confirm",
+                            "confirmation_id": cid,
+                            "approve": True,
+                        }))
+                        break
+    
+            server.shutdown()
+            return {
+                "commands": orch.commands,
+                "confirms": orch.confirms,
+                "received": received,
+                "got_jarvis_end": got_jarvis_end,
+                "cid": cid,
+            }
+    
+        result = asyncio.run(_run())
+    
+        # Доказательства:
+        assert "привет" in result["commands"], "команда дошла до handle_input"
+        assert result["got_jarvis_end"], "реальный ответ от backend транслирован в event"
+        assert any(m.get("type") == "confirmation_required" for m in result["received"]), \
+            "HIGH-risk подтверждение дошло до клиента"
+>       assert ("cid-123", True) in result["confirms"], \
+            "confirm перенаправлен в answer_confirmation"
+E       AssertionError: confirm перенаправлен в answer_confirmation
+E       assert ('cid-123', True) in []
+
+tests\test_ws_server.py:139: AssertionError
+---------------------------- Captured stdout call -----------------------------
+2026-08-17 20:27:50 | INFO     | jarvis.core.voice.stt        | STT отключён (settings.voice.stt_enabled=False)
+2026-08-17 20:27:50 | INFO     | jarvis.core.ws_server        | WS-сервер стартует на ws://127.0.0.1:8799
+2026-08-17 20:27:50 | INFO     | jarvis.core.ws_server        | WS-сервер слушает ws://127.0.0.1:8799
+2026-08-17 20:27:50 | INFO     | jarvis.core.ws_server        | WS клиент подключён: ('127.0.0.1', 62119)
+2026-08-17 20:27:50 | INFO     | jarvis.core.ws_server        | Приветствие сессии: Вечер, привет. Я тут, если что.
+2026-08-17 20:27:50 | INFO     | jarvis.core.ws_server        | WS клиент отключён: ('127.0.0.1', 62119)
+------------------------------ Captured log call ------------------------------
+INFO     jarvis.core.voice.stt:stt.py:61 STT отключён (settings.voice.stt_enabled=False)
+INFO     jarvis.core.ws_server:ws_server.py:916 WS-сервер стартует на ws://127.0.0.1:8799
+INFO     jarvis.core.ws_server:ws_server.py:926 WS-сервер слушает ws://127.0.0.1:8799
+INFO     jarvis.core.ws_server:ws_server.py:296 WS клиент подключён: ('127.0.0.1', 62119)
+INFO     jarvis.core.ws_server:ws_server.py:270 Приветствие сессии: Вечер, привет. Я тут, если что.
+INFO     jarvis.core.ws_server:ws_server.py:325 WS клиент отключён: ('127.0.0.1', 62119)
+============================== warnings summary ===============================
+core\ws_server.py:58
+  E:\jarvis-project\core\ws_server.py:58: DeprecationWarning: websockets.server.serve is deprecated
+    from websockets.server import serve
+
+C:\Users\WwW\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\websockets\legacy\__init__.py:6
+  C:\Users\WwW\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\websockets\legacy\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+    warnings.warn(  # deprecated in 14.0 - 2024-11-09
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_ws_server.py::test_ws_command_roundtrip_and_confirmation - ...
+1 failed, 412 passed, 2 skipped, 2 warnings in 89.43s (0:01:29)

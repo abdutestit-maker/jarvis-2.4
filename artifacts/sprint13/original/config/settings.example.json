@@ -1,0 +1,141 @@
+{
+  "_comment": "Скопируйте этот файл в config/settings.json и заполните ключи. Пустой ключ = тир недоступен, совет мудрецов его пропустит.",
+
+  "api_keys": {
+    "deepseek": "",
+    "kimi": "",
+    "claude": "",
+    "openrouter": ""
+  },
+
+  "api_endpoints": {
+    "deepseek": "https://api.deepseek.com/v1",
+    "kimi": "https://api.moonshot.ai/v1",
+    "claude": "https://api.anthropic.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1"
+  },
+
+  "model_tiers": {
+    "fast": "qwen-4b-local",
+    "analyst": "deepseek-v4-flash",
+    "coder": "kimi-k3",
+    "architect": "claude-opus-5"
+  },
+
+  "tier_providers": {
+    "fast": "local",
+    "analyst": "deepseek",
+    "coder": "kimi",
+    "architect": "claude"
+  },
+
+  "primary_brain": "analyst",
+
+  "local_model": {
+    "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+    "embedding_gguf_path": "",
+    "n_gpu_layers": -1,
+    "n_ctx": 4096,
+    "n_threads": 0,
+    "n_batch": 1024,
+    "quantization": "Q5_K_M",
+    "temperature": 0.6,
+    "max_tokens": 512,
+    "chat_format": null,
+    "verbose": false
+  },
+  "local_coder_model": {
+    "gguf_path": "",
+    "n_gpu_layers": -1,
+    "n_ctx": 8192,
+    "n_threads": 0,
+    "n_batch": 512,
+    "quantization": "Q5_K_M",
+    "temperature": 0.2,
+    "max_tokens": 2048,
+    "chat_format": null,
+    "verbose": false
+  },
+
+  "voice": {
+    "tts_enabled": true,
+    "tts_always_on": true,
+    "provider": "piper",
+    "language": "ru",
+    "voice": "ru_RU-dmitri-medium",
+    "fallback": "none",
+    "stt_enabled": false,
+    "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
+    "piper_binary_path": "piper",
+    "speed": 1.0,
+    "volume": 1.0,
+    "piper_speaker_id": 0,
+    "piper_length_scale": 1.0,
+    "piper_noise_scale": 0.667,
+    "piper_noise_w": 0.8,
+    "piper_voices": [],
+    "modes": {
+      "normal": {"rate": 1.0, "volume": 1.0},
+      "focused": {"rate": 1.03, "volume": 1.0},
+      "quiet": {"rate": 0.96, "volume": 0.72},
+      "urgent": {"rate": 1.04, "volume": 1.0},
+      "amused": {"rate": 1.02, "volume": 0.95},
+      "background": {"rate": 0.98, "volume": 0.85}
+    }
+  },
+
+  "paths": {
+    "data_dir": "data",
+    "documents_dir": "data/documents",
+    "memory_dir": "data/memory",
+    "models_dir": "data/models",
+    "logs_dir": "data/logs",
+    "profile_dir": "data/profile",
+    "graph_dir": "data/graph"
+  },
+
+  "persona": {
+    "name": "Джарвис",
+    "address": "сэр",
+    "persona_file": "persona/persona.md",
+    "language": "ru"
+  },
+
+  "limits": {
+    "short_memory_size": 20,
+    "response_timeout_sec": 15,
+    "proactive_cooldown_min": 30,
+    "local_latency_target_sec": 1.5,
+    "max_retries": 3,
+    "rag_top_k": 3,
+    "memory_top_k": 5,
+    "max_action_iterations": 6
+  },
+
+  "stt": {
+    "enabled": false,
+    "model": "faster-whisper-small",
+    "vad": "webrtc",
+    "language": "auto",
+    "hotkey_mode": "hold_ctrl_space"
+  },
+  "wake_word": {
+    "enabled": false,
+    "phrase": "JARVIS",
+    "sensitivity": 0.5
+  },
+  "shadow": {
+    "enabled": true,
+    "auto_generate": true,
+    "interval_sec": 300,
+    "code_model_path": "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
+  },
+  "system_triggers": [],
+
+  "logging": {
+    "level": "INFO",
+    "console": true,
+    "max_bytes": 5242880,
+    "backup_count": 5
+  }
+}

@@ -74,6 +74,9 @@ def test_ws_command_roundtrip_and_confirmation():
 
     async def _run() -> dict:
         orch = FakeOrchestrator()
+        # Sprint 5: greeting отключён для чистоты assert'ов.
+        orch.settings = Settings()  # noqa: PLW2901
+        orch.settings.launcher.greeting_enabled = False
         server = JarvisWSServer(orch, host="127.0.0.1", port=8799)
         server.start()
 

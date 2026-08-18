@@ -1,0 +1,46 @@
+{
+  "candidate": {
+    "name": "Notepad++",
+    "package_id": "Notepad++.Notepad++",
+    "official_source": "winget://Notepad++.Notepad++",
+    "source_kind": "package_manager",
+    "package_manager": "winget",
+    "installer_type": "nullsoft",
+    "architecture": "x64",
+    "version": "8.9.7",
+    "publisher": "Notepad++ Team",
+    "signature_expected": true,
+    "trusted": true,
+    "download_url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.9.7/npp.8.9.7.Installer.x64.exe",
+    "sha256": "1884e093bae261c4942210334e1f2eae71354913e4ded3cc1a4a18c5320741ec",
+    "expected_executable": "notepad++.exe",
+    "silent_args": [],
+    "launch_args": [
+      "-multiInst",
+      "-nosession"
+    ]
+  },
+  "installer_exit": 0,
+  "installed": true,
+  "version": "8.9.7",
+  "executable": "C:\\Program Files\\Notepad++\\notepad++.exe",
+  "signature_status": "Valid",
+  "launched": true,
+  "process_id": 8424,
+  "window": {
+    "handle": 1180240,
+    "title": "новый 1 - Notepad++",
+    "process_id": 8424
+  },
+  "checks": {
+    "architecture_compatible": true,
+    "installed_package": true,
+    "version_detected": true,
+    "executable_exists": true,
+    "signature": true,
+    "application_launched": true,
+    "window_appeared": true
+  },
+  "verified": true,
+  "failed_checks": []
+}

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from core.llm import breaker
 from core.llm.backend import (
     BackendConfigError,
     BackendUnavailable,
@@ -26,6 +27,7 @@ from core.llm.factory import (
     clear_backend_cache,
     get_embedding_backend,
     get_llm_backend,
+    get_offline_backend,
     warm_up_backends,
 )
 from core.llm.local_qwen import LocalQwenBackend
@@ -59,10 +61,13 @@ __all__ = [
     "tier_purpose",
     # фабрика
     "get_llm_backend",
+    "get_offline_backend",
     "get_embedding_backend",
     "available_backends",
     "warm_up_backends",
     "clear_backend_cache",
+    # circuit breaker (Sprint 3)
+    "breaker",
     # утилиты формата сообщений
     "normalize_messages",
     "prepend_system",

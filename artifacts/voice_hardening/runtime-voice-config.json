@@ -1,0 +1,46 @@
+{
+  "tts_enabled": true,
+  "provider": "piper",
+  "language": "ru",
+  "voice": "ru_RU-dmitri-medium",
+  "fallback": "none",
+  "stt_enabled": false,
+  "stt_model": "small",
+  "stt_device": "cpu",
+  "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
+  "piper_binary_path": "piper",
+  "speed": 1.0,
+  "volume": 1.0,
+  "piper_speaker_id": 0,
+  "piper_length_scale": 1.0,
+  "piper_noise_scale": 0.667,
+  "piper_noise_w": 0.8,
+  "piper_voices": [],
+  "tts_always_on": true,
+  "modes": {
+    "normal": {
+      "rate": 1.0,
+      "volume": 1.0
+    },
+    "focused": {
+      "rate": 1.03,
+      "volume": 1.0
+    },
+    "quiet": {
+      "rate": 0.96,
+      "volume": 0.72
+    },
+    "urgent": {
+      "rate": 1.04,
+      "volume": 1.0
+    },
+    "amused": {
+      "rate": 1.02,
+      "volume": 0.95
+    },
+    "background": {
+      "rate": 0.98,
+      "volume": 0.85
+    }
+  }
+}

@@ -1,0 +1,412 @@
+{
+  "schema": "atlas.metacognition.audit.v1",
+  "created_at": "2026-08-17T14:52:38.122923+00:00",
+  "beliefs": [
+    {
+      "key": "goal.outcome.753c943212aa70d3",
+      "claim": "Desired state for task: enable fixture feature",
+      "value": true,
+      "status": "known",
+      "confidence": 0.99,
+      "evidence_refs": [
+        {
+          "ref_id": "strategy:atomic_config",
+          "source_type": "direct_observation",
+          "origin_id": "verification:goal.outcome.753c943212aa70d3:success",
+          "reliability": 1.0,
+          "observed_at": "2026-08-17T14:52:38.019134+00:00",
+          "verified": true,
+          "direct": true,
+          "memory_confidence": null,
+          "provider_uncertainty": 0.0
+        }
+      ],
+      "source_types": [
+        "direct_observation"
+      ],
+      "freshness": {
+        "observed_at": "2026-08-17T14:52:38.019134+00:00",
+        "ttl_seconds": 2592000,
+        "is_volatile": false
+      },
+      "verification_status": "verified",
+      "contradictions": [],
+      "created_at": "2026-08-17T14:52:38.019134+00:00",
+      "updated_at": "2026-08-17T14:52:38.019134+00:00",
+      "supersedes": []
+    },
+    {
+      "key": "goal.outcome.1eb7c23d092b3e03",
+      "claim": "Desired state for task: enable fixture feature again",
+      "value": true,
+      "status": "known",
+      "confidence": 0.99,
+      "evidence_refs": [
+        {
+          "ref_id": "strategy:atomic_config",
+          "source_type": "direct_observation",
+          "origin_id": "verification:goal.outcome.1eb7c23d092b3e03:success",
+          "reliability": 1.0,
+          "observed_at": "2026-08-17T14:52:38.093812+00:00",
+          "verified": true,
+          "direct": true,
+          "memory_confidence": null,
+          "provider_uncertainty": 0.0
+        }
+      ],
+      "source_types": [
+        "direct_observation"
+      ],
+      "freshness": {
+        "observed_at": "2026-08-17T14:52:38.093812+00:00",
+        "ttl_seconds": 2592000,
+        "is_volatile": false
+      },
+      "verification_status": "verified",
+      "contradictions": [],
+      "created_at": "2026-08-17T14:52:38.093812+00:00",
+      "updated_at": "2026-08-17T14:52:38.093812+00:00",
+      "supersedes": []
+    },
+    {
+      "key": "fixture.version",
+      "claim": "Installed fixture version",
+      "value": "2.0",
+      "status": "observed",
+      "confidence": 0.99,
+      "evidence_refs": [
+        {
+          "ref_id": "disk:fixture_app.json:version",
+          "source_type": "local_system",
+          "origin_id": "local_file:fixture_app.json",
+          "reliability": 1.0,
+          "observed_at": "2026-08-17T17:00:00+00:00",
+          "verified": true,
+          "direct": true,
+          "memory_confidence": null,
+          "provider_uncertainty": 0.0
+        }
+      ],
+      "source_types": [
+        "local_system"
+      ],
+      "freshness": {
+        "observed_at": "2026-08-17T17:00:00+00:00",
+        "ttl_seconds": 15552000,
+        "is_volatile": false
+      },
+      "verification_status": "verified",
+      "contradictions": [
+        "previous:'1.0' (memory)"
+      ],
+      "created_at": "2026-08-17T17:00:00+00:00",
+      "updated_at": "2026-08-17T17:00:00+00:00",
+      "supersedes": [
+        "memory:old-version"
+      ]
+    }
+  ],
+  "failure_episodes": [
+    {
+      "goal": "enable fixture feature",
+      "task_class": "fixture_config",
+      "strategy": "cached_provider",
+      "failure_category": "expectation_mismatch",
+      "observed_mismatch": {
+        "feature_enabled": {
+          "expected": true,
+          "actual": false
+        }
+      },
+      "environment_fingerprint": "30de49e77249da07f36ebe2b",
+      "confidence": 0.9,
+      "successful_repair": "atomic_config",
+      "evidence_refs": [
+        "disk:fixture_app.json:feature_enabled"
+      ],
+      "episode_id": "cbc64ed477154f82b08bda6edc32f689",
+      "created_at": "2026-08-17T14:52:37.971453+00:00"
+    }
+  ],
+  "events": [
+    {
+      "type": "belief_transition",
+      "timestamp": "2026-08-17T14:52:37.897721+00:00",
+      "payload": {
+        "key": "fixture.version",
+        "transition": "created",
+        "status": "inferred",
+        "confidence": 0.047,
+        "evidence_refs": [
+          "memory:old-version"
+        ],
+        "confidence_inputs": {
+          "source_reliability": 0.65,
+          "direct_observation": 0.0,
+          "verified_evidence": 0.0,
+          "freshness": 0.0,
+          "independent_sources": 1,
+          "memory_confidence": 0.7,
+          "contradictions": 0,
+          "successful_prior_episodes": 0,
+          "provider_uncertainty": 0.0
+        },
+        "contradictions": []
+      }
+    },
+    {
+      "type": "belief_transition",
+      "timestamp": "2026-08-17T14:52:37.907758+00:00",
+      "payload": {
+        "key": "fixture.version",
+        "transition": "superseded_by_stronger_evidence",
+        "status": "observed",
+        "confidence": 0.99,
+        "evidence_refs": [
+          "disk:fixture_app.json:version"
+        ],
+        "confidence_inputs": {
+          "source_reliability": 1.0,
+          "direct_observation": 1.0,
+          "verified_evidence": 1.0,
+          "freshness": 1.0,
+          "independent_sources": 1,
+          "memory_confidence": 0.0,
+          "contradictions": 1,
+          "successful_prior_episodes": 0,
+          "provider_uncertainty": 0.0
+        },
+        "contradictions": [
+          "previous:'1.0' (memory)"
+        ]
+      }
+    },
+    {
+      "type": "expectation",
+      "timestamp": "2026-08-17T14:52:37.919744+00:00",
+      "payload": {
+        "action_id": "enable-feature",
+        "goal": "enable fixture feature",
+        "strategy": "cached_provider",
+        "expected_effect": {
+          "feature_enabled": true
+        },
+        "verification_method": "read fixture JSON independently",
+        "failure_indicators": [
+          "feature_enabled remains false"
+        ],
+        "created_at": "2026-08-17T14:52:37.911490+00:00"
+      }
+    },
+    {
+      "type": "action",
+      "timestamp": "2026-08-17T14:52:37.955969+00:00",
+      "payload": {
+        "strategy": "cached_provider",
+        "reported_success": true
+      }
+    },
+    {
+      "type": "observation",
+      "timestamp": "2026-08-17T14:52:37.963874+00:00",
+      "payload": {
+        "strategy": "cached_provider",
+        "observed": {
+          "feature_enabled": false
+        },
+        "evidence_refs": [
+          "disk:fixture_app.json:feature_enabled"
+        ]
+      }
+    },
+    {
+      "type": "surprise",
+      "timestamp": "2026-08-17T14:52:37.970447+00:00",
+      "payload": {
+        "action_id": "enable-feature",
+        "expected": {
+          "feature_enabled": true
+        },
+        "observed": {
+          "feature_enabled": false
+        },
+        "mismatch": {
+          "feature_enabled": {
+            "expected": true,
+            "actual": false
+          }
+        },
+        "failure_indicators": [
+          "feature_enabled remains false"
+        ],
+        "evidence_refs": [
+          "disk:fixture_app.json:feature_enabled"
+        ],
+        "created_at": "2026-08-17T14:52:37.957025+00:00"
+      }
+    },
+    {
+      "type": "strategy_change",
+      "timestamp": "2026-08-17T14:52:37.980117+00:00",
+      "payload": {
+        "failed_strategy": "cached_provider",
+        "remaining_attempts": 2
+      }
+    },
+    {
+      "type": "expectation",
+      "timestamp": "2026-08-17T14:52:37.987277+00:00",
+      "payload": {
+        "action_id": "enable-feature",
+        "goal": "enable fixture feature",
+        "strategy": "atomic_config",
+        "expected_effect": {
+          "feature_enabled": true
+        },
+        "verification_method": "read fixture JSON independently",
+        "failure_indicators": [
+          "feature_enabled remains false"
+        ],
+        "created_at": "2026-08-17T14:52:37.911490+00:00"
+      }
+    },
+    {
+      "type": "action",
+      "timestamp": "2026-08-17T14:52:37.993984+00:00",
+      "payload": {
+        "strategy": "atomic_config",
+        "reported_success": true
+      }
+    },
+    {
+      "type": "observation",
+      "timestamp": "2026-08-17T14:52:38.002059+00:00",
+      "payload": {
+        "strategy": "atomic_config",
+        "observed": {
+          "feature_enabled": true
+        },
+        "evidence_refs": [
+          "disk:fixture_app.json:feature_enabled"
+        ]
+      }
+    },
+    {
+      "type": "verification",
+      "timestamp": "2026-08-17T14:52:38.016129+00:00",
+      "payload": {
+        "verified": true,
+        "strategy": "atomic_config"
+      }
+    },
+    {
+      "type": "belief_transition",
+      "timestamp": "2026-08-17T14:52:38.027626+00:00",
+      "payload": {
+        "key": "goal.outcome.753c943212aa70d3",
+        "transition": "created",
+        "status": "known",
+        "confidence": 0.99,
+        "evidence_refs": [
+          "strategy:atomic_config"
+        ],
+        "confidence_inputs": {
+          "source_reliability": 1.0,
+          "direct_observation": 1.0,
+          "verified_evidence": 1.0,
+          "freshness": 1.0,
+          "independent_sources": 1,
+          "memory_confidence": 0.0,
+          "contradictions": 0,
+          "successful_prior_episodes": 0,
+          "provider_uncertainty": 0.0
+        },
+        "contradictions": []
+      }
+    },
+    {
+      "type": "expectation",
+      "timestamp": "2026-08-17T14:52:38.056204+00:00",
+      "payload": {
+        "action_id": "enable-feature",
+        "goal": "enable fixture feature",
+        "strategy": "atomic_config",
+        "expected_effect": {
+          "feature_enabled": true
+        },
+        "verification_method": "read fixture JSON independently",
+        "failure_indicators": [
+          "feature_enabled remains false"
+        ],
+        "created_at": "2026-08-17T14:52:37.911490+00:00"
+      }
+    },
+    {
+      "type": "action",
+      "timestamp": "2026-08-17T14:52:38.066835+00:00",
+      "payload": {
+        "strategy": "atomic_config",
+        "reported_success": true
+      }
+    },
+    {
+      "type": "observation",
+      "timestamp": "2026-08-17T14:52:38.074401+00:00",
+      "payload": {
+        "strategy": "atomic_config",
+        "observed": {
+          "feature_enabled": true
+        },
+        "evidence_refs": [
+          "disk:fixture_app.json:feature_enabled"
+        ]
+      }
+    },
+    {
+      "type": "verification",
+      "timestamp": "2026-08-17T14:52:38.084628+00:00",
+      "payload": {
+        "verified": true,
+        "strategy": "atomic_config"
+      }
+    },
+    {
+      "type": "belief_transition",
+      "timestamp": "2026-08-17T14:52:38.100369+00:00",
+      "payload": {
+        "key": "goal.outcome.1eb7c23d092b3e03",
+        "transition": "created",
+        "status": "known",
+        "confidence": 0.99,
+        "evidence_refs": [
+          "strategy:atomic_config"
+        ],
+        "confidence_inputs": {
+          "source_reliability": 1.0,
+          "direct_observation": 1.0,
+          "verified_evidence": 1.0,
+          "freshness": 1.0,
+          "independent_sources": 1,
+          "memory_confidence": 0.0,
+          "contradictions": 0,
+          "successful_prior_episodes": 0,
+          "provider_uncertainty": 0.0
+        },
+        "contradictions": []
+      }
+    },
+    {
+      "type": "provenance",
+      "timestamp": "2026-08-17T14:52:38.120914+00:00",
+      "payload": {
+        "key": "fixture.version",
+        "source_types": [
+          "local_system"
+        ],
+        "evidence_refs": [
+          "disk:fixture_app.json:version"
+        ]
+      }
+    }
+  ]
+}

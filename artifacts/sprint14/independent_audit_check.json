@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "artifact": "E:\\jarvis-project\\artifacts\\sprint14\\live_demo_final\\sprint14_audit_bundle.json",
+  "sha256": "a01690e525c9238ecee6a8edf0bd0b4364315b5b16636ce845c1899cdce63c10",
+  "event_count": 18,
+  "belief_count": 3,
+  "failure_episode_count": 1,
+  "checks": {
+    "schema": true,
+    "required_event_types": true,
+    "confidence_inputs": true,
+    "contradiction_preserved": true,
+    "failure_episode": true,
+    "successful_repair": true,
+    "provenance_refs": true,
+    "no_private_reasoning": true,
+    "no_raw_secret": true
+  }
+}

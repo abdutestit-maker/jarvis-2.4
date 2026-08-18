@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "project_root": "E:\\jarvis-project\\artifacts\\sprint14\\rollback_probe",
+  "backup_root": "E:\\jarvis-project\\artifacts\\sprint14\\original",
+  "restored": [
+    "core\\cognitive\\models.py",
+    "core\\cognitive\\orchestrator.py",
+    "core\\cognitive\\state.py"
+  ],
+  "removed": [
+    "core\\metacognition\\__init__.py",
+    "core\\metacognition\\audit.py",
+    "core\\metacognition\\calibration.py",
+    "core\\metacognition\\correction.py",
+    "core\\metacognition\\engine.py",
+    "core\\metacognition\\expectation.py",
+    "core\\metacognition\\failures.py",
+    "core\\metacognition\\freshness.py",
+    "core\\metacognition\\models.py",
+    "core\\metacognition\\store.py",
+    "docs\\sprints\\SPRINT14_SPEC.md",
+    "scripts\\sprint14_live_demo.py",
+    "tests\\test_sprint14_adversarial.py",
+    "tests\\test_sprint14_correction.py",
+    "tests\\test_sprint14_epistemic.py",
+    "tests\\test_sprint14_integration.py",
+    "tests\\test_sprint14_knowledge.py",
+    "tests\\test_sprint14_live_demo.py",
+    "scripts\\rollback_sprint14.ps1"
+  ]
+}

@@ -1,0 +1,2770 @@
+diff --git a/.gitignore b/.gitignore
+index 7e34536..cf01904 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -5,6 +5,11 @@ dist/
+ __pycache__/
+ .pytest_cache/
+ data/
++!data/
++data/*
++!data/tools/
++!data/tools/templates/
++!data/tools/templates/basic_tool.py
+ *.gguf
+ *.onnx
+ *.onnx.json
+@@ -26,6 +31,23 @@ venv/
+ 
+ # debug artifacts (live-run screenshots)
+ _live_screenshot.png
++_live_probe_result.json
++_cfgprobe.txt
++_fetest.txt
++_tsc.txt
++_shots/
++NUL
+ 
+ # browser-automation (SPRINT P2-B): user-data-dir браузера (куки/сессии) — не коммитить
+ browser-user-data/
++
++# generated verification workspaces and local media (keep compact manifests/reports)
++artifacts/**/patch_probe/
++artifacts/**/patch_stage*/
++artifacts/**/rollback_probe*/
++artifacts/**/rollback_verification/workspace*/
++artifacts/**/live_workspace/
++artifacts/**/source_snapshots/
++artifacts/**/*.wav
++artifacts/**/*.tmp
++artifacts/**/test_installations/
+diff --git a/README.md b/README.md
+index 23daaf268b8cf86c5e413703da54578ad05ccda6..e63a8d71d9592db8e83204a6bdf5a612c6dd9f82 100644
+GIT binary patch
+literal 3301
+zcma)8+fEx-6n&qsI7(hx$u{as9}-m+AqG)FpcqK|<QeSaFl9Vr%?zQunOkT@5|k)U
+zm71thKL8vY4A|xu&iq2Yq-*UnCP1mw2VgjteOY_$wa<O^LutIUP+BfcmntRox&2O=
+z3o|t5=Ez)RFU=r3FlWm2vMqCo<qI>w_qOR?+r$=coH@?_G4<3B>(NG1G)LJMZo;sb
+z8)Vxm+fwGEI2mGRX!->Or$?rr9cJ6v%j|VQRaQORR^{-SAL@cL;kCRKKk(Dd(UN);
+zdw!@Uy_MLnA#P<(V2RnB;%6ZF^i}r4^svaV`^we7>e_m$)#n#)RkV`m___Ulu4BKk
+z>6V;IEB3=wee<ogb_`1$0B~r!h`KDdecYKvY7Z1_4pg?6wZ$L6QgGX4CPQS3Sd?s?
+zN~#?!wz1ejsz(e9z?xpc!O}78Bjyp<f>XyF@t`>e9y|Ce6~fsru!AK+Im9*8h#vbu
+z7f}cbm(~p;Zo`MgL2fZDf_<DFFuSff%RTk7!;<6Nzpu=j?0{=o+j4<GUS>PEb?!K>
+z>$ai|9Ve?g2%Oetx*CP5*i^MB)}@W4Drm+$<~ZgZLA%8-xJJ#1N!NTr+<gfc#)WQR
+z;3+Z%&WPYpxwR;4_|L`?ou+>HEGhkxM4`(Br>2%B)sGuG#6RZLaqC{{jWwgX4idMd
+z%m)C;g7n2yTe%xv++1%}gQ(^O)hMhcsTZfPWO4c^;Q(!^@Z@-9u?T2^rZOE>_jEG~
+zi_VvdnyxT)n7xt;_p=?fG@Y0ISXg$>%hwV?1yC0v30GJ@1skPeL#Y8cfS~^bHXUGo
+zb0fDqz^zZDvn|q176NNzOq-w|K#TR5B{^t1mS@>zXGpEDvH5}H6qP#_dBIfdwN_mb
+zgezLwh&yarsg%9mE2tIVxCRmwl=O_R>nhgCdQ(57xrwOR^wXveQ`@)JDlCw0xJ@vm
+zGM1Vk9@fA}ME^T>s5oGav@(Ofz}guz7voEz-+;fTQ5@7Osh8?J=3V9w+8l_iSeY4S
+z`?LmJL|lYSbsg4p0f$g>3I!DbzUqFXaTUB5*5@jD)Rd9|PBE%|M2IecMfNugkiL}1
+z9_yyuxkr`q!g5)JWpet-WBHh$8Gj-l<)6wEON(}Qxx6qv`Lk<1UWwYZ8jvU8@UG|x
+z)CYZ>?J?>dV1y{(w1e;0_^*eJG>QULgBY4qke0lZ1h0Bc?$G9~t~X~A#A9+iNn<bd
+zqi{xhaj4@Q0cyn#a~CW{M7nHSl!QGp0tG;#4>qEBtr0-7N1+g5hH?UsQ1@(G+*w^;
+z(5vv2ctP&z#vsDkLn{-PNSK}=;v~kUFhUwCPnXhh3@@lQqzf>;%679|1Pnr8t0OKK
+zb+Z-4UNDPH<4q9}w-RXGnuTiQ0sKp833T?71X+pJ!#a3QGSHEPC;S<J6P%Rf_mK_K
+z=BS%qnEJIP3_!P_-0@^>4&0lM0>8G&g$bBUb=>f3>ADx>y@K_5bXF8%<+&Hkcq<r4
+zXsQ`1*F3t6{GHXws8^XF#{zJ+Tsfh>+PtxdA#(`&kin$FDySVb8k`lB-xE{}Q3E0p
+zOe)L=07&hqTe@wR73Tm)1MZ9l2Yb2q5Zq*$ELi*o_^_CFB-ql&6|1%oY&f)GBd}cH
+zuAUrr27uZ!10Z+iFC;|9f0=cJd^B_IT*d)#gX0rK#NRe^rhMDca7_-Ow11;m0F8+d
+zGz7;d2dWH_MG-l+7&;}NmZZAS4BCdql4a;MyeAOkK7|Swx4=9O%&tNc)%1#2TN7xl
+zhF*fY(9k;uER^I1?XCWcF0sW>q65)r^M|dfI5|`BiwD*B;4L08Zf!k|A-C1kZ-UBS
+z-C@z5m$+@yutZGxYvC%!$JK0L3DL?J#0RM1jw+Q(xtmttZC0D>iC=RcLhze-|LC|V
+zj{_;ZynAldQ7C}gSU2zClDq(Ws1P=DcGR|Y0T}NPI2?APmJX|4tL3VOm!zuYrK@@5
+zVvZ!f;DZ8{kUl_u7bw*UAnXeDbMjqdI<AO3{sy2wnj;$lXQ2`y&PSRhAhGHSYY{m0
+zhH0Lw5o*~R%htTx*esS6I7$8FT!RUmH^;n0YVXKz=s3to4q=HDAB`+|`Q^RAR{_NZ
+zUK~m2uIC*BW8X8uZE*a(kavq@<+x(gvFQm%K4Fmti)UYAT&I9rn6f=Ydcvkq3x2Yu
+zrZ8x8@_rD!EsW5Y|9%qUai~$LVx+u!J!+-NclYk8VmzKd4&NfqHnQGDXs|=!girfY
+swW(zLOjupL#vh=Uqgpa%2kG>3xjKs>Ta{TlJu$vGJ@=&4tV1sU0k@lZQ~&?~
+
+literal 28
+icmezWPnki1A&ViAp@^Z3A(Nq)K^I6HGVn5RF#rH>ZUwsl
+
+diff --git a/config/settings.example.json b/config/settings.example.json
+index 73e8072..c1a8a9e 100644
+--- a/config/settings.example.json
++++ b/config/settings.example.json
+@@ -30,6 +30,7 @@
+   },
+ 
+   "primary_brain": "analyst",
++  "warmup_local_on_start": true,
+ 
+   "local_model": {
+     "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+@@ -59,8 +60,13 @@
+ 
+   "voice": {
+     "tts_enabled": true,
++    "tts_always_on": true,
++    "provider": "piper",
++    "language": "ru",
++    "voice": "ru_RU-dmitri-medium",
++    "fallback": "none",
+     "stt_enabled": false,
+-    "piper_model_path": "data/models/piper/jarvis-medium.onnx",
++    "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
+     "piper_binary_path": "piper",
+     "speed": 1.0,
+     "volume": 1.0,
+@@ -68,24 +74,15 @@
+     "piper_length_scale": 1.0,
+     "piper_noise_scale": 0.667,
+     "piper_noise_w": 0.8,
+-    "piper_voices": [
+-      {
+-        "model_path": "data/models/piper/jarvis-medium.onnx",
+-        "language": "en",
+-        "speaker_id": 0,
+-        "length_scale": 1.0,
+-        "noise_scale": 0.667,
+-        "noise_w": 0.8
+-      },
+-      {
+-        "model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
+-        "language": "ru",
+-        "speaker_id": 0,
+-        "length_scale": 1.0,
+-        "noise_scale": 0.667,
+-        "noise_w": 0.8
+-      }
+-    ]
++    "piper_voices": [],
++    "modes": {
++      "normal": {"rate": 1.0, "volume": 1.0},
++      "focused": {"rate": 1.03, "volume": 1.0},
++      "quiet": {"rate": 0.96, "volume": 0.72},
++      "urgent": {"rate": 1.04, "volume": 1.0},
++      "amused": {"rate": 1.02, "volume": 0.95},
++      "background": {"rate": 0.98, "volume": 0.85}
++    }
+   },
+ 
+   "paths": {
+@@ -99,7 +96,7 @@
+   },
+ 
+   "persona": {
+-    "name": "Джарвис",
++    "name": "АТЛАС",
+     "address": "сэр",
+     "persona_file": "persona/persona.md",
+     "language": "ru"
+@@ -116,6 +113,37 @@
+     "max_action_iterations": 6
+   },
+ 
++  "stt": {
++    "enabled": false,
++    "model": "faster-whisper-small",
++    "vad": "webrtc",
++    "language": "auto",
++    "hotkey_mode": "hold_ctrl_space"
++  },
++  "wake_word": {
++    "enabled": false,
++    "phrase": "ATLAS",
++    "sensitivity": 0.5
++  },
++  "shadow": {
++    "enabled": true,
++    "auto_generate": true,
++    "interval_sec": 300,
++    "code_model_path": "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
++  },
++  "brain_policy": {
++    "mode": "BALANCED",
++    "prefer_local": true,
++    "allow_cloud": false,
++    "allow_sensitive_cloud": false,
++    "background_allow_cloud": false,
++    "max_fallbacks": 2,
++    "failure_timeout_seconds": 3.0,
++    "max_cost_tier": 3,
++    "providers_path": "data/brain/providers.json"
++  },
++  "system_triggers": [],
++
+   "logging": {
+     "level": "INFO",
+     "console": true,
+diff --git a/config/settings.py b/config/settings.py
+index e6ed30b..37dd1a4 100644
+--- a/config/settings.py
++++ b/config/settings.py
+@@ -50,6 +50,11 @@ __all__ = [
+     "LimitsConfig",
+     "LoggingConfig",
+     "ProxyConfig",
++    "LauncherConfig",
++    "STTConfig",
++    "WakeWordConfig",
++    "ShadowConfig",
++    "BrainPolicyConfig",
+     "Settings",
+     "ConfigError",
+     "load_config",
+@@ -261,15 +266,37 @@ class LocalCoderModelConfig(_Section):
+         return None
+ 
+ 
++class VoiceModeConfig(_Section):
++    rate: float = Field(default=1.0, ge=0.5, le=2.0)
++    volume: float = Field(default=1.0, ge=0.0, le=1.0)
++
++
++def _default_voice_modes() -> dict[str, VoiceModeConfig]:
++    return {
++        "normal": VoiceModeConfig(rate=1.00, volume=1.00),
++        "focused": VoiceModeConfig(rate=1.03, volume=1.00),
++        "quiet": VoiceModeConfig(rate=0.96, volume=0.72),
++        "urgent": VoiceModeConfig(rate=1.04, volume=1.00),
++        "amused": VoiceModeConfig(rate=1.02, volume=0.95),
++        "background": VoiceModeConfig(rate=0.98, volume=0.85),
++    }
++
++
+ class VoiceConfig(_Section):
+     """Голосовой ввод-вывод. У пользователя нет микрофона -> stt выключен."""
+ 
+     tts_enabled: bool = True
++    #: Sprint 5: озвучивать КАЖДЫЙ ответ backend (любой канал ввода).
++    tts_always_on: bool = True
++    provider: str = "piper"
++    language: str = "ru"
++    voice: str = "ru_RU-dmitri-medium"
++    fallback: str = "none"
+     stt_enabled: bool = False
+     # P5 §5.9: параметры STT-движка (faster-whisper, MIT).
+     stt_model: str = "small"          # размер модели faster-whisper
+     stt_device: str = "cpu"           # cpu / cuda
+-    piper_model_path: str = "data/models/piper/jarvis-medium.onnx"
++    piper_model_path: str = "data/models/piper/ru_RU-dmitri-medium.onnx"
+     piper_binary_path: str = "piper"
+     speed: float = 1.0
+     volume: float = 1.0
+@@ -278,6 +305,7 @@ class VoiceConfig(_Section):
+     piper_noise_scale: float = 0.667
+     piper_noise_w: float = 0.8
+     piper_voices: list[dict] = Field(default_factory=list)
++    modes: dict[str, VoiceModeConfig] = Field(default_factory=_default_voice_modes)
+ 
+     @property
+     def resolved_piper_model(self) -> Optional[Path]:
+@@ -312,7 +340,7 @@ class PathsConfig(_Section):
+ class PersonaConfig(_Section):
+     """Личность ассистента."""
+ 
+-    name: str = "Джарвис"
++    name: str = "АТЛАС"
+     address: str = "сэр"
+     persona_file: str = "persona/persona.md"
+     language: str = "ru"
+@@ -343,20 +371,68 @@ class LimitsConfig(_Section):
+     rag_top_k: int = 3
+     memory_top_k: int = 5
+     max_action_iterations: int = 6
++    # Разговорный FAST-тир: сбой провайдера должен признаваться БЫСТРО.
++    # 3×15 c ожидания для простого «привет» неприемлемы — короткий таймаут
++    # и минимум попыток, затем честный фолбэк/ошибка. Аналитические тиры
++    # (analyst/coder/architect) остаются на общих response_timeout_sec/max_retries.
++    fast_tier_timeout_sec: float = 7.0
++    fast_tier_max_retries: int = 2
++    # Sprint 3 TIER 3: глубокие тиры (coder/architect) — качество важнее
++    # скорости, им нужен щедрый бюджет (30-60 c), а не общий 15-секундный.
++    deep_tier_timeout_sec: float = 45.0
++    # Sprint 3 STEP 3: executor safety — таймауты инструментов по категориям.
++    tool_timeout_file_sec: float = 10.0
++    tool_timeout_web_sec: float = 30.0
++    tool_timeout_system_sec: float = 5.0
++    #: Максимум параллельных вызовов инструментов (изоляция ресурсов).
++    max_parallel_tools: int = 4
++    #: Потолок вывода одного инструмента, байты (50 KB; больше — усечение).
++    tool_output_max_bytes: int = 50 * 1024
++    # Sprint 4 — bounded memory:
++    #: Сообщений в session memory (10 пар user/assistant; FIFO).
++    session_memory_messages: int = 20
++    #: Контекстные бюджеты, токены (оценка ~3 символа/токен).
++    context_budget_fast_tokens: int = 2000    # TIER 1: разговор
++    context_budget_plan_tokens: int = 4000    # TIER 2: планирование
++    context_budget_deep_tokens: int = 8000    # TIER 3: research/coding
++
++    @field_validator("session_memory_messages")
++    @classmethod
++    def _non_negative_session(cls, value: int) -> int:
++        if value < 0:
++            raise ValueError("не может быть отрицательным")
++        return value
++
++    @field_validator("context_budget_fast_tokens", "context_budget_plan_tokens",
++                     "context_budget_deep_tokens")
++    @classmethod
++    def _positive_budget(cls, value: int) -> int:
++        if value <= 0:
++            raise ValueError("бюджет должен быть больше нуля")
++        return value
+ 
+     @field_validator("short_memory_size", "max_retries", "rag_top_k",
+-                     "memory_top_k", "max_action_iterations")
++                     "memory_top_k", "max_action_iterations", "fast_tier_max_retries")
+     @classmethod
+     def _non_negative(cls, value: int) -> int:
+         if value < 0:
+             raise ValueError("значение не может быть отрицательным")
+         return value
+ 
+-    @field_validator("response_timeout_sec")
++    @field_validator("response_timeout_sec", "fast_tier_timeout_sec",
++                     "deep_tier_timeout_sec", "tool_timeout_file_sec",
++                     "tool_timeout_web_sec", "tool_timeout_system_sec")
+     @classmethod
+     def _positive_timeout(cls, value: float) -> float:
+         if value <= 0:
+-            raise ValueError("response_timeout_sec должен быть больше нуля")
++            raise ValueError("таймаут должен быть больше нуля")
++        return value
++
++    @field_validator("max_parallel_tools", "tool_output_max_bytes")
++    @classmethod
++    def _positive_limit(cls, value: int) -> int:
++        if value <= 0:
++            raise ValueError("лимит должен быть больше нуля")
+         return value
+ 
+ 
+@@ -394,6 +470,103 @@ class ProxyConfig(_Section):
+     proxy_token: str = ""       # локальный маркер доступа к proxy (НЕ ключ провайдера)
+ 
+ 
++class LauncherConfig(_Section):
++    """Sprint 5: запуск приложения — автостарт, hotkey, backend-процесс.
++
++    Секция читается и Python'ом (приветствие/TTS), и Tauri/Rust
++    (реестр автозапуска, глобальный hotkey, spawn python-backend).
++    """
++
++    #: Автозагрузка Windows (HKCU\\...\\Run) — включает фронтенд при старте.
++    autostart: bool = False
++    #: Глобальный hotkey (Tauri globalShortcut; работает и в полноэкранных играх).
++    hotkey: str = "Ctrl+Space"
++    #: Команда запуска python-backend (Tauri поднимает её при старте).
++    backend_command: List[str] = Field(default_factory=lambda: [
++        "python", "-m", "core.ws_server",
++    ])
++    #: Рабочая директория backend (корень проекта).
++    backend_workdir: str = ""
++    #: Приветствие при старте сессии (голос + текст).
++    greeting_enabled: bool = True
++
++class STTConfig(_Section):
++    enabled: bool = False
++    model: str = "faster-whisper-small"
++    vad: str = "webrtc"
++    language: str = "auto"
++    hotkey_mode: str = "hold_ctrl_space"
++
++class WakeWordConfig(_Section):
++    enabled: bool = False
++    phrase: str = "ATLAS"
++    sensitivity: float = 0.5
++
++
++class ShadowConfig(_Section):
++    """Local, opt-in settings for Sprint 8 Shadow Engine.
++
++    It is opt-in because command history and screen summaries are personal
++    data. Enabling it never grants screen-capture permission by itself.
++    """
++
++    enabled: bool = False
++    auto_generate: bool = True
++    interval_sec: int = 300
++    code_model_path: str = "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
++
++    @field_validator("interval_sec")
++    @classmethod
++    def _valid_interval(cls, value: int) -> int:
++        if value < 30:
++            raise ValueError("interval_sec должен быть не меньше 30")
++        return value
++
++    @property
++    def resolved_code_model_path(self) -> Optional[Path]:
++        return resolve_path(self.code_model_path)
++
++
++class BrainPolicyConfig(_Section):
++    """Provider-independent model routing policy (safe/local by default)."""
++
++    mode: str = "BALANCED"
++    prefer_local: bool = True
++    allow_cloud: bool = False
++    allow_sensitive_cloud: bool = False
++    background_allow_cloud: bool = False
++    max_fallbacks: int = 2
++    failure_timeout_seconds: float = 3.0
++    max_cost_tier: int = 3
++    providers_path: str = "data/brain/providers.json"
++
++    @field_validator("mode")
++    @classmethod
++    def _known_mode(cls, value: str) -> str:
++        normalized = str(value).strip().upper()
++        if normalized not in {"LOCAL_ONLY", "BALANCED", "QUALITY", "SPEED", "CUSTOM"}:
++            raise ValueError("unknown brain policy mode")
++        return normalized
++
++    @field_validator("max_fallbacks", "max_cost_tier")
++    @classmethod
++    def _non_negative_brain_limit(cls, value: int) -> int:
++        if value < 0:
++            raise ValueError("brain policy limit must be non-negative")
++        return value
++
++    @field_validator("failure_timeout_seconds")
++    @classmethod
++    def _positive_brain_timeout(cls, value: float) -> float:
++        if value <= 0:
++            raise ValueError("failure_timeout_seconds must be positive")
++        return value
++
++    @property
++    def resolved_providers_path(self) -> Optional[Path]:
++        return resolve_path(self.providers_path)
++
++
+ # --------------------------------------------------------------------------- #
+ #  Корневая модель
+ # --------------------------------------------------------------------------- #
+@@ -418,6 +591,12 @@ class Settings(BaseModel):
+     #: остаётся только офлайн-фолбэком. Значение должно быть одним из ключей
+     #: model_tiers (обычно 'analyst'). Пустая строка/None -> 'analyst'.
+     primary_brain: str = "analyst"
++    #: Local-only safety switch. Disabled on bare Settings() for test/API
++    #: compatibility; production config enables it explicitly.
++    offline_mode: bool = False
++    #: Load the local FAST model in a daemon warmup thread at service start.
++    #: False for bare Settings() keeps unit tests and library imports cheap.
++    warmup_local_on_start: bool = False
+ 
+     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
+     local_coder_model: LocalCoderModelConfig = Field(default_factory=LocalCoderModelConfig)
+@@ -427,6 +606,12 @@ class Settings(BaseModel):
+     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
++    launcher: LauncherConfig = Field(default_factory=LauncherConfig)
++    stt: STTConfig = Field(default_factory=STTConfig)
++    wake_word: WakeWordConfig = Field(default_factory=WakeWordConfig)
++    shadow: ShadowConfig = Field(default_factory=ShadowConfig)
++    brain_policy: BrainPolicyConfig = Field(default_factory=BrainPolicyConfig)
++    system_triggers: List[Dict[str, Any]] = Field(default_factory=list)
+ 
+     #: Откуда конфиг был загружен (не сериализуется в JSON).
+     source_path: Optional[Path] = Field(default=None, exclude=True)
+@@ -469,6 +654,8 @@ class Settings(BaseModel):
+ 
+     def get_provider(self, tier: Union[str, "Tier"]) -> str:
+         """Провайдер, обслуживающий тир ('local' / 'deepseek' / ...)."""
++        if self.offline_mode:
++            return LOCAL_PROVIDER
+         from core.llm.tiers import resolve_tier, tier_to_backend_key
+         key = tier_to_backend_key(resolve_tier(str(tier)))
+         return self.tier_providers.get(key)
+@@ -659,4 +846,4 @@ def default_config_path() -> Path:
+ 
+ def example_config_path() -> Path:
+     """Путь к шаблону конфигурации."""
+-    return PROJECT_ROOT / "config" / EXAMPLE_FILENAME
+\ No newline at end of file
++    return PROJECT_ROOT / "config" / EXAMPLE_FILENAME
+diff --git a/core/actions/__init__.py b/core/actions/__init__.py
+index 8b24fdc..bcee071 100644
+--- a/core/actions/__init__.py
++++ b/core/actions/__init__.py
+@@ -30,6 +30,10 @@ from core.actions import (  # noqa: F401
+     filesystem,
+     reminders,
+     weather,
++    screen_capture,
++    browser_bridge,
++    media,
++    time,
+ )
+ 
+ __all__ = [
+@@ -56,4 +60,4 @@ def list_available_tools() -> list[str]:
+ # Логгируем загруженные инструменты
+ from core.utils.logger import get_logger
+ log = get_logger(__name__)
+-log.info("Движок действий инициализирован. Инструменты: %s", list_available_tools())
+\ No newline at end of file
++log.info("Движок действий инициализирован. Инструменты: %s", list_available_tools())
+diff --git a/core/actions/executor.py b/core/actions/executor.py
+index a9c0dd1..72f4967 100644
+--- a/core/actions/executor.py
++++ b/core/actions/executor.py
+@@ -1,11 +1,11 @@
+-"""Исполнитель инструментов (execute_tool).
+-
+-Валидация аргументов по JSON Schema, retry на временные сбои,
+-всегда возвращает ActionResult (никогда не бросает исключение наружу).
+-"""
+-
++"""Validated, bounded and cancellable tool execution."""
+ from __future__ import annotations
+ 
++import multiprocessing
++import pickle
++import queue
++import subprocess
++import threading
+ import time
+ from typing import Any, Dict, Optional
+ 
+@@ -16,122 +16,194 @@ from core.actions.base import ActionResult, Tool, ToolContext
+ from core.actions.registry import ToolRegistry
+ from core.utils.logger import get_logger
+ 
+-__all__ = ["execute_tool", "validate_args"]
++__all__ = ["ToolExecutor", "execute_tool", "validate_args", "tool_timeout_for"]
+ 
+ log = get_logger(__name__)
+ 
++_WEB_TOOLS = frozenset({"web_search", "web_fetch", "weather", "browser_open", "browser_click", "browser_type", "browser_scroll", "browser_close", "browser_screenshot"})
++_SYSTEM_TOOLS = frozenset({"system_status", "volume", "open_app", "close_app", "add_reminder", "list_reminders", "cancel_reminder", "current_time", "play_music", "screenshot", "clipboard_read", "clipboard_write", "key_press", "type_text", "screen_capture"})
+ 
+-def validate_args(schema: Dict[str, Any], args: Dict[str, Any]) -> Optional[str]:
+-    """Валидирует аргументы по JSON Schema.
+ 
+-    Args:
+-        schema: JSON Schema (draft-07).
+-        args: словарь аргументов.
++def tool_timeout_for(tool_name: str, context: ToolContext) -> float:
++    limits = getattr(getattr(context, "settings", None), "limits", None)
++    if tool_name in _WEB_TOOLS:
++        return float(getattr(limits, "tool_timeout_web_sec", 30.0))
++    if tool_name in _SYSTEM_TOOLS:
++        return float(getattr(limits, "tool_timeout_system_sec", 5.0))
++    return float(getattr(limits, "tool_timeout_file_sec", 10.0))
++
+ 
+-    Returns:
+-        None — валидация прошла.
+-        Строка — текст ошибки валидации.
+-    """
++def _truncate_output(output: Any, context: ToolContext) -> Any:
++    if not isinstance(output, str):
++        return output
++    cap = int(getattr(getattr(getattr(context, "settings", None), "limits", None), "tool_output_max_bytes", 50 * 1024) or 0)
++    if cap <= 0 or len(output.encode("utf-8", errors="replace")) <= cap:
++        return output
++    text = output.encode("utf-8", errors="replace")[:cap].decode("utf-8", errors="ignore")
++    return f"{text}\n… [вывод усечён: {len(output)} символов, потолок {cap} байт — resource limit]"
++
++
++def _process_worker(tool: Tool, args: Dict[str, Any], settings: Any, result_queue: Any) -> None:
++    context = ToolContext(settings=settings)
++    try:
++        result = tool.run(args, context)
++        if not isinstance(result, ActionResult):
++            result = ActionResult(tool=tool.name, args=args, ok=False, error=f"Инструмент вернул не ActionResult: {type(result)}")
++        result.execution_mode = "subprocess"
++        result.side_effects_contained = True
++        result_queue.put(result)
++    except BaseException as exc:  # process boundary converts all failures
++        result_queue.put(ActionResult(tool=tool.name, args=args, ok=False, error=f"{type(exc).__name__}: {exc}", execution_mode="subprocess", side_effects_contained=True))
++
++
++def _terminate_process(process: Any) -> bool:
++    if not process.is_alive():
++        return True
++    process.terminate()
++    process.join(timeout=0.3)
++    if process.is_alive():
++        try:
++            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
++        except OSError:
++            pass
++        process.join(timeout=2.0)
++    return not process.is_alive()
++
++
++class ToolExecutor:
++    """Runtime-owned executor; no mutable global semaphore lifecycle."""
++
++    def __init__(self, max_parallel: int = 0) -> None:
++        self.capacity = max(0, int(max_parallel))
++        self.semaphore = threading.Semaphore(self.capacity) if self.capacity else None
++
++    def _can_spawn(self, tool: Tool, args: Dict[str, Any], context: ToolContext) -> bool:
++        try:
++            pickle.dumps((tool, args, getattr(context, "settings", None)))
++            return True
++        except Exception:
++            return False
++
++    def _run_subprocess(self, tool: Tool, args: Dict[str, Any], context: ToolContext, timeout_sec: float) -> ActionResult | None:
++        if not getattr(tool, "supports_hard_cancellation", False) and not getattr(tool, "generated_by_shadow", False):
++            return None
++        if not self._can_spawn(tool, args, context):
++            return None
++        mp = multiprocessing.get_context("spawn")
++        result_queue = mp.Queue()
++        process = mp.Process(target=_process_worker, args=(tool, args, getattr(context, "settings", None), result_queue), name=f"tool-process:{tool.name}")
++        try:
++            process.start()
++        except Exception as exc:
++            result_queue.close()
++            return ActionResult(tool=tool.name, args=args, ok=False,
++                                error=f"Не удалось запустить изолированный worker: {type(exc).__name__}: {exc}",
++                                execution_mode="subprocess", side_effects_contained=True)
++        try:
++            result = result_queue.get(timeout=max(0.1, timeout_sec))
++        except queue.Empty:
++            terminated = _terminate_process(process)
++            return ActionResult(tool=tool.name, args=args, ok=False,
++                                error=f"Таймаут выполнения: инструмент '{tool.name}' остановлен watchdog",
++                                duration_sec=timeout_sec, terminated=terminated,
++                                side_effects_contained=terminated, execution_mode="subprocess")
++        process.join(timeout=1.0)
++        if result is None:
++            result = ActionResult(tool=tool.name, args=args, ok=False,
++                                  error=f"worker завершился с кодом {process.exitcode}",
++                                  execution_mode="subprocess", side_effects_contained=True)
++        result_queue.close()
++        result_queue.join_thread()
++        result.execution_mode = "subprocess"
++        result.side_effects_contained = True
++        return result
++
++    def _run_legacy(self, tool: Tool, args: Dict[str, Any], context: ToolContext, timeout_sec: float) -> ActionResult:
++        box: "queue.Queue[ActionResult]" = queue.Queue()
++        context.cancel_event.clear()
++
++        def worker() -> None:
++            start = time.perf_counter()
++            try:
++                result = tool.run(args, context)
++                if not isinstance(result, ActionResult):
++                    result = ActionResult(tool=tool.name, args=args, ok=False, error=f"Инструмент вернул не ActionResult: {type(result)}")
++                result.duration_sec = time.perf_counter() - start
++                box.put(result)
++            except Exception as exc:
++                box.put(ActionResult(tool=tool.name, args=args, ok=False, error=f"{type(exc).__name__}: {exc}", duration_sec=time.perf_counter() - start))
++
++        thread = threading.Thread(target=worker, name=f"legacy-tool:{tool.name}", daemon=True)
++        thread.start()
++        try:
++            return box.get(timeout=max(0.1, timeout_sec))
++        except queue.Empty:
++            context.cancel_event.set()
++            thread.join(timeout=0.25)
++            contained = not thread.is_alive()
++            return ActionResult(tool=tool.name, args=args, ok=False,
++                                error=f"Таймаут выполнения: legacy-инструмент '{tool.name}' не поддерживает hard cancellation",
++                                duration_sec=timeout_sec, terminated=contained,
++                                side_effects_contained=contained, execution_mode="legacy_thread")
++
++    def run(self, tool: Tool, args: Dict[str, Any], context: ToolContext, timeout_sec: float) -> ActionResult:
++        result = self._run_subprocess(tool, args, context, timeout_sec)
++        return result if result is not None else self._run_legacy(tool, args, context, timeout_sec)
++
++    def execute(self, registry: ToolRegistry, tool_name: str, args: Dict[str, Any], context: ToolContext,
++                max_retries: int = 2, retry_delay: float = 0.5, timeout_sec: Optional[float] = None) -> ActionResult:
++        tool = registry.get(tool_name)
++        if tool is None:
++            return ActionResult(tool=tool_name, args=args, ok=False, error=f"Инструмент '{tool_name}' не найден в реестре")
++        validation_error = validate_args(tool.input_schema, args)
++        if validation_error is not None:
++            return ActionResult(tool=tool_name, args=args, ok=False, error=validation_error)
++        if timeout_sec is None:
++            timeout_sec = tool_timeout_for(tool_name, context)
++        last_error: Optional[str] = None
++        for attempt in range(max(0, int(max_retries)) + 1):
++            acquired = False
++            if self.semaphore is not None:
++                self.semaphore.acquire()
++                acquired = True
++            try:
++                result = self.run(tool, args, context, float(timeout_sec))
++            finally:
++                if acquired:
++                    self.semaphore.release()
++            if result.error and "Таймаут выполнения" in result.error:
++                return result
++            if not result.ok and attempt < max_retries:
++                last_error = result.error
++                time.sleep(max(0.0, retry_delay))
++                continue
++            result.output = _truncate_output(result.output, context)
++            return result
++        return ActionResult(tool=tool_name, args=args, ok=False, error=last_error or "Неизвестная ошибка после всех попыток")
++
++
++def _executor_for(context: ToolContext) -> ToolExecutor:
++    limits = getattr(getattr(context, "settings", None), "limits", None)
++    capacity = int(getattr(limits, "max_parallel_tools", 0) or 0)
++    current = context.extra.get("_tool_executor") if isinstance(context.extra, dict) else None
++    if not isinstance(current, ToolExecutor) or current.capacity != max(0, capacity):
++        current = ToolExecutor(capacity)
++        if isinstance(context.extra, dict):
++            context.extra["_tool_executor"] = current
++    return current
++
++
++def validate_args(schema: Dict[str, Any], args: Dict[str, Any]) -> Optional[str]:
+     try:
+         jsonschema.validate(instance=args, schema=schema)
+     except ValidationError as exc:
+-        # Формируем читаемое сообщение
+         path = " -> ".join(str(p) for p in exc.path) if exc.path else "корень"
+         return f"Валидация аргументов не прошла ({path}): {exc.message}"
+-    except Exception as exc:  # jsonschema может бросить другие ошибки
++    except Exception as exc:
+         return f"Ошибка валидатора: {exc}"
+     return None
+ 
+ 
+-def execute_tool(
+-    registry: ToolRegistry,
+-    tool_name: str,
+-    args: Dict[str, Any],
+-    context: ToolContext,
+-    max_retries: int = 2,
+-    retry_delay: float = 0.5,
+-) -> ActionResult:
+-    """Выполняет инструмент с валидацией и retry.
+-
+-    Args:
+-        registry: реестр инструментов.
+-        tool_name: имя инструмента.
+-        args: аргументы вызова.
+-        context: контекст выполнения.
+-        max_retries: число повторных попыток при временных ошибках (default 2).
+-        retry_delay: задержка между попытками в секундах (default 0.5).
+-
+-    Returns:
+-        ActionResult — всегда возвращается, ok=False при любой ошибке.
+-    """
+-    tool = registry.get(tool_name)
+-    if tool is None:
+-        return ActionResult(
+-            tool=tool_name,
+-            args=args,
+-            ok=False,
+-            error=f"Инструмент '{tool_name}' не найден в реестре",
+-        )
+-
+-    # Валидация аргументов
+-    validation_error = validate_args(tool.input_schema, args)
+-    if validation_error is not None:
+-        log.warning("Валидация аргументов '%s' не прошла: %s", tool_name, validation_error)
+-        return ActionResult(
+-            tool=tool_name,
+-            args=args,
+-            ok=False,
+-            error=validation_error,
+-        )
+-
+-    # Выполнение с retry
+-    last_error: Optional[str] = None
+-    for attempt in range(max_retries + 1):
+-        start = time.perf_counter()
+-        try:
+-            result = tool.run(args, context)
+-            if not isinstance(result, ActionResult):
+-                # На случай, если инструмент вернул не ActionResult
+-                result = ActionResult(
+-                    tool=tool_name,
+-                    args=args,
+-                    ok=False,
+-                    error=f"Инструмент вернул не ActionResult: {type(result)}",
+-                )
+-            result.duration_sec = time.perf_counter() - start
+-            if not result.ok and attempt < max_retries:
+-                # Временная ошибка — пробуем ещё раз
+-                last_error = result.error
+-                log.debug(
+-                    "Инструмент '%s' вернул ошибку (попытка %d/%d): %s — retry",
+-                    tool_name,
+-                    attempt + 1,
+-                    max_retries + 1,
+-                    last_error,
+-                )
+-                time.sleep(retry_delay)
+-                continue
+-            return result
+-        except Exception as exc:  # Никакие исключения не должны выходить наружу
+-            duration = time.perf_counter() - start
+-            last_error = f"{type(exc).__name__}: {exc}"
+-            log.error("Исключение в инструменте '%s' (попытка %d/%d): %s",
+-                      tool_name, attempt + 1, max_retries + 1, exc)
+-            if attempt < max_retries:
+-                time.sleep(retry_delay)
+-                continue
+-            return ActionResult(
+-                tool=tool_name,
+-                args=args,
+-                ok=False,
+-                error=last_error,
+-                duration_sec=duration,
+-            )
+-
+-    # Все попытки исчерпаны
+-    return ActionResult(
+-        tool=tool_name,
+-        args=args,
+-        ok=False,
+-        error=last_error or "Неизвестная ошибка после всех попыток",
+-    )
+\ No newline at end of file
++def execute_tool(registry: ToolRegistry, tool_name: str, args: Dict[str, Any], context: ToolContext,
++                 max_retries: int = 2, retry_delay: float = 0.5, timeout_sec: Optional[float] = None) -> ActionResult:
++    return _executor_for(context).execute(registry, tool_name, args, context, max_retries, retry_delay, timeout_sec)
+diff --git a/core/agent.py b/core/agent.py
+index adb7e38..b322a83 100644
+--- a/core/agent.py
++++ b/core/agent.py
+@@ -31,6 +31,7 @@
+ 
+ from __future__ import annotations
+ 
++import re
+ import threading
+ from dataclasses import dataclass, field
+ from typing import Any, Callable, Dict, List, Optional
+@@ -48,21 +49,30 @@ from core.llm import (
+     BackendConfigError,
+     BackendUnavailable,
+     Tier,
++    breaker,
+     get_llm_backend,
++    get_offline_backend,
+ )
+-from core.model_router import ModelRouter, RoutingDecision
++from core.memory.budget import fit_messages_to_budget
++from core.memory.facts import detect_tone, learn_facts
++from core.memory.profile import get_relevant_profile_context
++from core.memory.relationship import MemoryHierarchy, PreferenceLearner, RelationshipMemoryStore
++from core.memory.short_term import SessionManager
++from core.model_router import ModelRouter, RoutingDecision, classify_conversation
++from core.personality import PersonalityEngine
+ from core.repair import RepairLoop
+ from core.research import ResearchEngine, is_research_goal
+ from core.router.intent_router import resolve_keyword_tool
+ from core.safety import RiskAssessment, assess_risk
+ from core.redact import redact_args
+ from core.skill_forge import SkillForge, SkillManifest, SkillStatus
+-from core.structured import PLAN_SCHEMA_HINT, parse_structured, validate_tool_call
++from core.structured import PLAN_SCHEMA_HINT, AnswerStreamExtractor, parse_structured, validate_tool_call
+ from core.task_runtime import (
+     EVENT_CONFIRMATION_REQUIRED,
+     EVENT_PLAN_READY,
+     EVENT_REPAIR_COMPLETED,
+     EVENT_REPAIR_STARTED,
++    EVENT_STREAM_CHUNK,
+     EVENT_STEP_COMPLETED,
+     EVENT_STEP_STARTED,
+     EVENT_TASK_FAILED,
+@@ -74,11 +84,36 @@ from core.task_runtime import (
+ )
+ from core.utils.logger import get_logger
+ from core.verifier import VerificationResult, verify_action_result
++from core.executive import ExecutiveMind
+ 
+ __all__ = ["Agent", "AgentConfig", "AgentOutcome", "ACK_PHRASES", "pick_acknowledgement"]
+ 
+ log = get_logger(__name__)
+ 
++#: Префикс ошибки планирования «модель недоступна» (сеть/провайдер/ключ).
++#: Такая ошибка — НЕ «не умею» (§29): это временный сбой инфраструктуры,
++#: и пользователь должен получить короткую честную фразу без сырых деталей
++#: и без создания черновика навыка.
++MODEL_ERROR_PREFIX = "model_error:"
++
++#: Текст для пользователя при сбое модели (голос/чат). Технические детали —
++#: только в лог. Тон согласован с TTS-санитайзером (core/voice/tts_sanitizer.py).
++MODEL_UNAVAILABLE_TEXT = "Сэр, сейчас не отвечает. Попробуйте ещё раз."
++
++
++def _hide_reasoning_stream(cumulative: str) -> str:
++    """Прячет служебные ``<think>``-блоки из НАРАСТАЮЩЕГО текста стрима.
++
++    Закрытый блок вырезается целиком; незакрытый (модель ещё думает) —
++    скрывает всё после его начала. Применяется только в прямом разговорном
++    режиме (Sprint 2), где пользователю идёт сырой текст модели.
++    """
++    out = re.sub(r"<think>.*?</think>", "", cumulative, flags=re.DOTALL | re.IGNORECASE)
++    if "<think>" in out.lower():
++        idx = out.lower().rfind("<think>")
++        out = out[:idx]
++    return out
++
+ 
+ # --------------------------------------------------------------------------- #
+ #  §5 — FIRST ACKNOWLEDGEMENT (быстро, без тяжёлой модели)
+@@ -121,7 +156,7 @@ def pick_acknowledgement(intent: str, goal: str = "",
+ 
+         backend = get_llm_backend(settings, Tier.FAST)
+         prompt = (
+-            f"Ты — Джарвис. Пользователь только что дал команду: \"{goal}\". "
++            f"Ты — АТЛАС. Пользователь только что дал команду: \"{goal}\". "
+             f"Сгенерируй ОДНУ короткую (до 5 слов) фразу подтверждения приёма "
+             f"в стиле живого дворецкого, без приветствий и пояснений. "
+             f"Не начинай выполнять задачу. Только подтверди, что понял. "
+@@ -171,6 +206,9 @@ class AgentOutcome:
+     risk: Optional[RiskAssessment] = None
+     mode: str = "conversation"
+     trace: List[str] = field(default_factory=list)
++    #: Sprint 3 STEP 5: ответ пришёл с фолбэк-модели, а не с основной
++    #: (quality indicator для UI/TTS — не маскируем деградацию).
++    degraded: bool = False
+ 
+     def to_dict(self) -> Dict[str, Any]:
+         return {
+@@ -183,6 +221,7 @@ class AgentOutcome:
+             "risk": self.risk.to_dict() if self.risk else None,
+             "mode": self.mode,
+             "trace": list(self.trace),
++            "degraded": self.degraded,
+         }
+ 
+ 
+@@ -203,6 +242,7 @@ class Agent:
+         council: Optional[Any] = None,
+         config: Optional[AgentConfig] = None,
+         model_router: Optional[Any] = None,
++        brain_fabric: Optional[Any] = None,
+     ) -> None:
+         """
+         Args:
+@@ -216,7 +256,30 @@ class Agent:
+         self._settings = settings
+         self._config = config or AgentConfig()
+         self._council = council
++        self._brain_fabric = brain_fabric
+         self._registry = DEFAULT_REGISTRY
++        # Executive Mind owns goals/commitments/world state, while this Agent
++        # remains the sole owner of tool execution and verification.
++        self._executive = ExecutiveMind(
++            (settings.paths.resolved("data_dir") or settings.data_dir) / "executive",
++            registry=self._registry,
++            capability_registry=CAPABILITIES,
++        )
++        # Sprint 8: Shadow Engine observes only when explicitly enabled in
++        # local settings. It is separate from the active request path.
++        from core.shadow import ShadowEngine
++        shadow_cfg = getattr(settings, "shadow", None)
++        shadow_data_dir = settings.paths.resolved("data_dir")
++        self._shadow = ShadowEngine(
++            data_dir=shadow_data_dir or "data", registry=self._registry, settings=settings,
++            enabled=bool(getattr(shadow_cfg, "enabled", False)),
++        )
++        from core.capability_engine import CapabilityCatalog, CapabilityPlanner
++        capability_dir = (shadow_data_dir or self._settings.data_dir) / "capabilities"
++        self._capability_catalog = CapabilityCatalog(capability_dir)
++        self._capability_planner = CapabilityPlanner(
++            self._capability_catalog, self._registry,
++        )
+         # P5 §5.7: делим ЕДИНЫЙ роутер моделей с CouncilRouter, чтобы оба
+         # пути (REPL/WebSocket и агентная миссия) маршрутизировались одинаково.
+         self._model_router = model_router if model_router is not None else ModelRouter(settings)
+@@ -238,6 +301,121 @@ class Agent:
+         self._pending_confirmations: Dict[str, Dict[str, Any]] = {}
+         self._confirmation_timers: Dict[str, "threading.Timer"] = {}
+         self._lock = threading.RLock()
++        # Sprint 1: стриминг sync-ответов. Sink устанавливается ПОТОКОМ,
++        # обрабатывающим конкретный запрос (thread-local), поэтому параллельные
++        # запросы друг друга не видят и не перемешивают.
++        self._stream_tls = threading.local()
++        # Sprint 4: bounded session memory — последние N сообщений диалога
++        # (10 пар user/assistant, FIFO). Подаётся ТОЛЬКО в разговорный путь;
++        # tool-промпты остаются чистыми (спринт, STEP 2.4).
++        session_size = int(getattr(getattr(settings, "limits", None),
++                                   "session_memory_messages", 20))
++        self._session = SessionManager(max_size=session_size)
++        # Sprint 12: identity and relationship preferences are typed local
++        # state. The resulting compact prompt fragment is only one consumer;
++        # personality itself is not represented by a free-form prompt.
++        self._relationship_memory = RelationshipMemoryStore(
++            (shadow_data_dir or self._settings.data_dir) / "relationship",
++        )
++        try:
++            self._relationship_memory.prune()
++        except Exception as exc:
++            log.debug("Очистка устаревшей relationship memory пропущена: %s", exc)
++        self._preference_learner = PreferenceLearner(self._relationship_memory)
++        self._personality = PersonalityEngine()
++        self._memory_hierarchy = MemoryHierarchy(
++            self._relationship_memory, session=self._session,
++        )
++        self._user_context: Dict[str, Any] = {}
++
++    @property
++    def personality(self) -> PersonalityEngine:
++        return self._personality
++
++    @property
++    def relationship_memory(self) -> RelationshipMemoryStore:
++        return self._relationship_memory
++
++    @property
++    def preference_learner(self) -> PreferenceLearner:
++        return self._preference_learner
++
++    @property
++    def executive(self) -> ExecutiveMind:
++        return self._executive
++
++    def set_user_context(self, context: Any) -> None:
++        """Updates privacy-minimal attention state used for response style."""
++        if isinstance(context, dict):
++            source = context
++        else:
++            source = vars(context) if context is not None and hasattr(context, "__dict__") else {}
++        allowed = {
++            "busy", "user_busy", "typing_active", "meeting_active", "fullscreen",
++            "active_application", "probable_activity", "active_mission",
++        }
++        self._user_context = {key: source[key] for key in allowed if key in source}
++        self._memory_hierarchy.working.update(self._user_context)
++
++    # ------------------------------------------------------------------ #
++    #  Sprint 1 — stream sink (прогрессивный ответ в UI)
++    # ------------------------------------------------------------------ #
++
++    def install_stream_sink(self, sink) -> None:
++        """Регистрирует приёмник кумулятивного текста ответа для ТЕКУЩЕГО потока.
++
++        ``sink(visible_text_so_far: str)`` вызывается по мере реальной
++        генерации модели (SSE-дельты). Если бэкенд не поддерживает
++        streaming — sink просто не вызывается, поведение не меняется.
++        """
++        self._stream_tls.sink = sink
++
++    def clear_stream_sink(self) -> None:
++        self._stream_tls.sink = None
++
++    def _stream_consume(self, backend, messages: List[Dict[str, Any]], system: str,
++                        extract_answer: bool = True) -> str:
++        """chat() со стримингом, если установлен sink и бэкенд умеет streaming.
++
++        Возвращает ПОЛНЫЙ сырой ответ (как chat). Видимый кумулятивный текст
++        уходит в sink по мере прихода дельт — это реальный стриминг провайдера,
++        не фейк-чанкинг готовой строки. ``extract_answer=True`` (план-JSON)
++        извлекает поле ``answer``; ``False`` (прямой разговор) отдаёт сырой
++        текст с скрытием служебных ``<think>``-блоков.
++        Сбой сети/провайдера (BackendUnavailable/BackendConfigError)
++        пробрасывается наружу — существующая логика фолбэка тиров (§15)
++        сохранена без изменений.
++        """
++        sink = getattr(self._stream_tls, "sink", None)
++        stream = getattr(backend, "streaming", None)
++        if sink is None or stream is None:
++            return backend.chat(messages, system=system)
++
++        extractor = AnswerStreamExtractor() if extract_answer else None
++        parts: List[str] = []
++        try:
++            for piece in stream(messages, system=system):
++                if not piece:
++                    continue
++                parts.append(piece)
++                if extractor is not None:
++                    visible = extractor.feed(piece)
++                else:
++                    visible = _hide_reasoning_stream("".join(parts))
++                if visible:
++                    sink(visible)
++        except (BackendUnavailable, BackendConfigError):
++            raise  # наружу -> фолбэк тира / model_error (Sprint 1 STEP 5)
++        except Exception as exc:
++            # Неожиданная ошибка стриминга (бэкенд-специфика): честно
++            # деградируем до обычного chat() того же тира.
++            log.warning("streaming() упал (%s) — fallback на chat()", exc)
++            return backend.chat(messages, system=system)
++
++        raw = "".join(parts)
++        if not raw.strip():
++            return backend.chat(messages, system=system)
++        return raw
+ 
+     # ------------------------------------------------------------------ #
+     #  Публичный вход: исполнение миссии
+@@ -248,8 +426,28 @@ class Agent:
+ 
+         Вызывается ``TaskRuntime`` в отдельном потоке. Никаких ограничений
+         на длительность (§4) — только реальная отмена через ``cancel``.
++
++        Sprint 1 STEP 2: кумулятивный текст реального SSE-потока транслируется
++        в события миссии (EVENT_STREAM_CHUNK, correlation = task_id), а
++        финальный _output_callback того же потока закрывает стримленный
++        пузырь (см. consume_streamed_mission).
+         """
+-        outcome = self.execute(mission.goal, mission=mission, cancel=cancel)
++        tls = self._stream_tls
++        tls.streamed_rid = None
++
++        def _mission_sink(visible: str) -> None:
++            if getattr(tls, "streamed_rid", None) is None:
++                tls.streamed_rid = mission.task_id
++            try:
++                mission.emit(EVENT_STREAM_CHUNK, payload={"text": visible})
++            except Exception:  # pragma: no cover - события не ломают генерацию
++                pass
++
++        self.install_stream_sink(_mission_sink)
++        try:
++            outcome = self.execute(mission.goal, mission=mission, cancel=cancel)
++        finally:
++            self.clear_stream_sink()
+         mission.verification = outcome.verification.to_dict() if outcome.verification else None
+         mission.metadata["mode"] = outcome.mode
+         mission.metadata["verified"] = outcome.verified
+@@ -257,13 +455,105 @@ class Agent:
+             mission.metadata["needs_confirmation"] = True
+         return outcome.text
+ 
++    def consume_streamed_mission(self) -> Optional[str]:
++        """Отдаёт и сбрасывает task_id миссии, стримленной в ТЕКУЩЕМ потоке.
++
++        Вызывается ws-мостом в output_callback: финальный текст должен
++        закрыть УЖЕ открытый стрименный пузырь (тот же task_id), а не
++        создавать второй.
++        """
++        tls = self._stream_tls
++        rid = getattr(tls, "streamed_rid", None)
++        tls.streamed_rid = None
++        return rid
++
+     def execute(self, goal: str, mission: Optional[Mission] = None,
+                 cancel: Optional[threading.Event] = None) -> AgentOutcome:
+         """Главный цикл: intent -> risk -> mode -> plan -> execute -> verify -> repair.
+ 
+         Цикл сокращается автоматически (§3): тривиальный разговор и простые
+         команды не проходят через планирование.
++
++        Sprint 4: перед генерацией из реплики извлекаются явные факты
++        («меня зовут X») в профиль; после — пара (goal, ответ) попадает в
++        bounded session memory для контекста следующих вопросов.
+         """
++        goal = (goal or "").strip()
++        executive_contract = None
++        if goal:
++            try:
++                executive_contract = self._executive.begin_turn(
++                    goal, intent=resolve_keyword_tool(goal, goal), source="user",
++                )
++            except Exception as exc:
++                log.debug("Executive turn intake skipped: %s", exc)
++            try:
++                self._preference_learner.observe_user_message(goal)
++            except Exception as exc:  # Relationship learning never blocks execution.
++                log.debug("Обучение предпочтений пропущено: %s", exc)
++            try:
++                learn_facts(self._settings, goal)
++            except Exception as exc:  # noqa: BLE001 — память не ломает миссию
++                log.debug("Извлечение фактов не удалось: %s", exc)
++
++        outcome = self._execute_core(goal, mission, cancel)
++        try:
++            task_type = self._personality.infer_task_type(goal, mode=outcome.mode)
++            outcome.text = self._personality.naturalize(
++                outcome.text, verified=outcome.verified, task_type=task_type,
++            )
++            # Streaming has already exposed cumulative text. Apply the hard
++            # brevity bound only at a non-streaming conversational boundary.
++            if outcome.mode == "conversation" and getattr(self._stream_tls, "sink", None) is None:
++                outcome.text = self._personality.adapt_response(
++                    outcome.text,
++                    self._personality.style_for(
++                        user_context=self._user_context, task_type=task_type,
++                        user_preference=self._preference_learner.profile(),
++                    ),
++                )
++        except Exception as exc:  # Personality wording never changes mission state.
++            log.debug("Адаптация ответа пропущена: %s", exc)
++        try:
++            shadow_outcome = "success" if outcome.verified else (
++                "unfulfilled" if outcome.mode == "unknown_task" else "failure"
++            )
++            self._shadow.observe_command(goal, outcome=shadow_outcome)
++        except Exception as exc:  # Shadow mode must never affect Active mode.
++            log.debug("Shadow command observation skipped: %s", exc)
++        self._remember_exchange(goal, outcome)
++        if executive_contract is not None:
++            try:
++                self._executive.complete_turn(
++                    executive_contract, verified=outcome.verified,
++                    result=outcome.text, tool=outcome.tool_used,
++                    mode=outcome.mode,
++                )
++            except Exception as exc:
++                log.debug("Executive outcome recording skipped: %s", exc)
++        return outcome
++
++    def _remember_exchange(self, goal: str, outcome: AgentOutcome) -> None:
++        """Записывает пару (user, assistant) в bounded session memory.
++
++        Пустые, отменённые и «пустой ввод» реплики не пишутся. Служебный
++        префикс [degraded] из ответа убирается (пользовательская память
++        хранит чистый текст).
++        """
++        try:
++            if not goal or outcome.mode in ("empty", "cancelled"):
++                return
++            text = (outcome.text or "").strip()
++            if text.startswith("[degraded] "):
++                text = text[len("[degraded] "):]
++            self._session.push("user", goal)
++            if text:
++                self._session.push("assistant", text)
++        except Exception as exc:  # noqa: BLE001
++            log.debug("Запись в session memory не удалась: %s", exc)
++
++    def _execute_core(self, goal: str, mission: Optional[Mission] = None,
++                      cancel: Optional[threading.Event] = None) -> AgentOutcome:
+         cancel = cancel or threading.Event()
+         goal = (goal or "").strip()
+         if not goal:
+@@ -283,6 +573,15 @@ class Agent:
+         # ---- 2. RISK (§21) ----
+         risk = assess_risk(goal)
+         trace.append(f"risk={risk.level.value}")
++        try:
++            executive_plan = self._executive.compile(
++                goal, intent=intent, risk=risk.level.value,
++            )
++            trace.append(f"command_os={self._executive.commands.explain(executive_plan)}")
++            if mission is not None:
++                mission.metadata["command_os"] = executive_plan.to_dict()
++        except Exception as exc:
++            log.debug("Command OS compile skipped: %s", exc)
+         if mission is not None:
+             mission.metadata["risk"] = risk.to_dict()
+ 
+@@ -333,6 +632,20 @@ class Agent:
+             fast.trace = trace + fast.trace
+             return fast
+ 
++        # ---- 7b. CONVERSATION GATE (Sprint 2): разговор без действия ----
++        # Офлайн-роутер уверенно распознал разговор: модель НЕ получает список
++        # инструментов и НЕ генерирует JSON-план — слабая fast-модель физически
++        # не может «позвать» list_files. Настоящие действия идут мимо гейта
++        # (явные глаголы/интент файлов/приложений/системы) в planner ниже.
++        is_conversation, conv_reason = classify_conversation(goal, intent)
++        if is_conversation:
++            trace.append(f"conversation gate: {conv_reason}")
++            if mission is not None:
++                mission.metadata["conversation_gate"] = conv_reason
++            return self._answer_conversation(
++                goal, mission, cancel, trace, routing, memory_ctx,
++            )
++
+         if cancel.is_set():
+             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
+ 
+@@ -354,7 +667,11 @@ class Agent:
+             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
+ 
+         if decision is None:
+-            # Модель недоступна/не смогла — это НЕ повод сказать "не умею" (§29).
++            # Сбой модели (сеть/провайдер/ключ) — временная ошибка инфраструктуры,
++            # а НЕ «не умею» (§29): никаких черновиков навыков и сырых ошибок
++            # в чат — короткая честная фраза, детали только в лог.
++            if plan_error.startswith(MODEL_ERROR_PREFIX):
++                return self._handle_model_unavailable(goal, mission, trace, plan_error)
+             trace.append(f"planning failed: {plan_error}")
+             return self._handle_unknown(goal, caps, mission, trace, plan_error)
+ 
+@@ -430,21 +747,54 @@ class Agent:
+     #  Роутинг модели (P0-2) + память (P0-5) + подтверждение (P0-3)
+     # ------------------------------------------------------------------ #
+ 
++    def _tier_breaker_open(self, tier) -> bool:
++        """Sprint 3 STEP 5: breaker модели тира разомкнут (серии сбоев).
++
++        Ключ — ``provider:model``, а не просто провайдер: несколько тиров
++        могут сидеть на одном провайдере (anymodel), и падение одной
++        модели (am/free) не должно блокировать остальные (cx/gpt-5.5).
++        """
++        try:
++            provider = self._settings.get_provider(tier)
++            model_id = self._settings.get_model_id(tier) or ""
++            return breaker.is_open(f"{provider}:{model_id}")
++        except Exception:  # noqa: BLE001 — конфиг может быть урезан в тестах
++            return False
++
+     def _backend_for_routing(self, routing: Optional[RoutingDecision]):
+         """Возвращает (backend, tier) по решению ModelRouter (cloud-first).
+ 
+         Идёт по цепочке [routing.tier] + fallback_chain, берёт первый
+-        реально доступный тир. Если ни один внешний не доступен — честный
+-        офлайн-фолбэк на локальную FAST (§17). Решение роутера обязано
+-        дойти до реального вызова модели (иначе выбор бессмыслен).
++        реально доступный тир. Тиры с разомкнутым circuit breaker'ом
++        (Sprint 3: 3 подряд сбоя провайдера) пропускаются до конца
++        cooldown. Если ни один внешний не доступен — честный офлайн-фолбэк
++        на ЛОКАЛЬНУЮ модель TIER 4 (§17). Решение роутера обязано дойти
++        до реального вызова модели (иначе выбор бессмыслен).
+         """
++        if (self._brain_fabric is not None and routing is not None
++                and getattr(routing, "brain_route", None) is not None):
++            from core.brain import BrainFabricBackend, BrainRequest, BrainRole, PrivacyClass
++            role = BrainRole(routing.role)
++            template = BrainRequest(
++                user_request=routing.request_text, role=role,
++                privacy=(PrivacyClass.LOCAL_ONLY if routing.forced_local else PrivacyClass.PERSONAL),
++                context_tokens=routing.complexity.context_tokens,
++            )
++            return BrainFabricBackend(
++                self._brain_fabric, routing.brain_route, template=template,
++            ), routing.tier
++
+         chain: List[Any] = []
+         if routing is not None:
+             chain = [routing.tier] + list(routing.fallback_chain)
+         else:
+             chain = [Tier.FAST]
+ 
++        skipped_breakers: List[str] = []
+         for tier in chain:
++            if self._tier_breaker_open(tier):
++                skipped_breakers.append(str(tier))
++                continue
+             try:
+                 if not self._settings.is_tier_available(tier):
+                     continue
+@@ -453,16 +803,29 @@ class Agent:
+             except (BackendUnavailable, BackendConfigError) as exc:
+                 log.debug("Тир %s недоступен для планирования: %s", tier, exc)
+                 continue
++        if skipped_breakers:
++            log.info("Circuit breaker: тиры %s пропущены (недавние сбои провайдеров)",
++                     ", ".join(skipped_breakers))
+ 
+-        # Graceful offline fallback на локальную модель.
++        # Graceful offline fallback на локальную модель (TIER 4, без сети).
+         try:
+-            return self._get_local_backend(), Tier.FAST
++            return get_offline_backend(self._settings), Tier.FAST
+         except Exception as exc:
+             log.warning("Локальный фолбэк недоступен: %s", exc)
+             return None, None
+ 
+-    def _fallback_backend(self, routing: Optional[RoutingDecision], tried):
+-        """Следующий доступный бэкенд после ``tried`` (для повтора при сбое)."""
++    def _fallback_backend(self, routing: Optional[RoutingDecision], tried,
++                          policy_override=None):
++        """Следующий доступный бэкенд после ``tried`` (для повтора при сбое).
++
++        ``policy_override`` — короткая «разговорная» политика для простых
++        задач: фолбэк не должен ждать полный бюджет аналитического тира.
++        Тиры с разомкнутым breaker'ом пропускаются (Sprint 3).
++        """
++        if (self._brain_fabric is not None and routing is not None
++                and getattr(routing, "brain_route", None) is not None):
++            # BrainFabricBackend already consumed its bounded semantic chain.
++            return None, None
+         chain: List[Any] = []
+         if routing is not None:
+             chain = [routing.tier] + list(routing.fallback_chain)
+@@ -475,23 +838,30 @@ class Agent:
+             except ValueError:
+                 pass
+         for tier in chain:
++            if self._tier_breaker_open(tier):
++                continue
+             try:
+                 if not self._settings.is_tier_available(tier):
+                     continue
+-                return get_llm_backend(self._settings, tier), tier
++                return get_llm_backend(self._settings, tier,
++                                       policy_override=policy_override), tier
+             except (BackendUnavailable, BackendConfigError):
+                 continue
+         return None, None
+ 
+     def _retrieve_context(self, goal: str) -> str:
+         """Извлекает релевантный контекст из локальной памяти (граф, офлайн)."""
++        parts: List[str] = []
++        try:
++            executive_context = self._executive.context_for(goal, limit=4)
++            if executive_context:
++                parts.append(executive_context)
++        except Exception as exc:
++            log.debug("Executive context недоступен: %s", exc)
+         if self._graph is None:
+-            return ""
++            return "\n".join(parts)
+         try:
+             nodes = self._graph.search_nodes(goal, top_k=3)
+-            if not nodes:
+-                return ""
+-            parts: List[str] = []
+             for n in nodes:
+                 label = (n.get("label") or "").strip()
+                 props = n.get("properties") or {}
+@@ -658,10 +1028,19 @@ class Agent:
+         """
+         if risk.needs_confirmation:
+             return None
+-        if intent not in ("app", "system"):
++        if intent not in ("app", "system", "media"):
+             return None
+ 
+-        caps = CAPABILITIES.retrieve(goal, top_k=2)
++        # Deterministic audit fixes: time and media do not compete with the
++        # reminder capability merely because the utterance contains a verb.
++        if intent == "media":
++            selected = CAPABILITIES.get("play_music")
++            caps = [selected] if selected is not None else []
++        elif intent == "system" and any(word in goal.casefold() for word in ("который час", "сколько времени", "текущее время", "какая дата", "time", "clock")):
++            selected = CAPABILITIES.get("current_time")
++            caps = [selected] if selected is not None else []
++        else:
++            caps = CAPABILITIES.retrieve(goal, top_k=2)
+         if not caps:
+             return None
+         cap = caps[0]
+@@ -703,6 +1082,19 @@ class Agent:
+         if cap.name == "system_status":
+             return {}
+ 
++        if cap.name == "current_time":
++            return {}
++
++        if cap.name == "play_music":
++            # A network source is never inferred silently.  Local path/URI
++            # may be supplied by an explicit caller or a future planner.
++            mood = ""
++            for marker in ("настроения", "настроение", "mood"):
++                if marker in lowered:
++                    mood = text.split(marker, 1)[-1].strip(" ,:—-")
++                    break
++            return {"mood": mood} if mood else None
++
+         if cap.name == "volume":
+             if any(w in lowered for w in ("выключи звук", "mute", "без звука")):
+                 return {"action": "mute"}
+@@ -742,11 +1134,18 @@ class Agent:
+         Returns:
+             ``(ToolCallDecision | None, error_text)``.
+         """
++        # Sprint 3 TIER 2: JSON-план строит минимум внешний тир (analyst):
++        # надёжный tool calling важнее скорости планирования. Разговорный
++        # путь сюда не доходит (conversation gate Sprint 2).
++        if routing is not None:
++            routing = self._model_router.route_for_planning(routing)
+         backend, used_tier = self._backend_for_routing(routing)
+         if backend is None:
+-            return None, "ни одна модель недоступна (ни облачная, ни локальный фолбэк)"
++            return None, MODEL_ERROR_PREFIX + "ни одна модель недоступна (ни облачная, ни локальный фолбэк)"
+         if mission is not None and used_tier is not None:
+             mission.model_used = used_tier.value
++            if routing is not None and used_tier is not routing.tier:
++                mission.metadata["degraded"] = True
+ 
+         known = [c.name for c in caps]
+         tools_desc = describe_tools_for_model(caps, self._registry) or "(нет подходящих инструментов)"
+@@ -758,9 +1157,13 @@ class Agent:
+                 f"{memory_ctx}\n"
+             )
+ 
++        # Sprint 4 TIER 2: persona + фокус на точность tool calling.
++        # История/факты в tool-промпт НЕ идут (спринт STEP 2.4).
++        from persona.system_prompt import build_agent_system_prompt
++        persona_line = build_agent_system_prompt(self._settings, tier="plan")
+         system = (
+-            "Ты — J.A.R.V.I.S., операционная интеллектуальная система на компьютере "
+-            "пользователя. Твоя задача — решить, КАК выполнить цель.\n"
++            f"{persona_line}\n"
++            "Твоя задача — решить, КАК выполнить цель.\n"
+             "Верни СТРОГО ОДИН JSON-объект без markdown и пояснений:\n"
+             f"{PLAN_SCHEMA_HINT}\n"
+             "Правила:\n"
+@@ -786,23 +1189,32 @@ class Agent:
+                 "Исправь и верни ТОЛЬКО валидный JSON."
+             )
+             try:
+-                raw = backend.chat([{"role": "user", "content": prompt}], system=system)
++                raw = self._stream_consume(backend, [{"role": "user", "content": prompt}], system)
+             except (BackendUnavailable, BackendConfigError) as exc:
+                 # Попробуем следующий тир из цепочки фолбэка (cloud->...->local).
+                 log.warning("Модель недоступна (%s), пробуем фолбэк: %s", used_tier, exc)
+-                fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier)
++                # Простая (разговорная) задача: фолбэк тоже короткий — нечего
++                # ждать полный бюджет аналитического тира ради «привет».
++                fb_policy = (
++                    {"timeout": getattr(self._settings.limits, "fast_tier_timeout_sec", None),
++                     "max_retries": getattr(self._settings.limits, "fast_tier_max_retries", None)}
++                    if routing is not None and routing.tier is Tier.FAST else None
++                )
++                fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier,
++                                                             policy_override=fb_policy)
+                 if fb_backend is None:
+-                    return None, f"модель недоступна: {exc}"
++                    return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}"
+                 backend, used_tier = fb_backend, fb_tier
+                 if mission is not None:
+                     mission.model_used = used_tier.value
++                    mission.metadata["degraded"] = True
+                 try:
+-                    raw = backend.chat([{"role": "user", "content": prompt}], system=system)
++                    raw = self._stream_consume(backend, [{"role": "user", "content": prompt}], system)
+                 except Exception as exc2:
+-                    return None, f"модель недоступна: {exc2}"
++                    return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}"
+             except Exception as exc:
+                 log.warning("Модель не ответила на планирование: %s", exc)
+-                return None, f"модель недоступна: {exc}"
++                return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}"
+ 
+             parsed = parse_structured(raw, required_keys=None)
+             if not parsed.ok:
+@@ -847,6 +1259,19 @@ class Agent:
+         """
+         context = ToolContext(user_id="default", settings=self._settings, state=None)
+ 
++        try:
++            execution_plan = self._executive.compile(
++                goal, tool=tool, args=args, intent="action",
++                risk=getattr(risk.level, "value", str(risk.level)),
++            )
++            rehearsal = self._executive.rehearse(execution_plan)
++            trace.append(f"shadow_rehearsal={'ready' if rehearsal.ready else 'blocked'}")
++            if mission is not None:
++                mission.metadata["command_os"] = execution_plan.to_dict()
++                mission.metadata["rehearsal"] = rehearsal.to_dict()
++        except Exception as exc:
++            log.debug("Shadow rehearsal skipped: %s", exc)
++
+         if mission is not None:
+             mission.set_status(MissionStatus.EXECUTING, f"выполняю {tool}")
+             mission.set_progress(0.5, f"выполнение: {tool}")
+@@ -876,6 +1301,15 @@ class Agent:
+ 
+         # ---- REPAIR (§10, §11) ----
+         if not verification.verified:
++            # Deterministic policy/input failures are not transient provider
++            # faults.  Re-running them only creates noise and a false backlog.
++            if tool == "play_music" and any(marker in (result.error or "") for marker in (
++                "явно разрешить сетевой источник", "Нужен локальный файл", "не найден",
++            )):
++                return AgentOutcome(
++                    text=str(result.error), verified=False, verification=verification,
++                    tool_used=tool, risk=risk, mode="tool", trace=trace,
++                )
+             if mission is not None:
+                 mission.note_error(result.error or verification.detail)
+                 mission.set_status(MissionStatus.REPAIRING, "первый способ не сработал")
+@@ -885,12 +1319,23 @@ class Agent:
+                 })
+ 
+             log.info("Verification не прошла — вход в repair loop (%s)", tool)
++            # Sprint 3 STEP 4: повторный риск-гейт. Каждый retry (патч
++            # аргументов / fallback-инструмент / повтор) проходит ТУ ЖЕ
++            # проверку §21, что и первый вызов: переформулировкой нельзя
++            # обойти подтверждение HIGH-risk операции.
++            def _repair_risk_gate(call_tool: str, call_args: Dict[str, Any]) -> Optional[str]:
++                gate_risk = assess_risk(goal, call_tool, call_args)
++                if gate_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
++                    return "; ".join(gate_risk.reasons) or "повышенный риск операции"
++                return None
++
+             repair = self._repair.run(
+                 tool_name=tool,
+                 args=args,
+                 context=context,
+                 mission=mission,
+                 verification=lambda r: verify_action_result(r).verified,
++                risk_gate=_repair_risk_gate,
+             )
+             trace.extend(f"repair: {t}" for t in repair.trace)
+ 
+@@ -915,11 +1360,18 @@ class Agent:
+                     mode="needs_human", trace=trace,
+                 )
+             else:
+-                # §11 — исчерпали разумные пути: честно сообщаем, БЕЗ "готово" (§14).
+-                return self._handle_unknown(
+-                    goal, caps, mission, trace,
++                # A known provider that temporarily failed is still a known
++                # capability.  Do not misclassify infrastructure trouble as an
++                # unknown task or generate a duplicate skill.
++                trace.append("known capability provider failed after repair budget")
++                self._shadow.backlog.add(
++                    f"repair_{tool}", priority=0.85,
+                     reason=result.error or verification.detail,
+-                    attempted_tool=tool,
++                )
++                return AgentOutcome(
++                    text="Источник временно не ответил. Задача сохранена для повторной попытки.",
++                    verified=False, verification=verification, tool_used=tool,
++                    risk=risk, mode="tool", trace=trace,
+                 )
+ 
+         # ---- RESULT ----
+@@ -954,10 +1406,173 @@ class Agent:
+             return f"{body}\n\n(Проверка: {verification.detail}.)"
+         return body
+ 
++    # ------------------------------------------------------------------ #
++    #  Sprint 2 — прямой разговор (без инструментов и без JSON-плана)
++    # ------------------------------------------------------------------ #
++
++    def _answer_conversation(self, goal: str, mission: Optional[Mission],
++                             cancel: threading.Event, trace: List[str],
++                             routing: Optional[RoutingDecision],
++                             memory_ctx: str = "") -> AgentOutcome:
++        """Разговорный ответ напрямую: БЕЗ списка инструментов и JSON-плана.
++
++        Гейт ``classify_conversation`` уже уверенно определил, что действия
++        нет. Модель получает простой диалоговый промпт — она физически не
++        может «позвать» инструмент, потому что их имена ей не показаны.
++        Стриминг и фолбэк тиров — те же механизмы, что и в planner-пути.
++        """
++        if cancel.is_set():
++            return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
++
++        backend, used_tier = self._backend_for_routing(routing)
++        if backend is None:
++            return self._handle_model_unavailable(
++                goal, mission, trace,
++                MODEL_ERROR_PREFIX + "ни одна модель недоступна (ни облачная, ни локальный фолбэк)",
++            )
++        # Sprint 3 STEP 5.2: ответил не тот тир, что роутер выбрал изначально
++        # (breaker/недоступность) — это деградация, не маскируем её.
++        degraded = routing is not None and used_tier is not None and used_tier is not routing.tier
++        if mission is not None and used_tier is not None:
++            mission.model_used = used_tier.value
++            if degraded:
++                mission.metadata["degraded"] = True
++            mission.set_status(MissionStatus.ANALYZING, "разговорный ответ")
++
++        # Sprint 4: персона + факты профиля + память графа + тон — в system;
++        # bounded-история сессии — в messages (под бюджет TIER 1).
++        user = goal
++        system = self._build_conversation_prompt(memory_ctx, goal, backend)
++        history = self._session.get_recent()
++        budget = int(getattr(self._settings.limits, "context_budget_fast_tokens", 2000))
++        messages = fit_messages_to_budget(system, history, user, budget)
++
++        try:
++            text = self._stream_consume(backend, messages, system, extract_answer=False)
++        except (BackendUnavailable, BackendConfigError) as exc:
++            log.warning("Модель недоступна (%s) в разговоре, пробуем фолбэк: %s", used_tier, exc)
++            fb_policy = (
++                {"timeout": getattr(self._settings.limits, "fast_tier_timeout_sec", None),
++                 "max_retries": getattr(self._settings.limits, "fast_tier_max_retries", None)}
++                if routing is not None and routing.tier is Tier.FAST else None
++            )
++            fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier,
++                                                         policy_override=fb_policy)
++            if fb_backend is None:
++                return self._handle_model_unavailable(
++                    goal, mission, trace, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}")
++            backend, used_tier = fb_backend, fb_tier
++            degraded = True
++            if mission is not None:
++                mission.model_used = used_tier.value
++                mission.metadata["degraded"] = True
++            # Фолбэк мог привести на офлайн-модель (TIER 4) — персона
++            # честно говорит про ограниченный режим.
++            system = self._build_conversation_prompt(memory_ctx, goal, backend)
++            messages = fit_messages_to_budget(system, history, user, budget)
++            try:
++                text = self._stream_consume(backend, messages, system, extract_answer=False)
++            except Exception as exc2:
++                return self._handle_model_unavailable(
++                    goal, mission, trace, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}")
++
++        text = (text or "").strip() or "Я вас слушаю, сэр."
++        trace.append("режим: прямой разговор (без инструментов)")
++        if degraded:
++            trace.append(f"degraded: ответил {used_tier} вместо {routing.tier if routing else '?'}")
++            text = f"[degraded] {text}"
++        if mission is not None:
++            mission.set_progress(1.0, "ответ сформирован")
++        return AgentOutcome(text=text, verified=True, mode="conversation",
++                            trace=trace, degraded=degraded)
++
++    # ------------------------------------------------------------------ #
++    #  Sprint 4 — persona + memory сборка промпта
++    # ------------------------------------------------------------------ #
++
++    def _is_offline_backend(self, backend) -> bool:
++        """True, если бэкенд — локальная GGUF-модель (TIER 4, офлайн)."""
++        try:
++            from core.llm.local_qwen import LocalQwenBackend
++            return isinstance(backend, LocalQwenBackend)
++        except Exception:  # noqa: BLE001
++            return False
++
++    def _build_conversation_prompt(self, memory_ctx: str, goal: str,
++                                   backend) -> str:
++        """System prompt разговорного пути: персона + факты + тон + память.
++
++        Собирается ``persona.build_agent_system_prompt`` (Sprint 4 STEP 3).
++        Диалоговая природа пути дописывается явно: никаких инструментов.
++        """
++        from persona.system_prompt import build_agent_system_prompt
++
++        profile_ctx = ""
++        try:
++            profile_ctx = get_relevant_profile_context(self._settings, goal)
++        except Exception as exc:  # noqa: BLE001
++            log.debug("Профиль недоступен: %s", exc)
++
++        prompt = build_agent_system_prompt(
++            self._settings,
++            tier="fast",
++            profile_ctx=profile_ctx,
++            memory_ctx=(memory_ctx or "")[:400],
++            tone=detect_tone(goal),
++            offline=self._is_offline_backend(backend),
++            personality_context=self._personality_prompt_context(goal),
++        )
++        return (
++            f"{prompt}\n"
++            "Это обычный диалог: никаких инструментов, файлов и команд — "
++            "просто ответь текстом. Не упоминай инструменты."
++        )
++
++    def _personality_prompt_context(self, goal: str) -> str:
++        """Retrieves only the few relationship memories relevant now."""
++        try:
++            profile = self._preference_learner.profile()
++            style = self._personality.style_for(
++                user_context=self._user_context,
++                urgency="high" if bool(self._user_context.get("user_busy")
++                                       or self._user_context.get("busy")) else "normal",
++                task_type=self._personality.infer_task_type(goal, mode="conversation"),
++                user_preference=profile,
++            )
++            relevant = self._relationship_memory.retrieve(goal, limit=4)
++            return self._personality.prompt_fragment(
++                style, memories=(item.fact for item in relevant),
++            )
++        except Exception as exc:
++            log.debug("Relationship context недоступен: %s", exc)
++            return ""
++
+     # ------------------------------------------------------------------ #
+     #  §8, §9, §29 — UNKNOWN != IMPOSSIBLE
+     # ------------------------------------------------------------------ #
+ 
++    def _handle_model_unavailable(self, goal: str, mission: Optional[Mission],
++                                  trace: List[str], plan_error: str) -> AgentOutcome:
++        """Сбой модели (таймаут/провайдер/ключ) — НЕ «не умею» и НЕ навык.
++
++        Это временная ошибка инфраструктуры: пользователю — короткая
++        дружелюбная фраза (без HTTP-кодов и трейсбеков), сырые детали —
++        только в лог. Черновик навыка (SkillForge) НЕ создаётся: навыки
++        фиксируются только для реальных «не умею», а не для сетевых сбоев.
++        """
++        detail = plan_error[len(MODEL_ERROR_PREFIX):].strip() or "модель недоступна"
++        log.warning("Модель недоступна при обработке цели: %s", detail)
++        trace.append(f"model unavailable: {detail}")
++        if mission is not None:
++            mission.note_error(detail)
++            mission.set_progress(1.0, "модель недоступна — ответ не сформирован")
++        return AgentOutcome(
++            text=MODEL_UNAVAILABLE_TEXT,
++            verified=False,
++            mode="model_error",
++            trace=trace,
++        )
++
+     def _handle_unknown(self, goal: str, caps: List[Capability],
+                         mission: Optional[Mission], trace: List[str],
+                         reason: str = "", attempted_tool: Optional[str] = None) -> AgentOutcome:
+@@ -969,6 +1584,77 @@ class Agent:
+             3. возвращаем честный ответ с планом исследования.
+         """
+         trace.append(f"unknown task path: {reason}")
++        # Sprint 9: a task class is resolved before generating another Python
++        # tool. Existing primitives are composed into a DAG and verified
++        # against desired state; only verified trajectories are learned.
++        try:
++            from core.capability_engine import (
++                CapabilityDefinition, CapabilityEngine, CapabilityKind,
++            )
++            capability_plan = self._capability_planner.plan(goal)
++            trace.append(f"capability acquisition={capability_plan.acquisition}")
++            if capability_plan.steps:
++                capability_engine = CapabilityEngine(
++                    self._capability_catalog, self._registry,
++                    context=ToolContext(settings=self._settings),
++                )
++                capability_report = capability_engine.execute(capability_plan, max_repairs=2)
++                trace.extend(f"capability: {item}" for item in capability_report.action_trace)
++                if capability_report.needs_confirmation:
++                    return AgentOutcome(
++                        text="Сэр, для следующего системного изменения требуется подтверждение.",
++                        verified=False, needs_confirmation=True,
++                        risk=assess_risk(goal), mode="confirmation_required", trace=trace,
++                    )
++                if capability_report.completed:
++                    return AgentOutcome(
++                        text="Готово. Проверяйте, сэр.", verified=True,
++                        tool_used=capability_plan.capability_id,
++                        mode="capability", trace=trace,
++                    )
++                self._shadow.backlog.add(
++                    capability_plan.capability_id or _skill_name_from_goal(goal),
++                    priority=0.95,
++                    reason="reactive capability execution or verification failed",
++                )
++                trace.append("failed capability queued for shadow repair")
++            elif capability_plan.acquisition == "research":
++                experimental_id = _skill_name_from_goal(goal)
++                self._capability_catalog.save(CapabilityDefinition(
++                    id=experimental_id, description=goal,
++                    kind=CapabilityKind.EXPERIMENTAL, confidence=0.3,
++                    success_criteria=list(capability_plan.requirements),
++                ))
++                self._shadow.backlog.add(
++                    experimental_id, priority=0.9,
++                    reason="reactive unknown request needs capability research",
++                )
++                trace.append("structured capability research queued")
++        except Exception as exc:
++            trace.append(f"capability engine skipped: {type(exc).__name__}")
++
++        # Sprint 8: for a low-risk novel request, Shadow Engine may already
++        # have a verified local tool ready (or create one with Qwen3-1.7B).
++        # The generated-tool sandbox permits only side-effect-free stdlib code;
++        # anything risky remains on the ordinary confirmation path below.
++        on_demand_risk = assess_risk(goal)
++        if not on_demand_risk.needs_confirmation:
++            try:
++                prepared = self._shadow.prepare_on_demand(goal)
++                if prepared is not None:
++                    trace.append(f"shadow on-demand: {prepared.name} ({prepared.status}, {prepared.confidence}%)")
++                    if prepared.status == "registered":
++                        result = execute_tool(
++                            self._registry, prepared.name, {"request": goal},
++                            ToolContext(settings=self._settings), max_retries=0,
++                        )
++                        if result.ok:
++                            return AgentOutcome(
++                                text=str(result.output or "Сейчас разберусь — способ подготовлен."),
++                                verified=True, tool_used=prepared.name, mode="tool", trace=trace,
++                            )
++            except Exception as exc:  # Generated tools never break Active mode.
++                trace.append(f"shadow on-demand skipped: {type(exc).__name__}")
+         if mission is not None:
+             mission.note_error(reason or "нет готового способа")
+             mission.metadata["unknown_task"] = True
+@@ -1007,8 +1693,9 @@ class Agent:
+         why = f" Причина: {reason}." if reason else ""
+         available = ", ".join(c.name for c in caps) if caps else "нет подходящих"
+ 
++        from core.shadow import active_mode_message
+         text = (
+-            f"Готового способа для этой задачи у меня пока нет — я ещё этому не научен.{attempted}{why}\n"
++            f"{active_mode_message(goal)}{attempted}{why}\n"
+             f"Доступные сейчас инструменты: {available}.\n"
+             f"Что я могу сделать дальше: изучить документацию и способ решения, "
+             f"собрать процедуру, проверить её на безопасном примере и сохранить как навык."
+@@ -1031,10 +1718,15 @@ class Agent:
+     # ------------------------------------------------------------------ #
+ 
+     def _get_local_backend(self):
+-        """Локальная Qwen3-4B — быстрый мозг (§16). None, если недоступна."""
++        """Локальная Qwen3-4B — офлайн-мозг TIER 4 (§16, Sprint 3).
++
++        Строится НАПРЯМУЮЮ из ``settings.local_model`` (GGUF), а не через
++        FAST-тир: провайдер FAST теперь внешний (am/free), и старый путь
++        молча возвращал ту же удалённую модель вместо офлайн-фолбэка.
++        None, если GGUF недоступна.
++        """
+         try:
+-            from core.llm import Tier, get_llm_backend
+-            backend = get_llm_backend(self._settings, Tier.FAST)
++            backend = get_offline_backend(self._settings)
+             if not backend.is_available():
+                 log.warning("Локальная модель недоступна: %s", backend.unavailable_reason())
+                 return None
+diff --git a/core/capabilities.py b/core/capabilities.py
+index 48c42e8..85e6cd2 100644
+--- a/core/capabilities.py
++++ b/core/capabilities.py
+@@ -66,10 +66,11 @@ class RiskLevel(str, Enum):
+     LOW = "low"
+     MEDIUM = "medium"
+     HIGH = "high"
++    CRITICAL = "critical"
+ 
+     @property
+     def requires_confirmation(self) -> bool:
+-        return self is RiskLevel.HIGH
++        return self in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+ 
+ 
+ class Speed(str, Enum):
+@@ -177,6 +178,22 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
+         success_check="в ответе реально присутствуют метрики CPU/RAM/диск",
+         tags=["system", "статус", "cpu", "память", "ram", "диск", "батарея"],
+     ),
++    "current_time": dict(
++        description="Показывает локальные часы, дату и часовой пояс без сети.",
++        examples=["который час", "сколько времени", "какая дата"],
++        risk_level=RiskLevel.LOW,
++        speed=Speed.INSTANT,
++        success_check="ответ содержит локальное время и дату",
++        tags=["system", "время", "час", "дата", "clock", "time"],
++    ),
++    "play_music": dict(
++        description="Открывает локальный трек или явно разрешённый медиасервис.",
++        examples=["поставь музыку", "включи трек", "открой песню"],
++        risk_level=RiskLevel.LOW,
++        speed=Speed.FAST,
++        success_check="медиаточка открыта launcher-ом",
++        tags=["media", "музыка", "трек", "песня", "spotify", "youtube", "плеер"],
++    ),
+     "web_search": dict(
+         description="Ищет информацию в интернете через DuckDuckGo.",
+         examples=["найди информацию о X", "поищи документацию по Y"],
+diff --git a/core/llm/local_qwen.py b/core/llm/local_qwen.py
+index 4dd4d0e..c1d39b8 100644
+--- a/core/llm/local_qwen.py
++++ b/core/llm/local_qwen.py
+@@ -363,6 +363,21 @@ class LocalQwenBackend(LLMBackend):
+             return None
+         return self._load_failed_reason or (self._model_file_error() or None)
+ 
++    def runtime_info(self) -> Dict[str, Any]:
++        """Bounded diagnostics used by the startup audit and UI telemetry."""
++        return {
++            "backend": self.name,
++            "model_path": str(self._gguf_path),
++            "model_exists": self._gguf_path.is_file(),
++            "loaded": self.is_loaded,
++            "n_gpu_layers": self._n_gpu_layers,
++            "n_threads": self._n_threads,
++            "n_batch": self._n_batch,
++            "n_ctx": self._n_ctx,
++            "embedding": self._embedding_mode,
++            "load_failed": self._load_failed_reason,
++        }
++
+     def close(self) -> None:
+         """Выгружает модель из памяти."""
+         with self._lock:
+diff --git a/core/memory/__init__.py b/core/memory/__init__.py
+index a0e9726..0d2da44 100644
+--- a/core/memory/__init__.py
++++ b/core/memory/__init__.py
+@@ -11,17 +11,28 @@
+ 
+ from __future__ import annotations
+ 
++from core.memory.budget import estimate_tokens, fit_messages_to_budget
+ from core.memory.document_rag import DocumentRAG, chunk_text, read_pdf, read_text_file
+ from core.memory.embedder import Embedder
++from core.memory.facts import detect_tone, extract_facts, learn_facts
+ from core.memory.knowledge_graph import GraphMemoryStore
+ from core.memory.long_term import LongTermMemory
+ from core.memory.profile import (
+     get_profile_context,
++    get_relevant_profile_context,
+     load_profile,
+     save_profile,
+     update_profile,
+ )
+ from core.memory.retrieval import MemoryRetriever
++from core.memory.relationship import (
++    MemoryContext,
++    MemoryHierarchy,
++    PreferenceLearner,
++    RelationshipMemory,
++    RelationshipMemoryStore,
++    WorkingMemory,
++)
+ from core.memory.short_term import SessionManager
+ 
+ __all__ = [
+@@ -35,7 +46,19 @@ __all__ = [
+     "save_profile",
+     "update_profile",
+     "get_profile_context",
++    "get_relevant_profile_context",
+     "read_pdf",
+     "read_text_file",
+     "chunk_text",
++    "estimate_tokens",
++    "fit_messages_to_budget",
++    "extract_facts",
++    "learn_facts",
++    "detect_tone",
++    "MemoryContext",
++    "MemoryHierarchy",
++    "PreferenceLearner",
++    "RelationshipMemory",
++    "RelationshipMemoryStore",
++    "WorkingMemory",
+ ]
+diff --git a/core/memory/profile.py b/core/memory/profile.py
+index ec3e456..61bab34 100644
+--- a/core/memory/profile.py
++++ b/core/memory/profile.py
+@@ -10,7 +10,9 @@
+ 
+ from __future__ import annotations
+ 
++import copy
+ import json
++import re
+ import tempfile
+ from pathlib import Path
+ from typing import Any, Dict, Optional
+@@ -25,6 +27,7 @@ __all__ = [
+     "save_profile",
+     "update_profile",
+     "get_profile_context",
++    "get_relevant_profile_context",
+     "profile_path",
+ ]
+ 
+@@ -64,19 +67,25 @@ def load_profile(settings: Settings) -> Dict[str, Any]:
+     path = profile_path(settings)
+     if not path.is_file():
+         log.info("Файл профиля не найден (%s) — использую дефолтный пустой профиль", path)
+-        return dict(DEFAULT_PROFILE)
++        # Глубокая копия: DEFAULT_PROFILE содержит списки (interests/...),
++        # поверхностная копия отдала бы их по ссылке — и первый же
++        # learn_facts мутировал бы «дефолт» для всех будущих сессий.
++        return copy.deepcopy(DEFAULT_PROFILE)
+ 
+     try:
+         data = json.loads(path.read_text(encoding="utf-8"))
+     except (json.JSONDecodeError, OSError) as exc:
+         log.warning("Профиль повреждён (%s), возвращаю дефолт: %s", path, exc)
+-        return dict(DEFAULT_PROFILE)
++        return copy.deepcopy(DEFAULT_PROFILE)
+ 
+     if not isinstance(data, dict):
+         log.warning("Профиль не является объектом JSON, возвращаю дефолт")
+-        return dict(DEFAULT_PROFILE)
+-    # Дополняем недостающие ключи дефолтами, чтобы не ловить KeyError.
+-    return {**DEFAULT_PROFILE, **data}
++        return copy.deepcopy(DEFAULT_PROFILE)
++    # Дополняем недостающие ключи дефолтами, чтобы не ловить KeyError
++    # (вложенные списки тоже копируем — см. замечание выше).
++    merged = copy.deepcopy(DEFAULT_PROFILE)
++    merged.update(data)
++    return merged
+ 
+ 
+ def save_profile(settings: Settings, profile: Dict[str, Any]) -> Path:
+@@ -141,6 +150,10 @@ def get_profile_context(settings: Settings) -> str:
+     profile = load_profile(settings)
+     parts: list[str] = []
+ 
++    name = (profile.get("name") or "").strip()
++    if name:
++        parts.append(f"Пользователя зовут {name}.")
++
+     conditions = profile.get("conditions") or []
+     if conditions:
+         parts.append(", ".join(conditions) + ".")
+@@ -172,3 +185,44 @@ def get_profile_context(settings: Settings) -> str:
+         parts.append(notes)
+ 
+     return " ".join(parts).strip()
++
++
++def get_relevant_profile_context(settings: Settings, query: str, *, max_chars: int = 800) -> str:
++    """Return only profile facts that overlap the current query.
++
++    Explicit profile questions can see the profile; ordinary turns receive a
++    bounded overlap-gated slice so unrelated interests do not leak into the
++    response prompt.
++    """
++    profile = load_profile(settings)
++    text = " ".join((query or "").casefold().split())
++    query_tokens = set(re.findall(r"[\w-]{2,}", text, flags=re.UNICODE))
++    explicit_profile = any(marker in text for marker in
++                           ("профиль", "обо мне", "мои интерес", "моё имя", "предпочт"))
++
++    def relevant(value: Any) -> bool:
++        value_tokens = set(re.findall(r"[\w-]{2,}", str(value).casefold(), flags=re.UNICODE))
++        return explicit_profile or bool(query_tokens & value_tokens)
++
++    parts: list[str] = []
++    name = (profile.get("name") or "").strip()
++    # A confirmed name is relationship identity, not topical memory; keeping
++    # it in every prompt preserves continuity without leaking interest lists.
++    if name:
++        parts.append(f"Пользователя зовут {name}.")
++    for key, prefix in (("conditions", ""), ("interests", "Любит "), ("dislikes", "Не любит ")):
++        values = profile.get(key) or []
++        if not isinstance(values, list):
++            values = [values]
++        selected = [str(item) for item in values if relevant(item)]
++        if selected:
++            parts.append(prefix + ", ".join(selected) + ".")
++    preferences = profile.get("preferences") or {}
++    if isinstance(preferences, dict):
++        length = preferences.get("response_length")
++        if length in {"short", "long"} and (explicit_profile or "ответ" in text or "крат" in text or "подроб" in text):
++            parts.append("Предпочитает " + ("короткие" if length == "short" else "подробные") + " ответы.")
++    notes = (profile.get("notes") or "").strip()
++    if notes and relevant(notes):
++        parts.append(notes)
++    return " ".join(parts).strip()[:max(80, int(max_chars))]
+diff --git a/core/memory/retrieval.py b/core/memory/retrieval.py
+index 153d6ff..b241bae 100644
+--- a/core/memory/retrieval.py
++++ b/core/memory/retrieval.py
+@@ -18,7 +18,7 @@ from core.memory.document_rag import DocumentRAG
+ from core.memory.embedder import Embedder
+ from core.memory.knowledge_graph import GraphMemoryStore
+ from core.memory.long_term import LongTermMemory
+-from core.memory.profile import get_profile_context
++from core.memory.profile import get_relevant_profile_context
+ from core.state import JarvisState, RetrievedContext
+ from core.utils.logger import get_logger
+ 
+@@ -110,7 +110,7 @@ class MemoryRetriever:
+ 
+         # 1) Профиль — всегда доступен (простой JSON).
+         try:
+-            context["profile"] = get_profile_context(self._settings)
++            context["profile"] = get_relevant_profile_context(self._settings, query)
+         except Exception as exc:
+             log.warning("Ошибка сборки контекста профиля: %s", exc)
+ 
+@@ -178,7 +178,7 @@ class MemoryRetriever:
+         assistant_safe = sanitize_for_memory(assistant_text or "")
+         if assistant_safe and assistant_safe.strip():
+             self._long_term.add(
+-                f"Джарвис: {assistant_safe.strip()}",
++                f"АТЛАС: {assistant_safe.strip()}",
+                 metadata={"type": "assistant", "source": "conversation",
+                           "stored_at": _now_iso()},
+             )
+diff --git a/core/orchestrator.py b/core/orchestrator.py
+index ee0310e..732aa66 100644
+--- a/core/orchestrator.py
++++ b/core/orchestrator.py
+@@ -26,6 +26,8 @@ from typing import Any, Callable, Dict, List, Optional
+ from config.settings import Settings
+ from core.actions import DEFAULT_REGISTRY, ToolContext, execute_tool
+ from core.agent import Agent, pick_acknowledgement
++from core.capabilities import CAPABILITIES
++from core.cognitive import CognitiveOrchestrator
+ from core.memory import MemoryRetriever
+ from core.model_router import ModelRouter, estimate_complexity
+ from core.research import is_research_goal
+@@ -33,10 +35,14 @@ from core.router import CouncilRouter
+ from core.router.intent_router import resolve_keyword_tool
+ from core.state import JarvisState, ActionResult, new_state, push_message, trim_short_memory
+ from core.task_runtime import Mission, MissionStatus, TaskEvent, TaskRuntime
+-from core.voice import PiperTTS, TTSQueue, show_toast
++from core.voice import (
++    AssistantOutput, PiperTTS, SpeechRenderer, TTSQueue,
++    assistant_output_from_outcome, show_toast,
++)
+ from core.proactive import Proactor, BackgroundScheduler
+ from core.actions.reminders import TaskManager, get_default_manager
+ from core.utils.logger import get_logger
++from core.brain import build_brain_fabric
+ 
+ __all__ = ["Orchestrator"]
+ 
+@@ -68,10 +74,13 @@ class Orchestrator:
+ 
+         # ЕДИНЫЙ роутер моделей — его делят CouncilRouter и Agent (P5 §5.7),
+         # чтобы любой вход (консоль/WebSocket) маршрутизировался одинаково.
+-        self._model_router = ModelRouter(settings)
++        self._brain = build_brain_fabric(settings)
++        self._model_router = ModelRouter(settings, brain_fabric=self._brain)
+ 
+         # Инициализация компонентов
+-        self._council = CouncilRouter(settings, model_router=self._model_router)
++        self._council = CouncilRouter(
++            settings, model_router=self._model_router, brain_fabric=self._brain,
++        )
+         self._session = None  # будет создан в start()
+         self._memory = MemoryRetriever(settings)
+         self._registry = DEFAULT_REGISTRY
+@@ -79,12 +88,50 @@ class Orchestrator:
+         # --- Агентное ядро J.A.R.V.I.S. 3.0 (§3, §6) ---
+         # Агент исполняет миссии, TaskRuntime даёт им асинхронную жизнь.
+         # НЕТ watchdog по умолчанию: миссия живёт столько, сколько нужно (§4).
+-        self._agent = Agent(settings, council=self._council, model_router=self._model_router)
+-        self._runtime = TaskRuntime(default_watchdog_sec=None)
++        self._agent = Agent(
++            settings, council=self._council, model_router=self._model_router,
++            brain_fabric=self._brain,
++        )
++        # Shadow Engine is owned by Agent but its cadence belongs to the
++        # orchestrator lifecycle, alongside other background services.
++        self._shadow = self._agent._shadow
++        self._shadow.attach_brain_fabric(self._brain)
++        self._runtime = TaskRuntime(
++            default_watchdog_sec=None,
++            persistence_dir=settings.data_dir / "missions",
++        )
++        from core.living import LivingIntelligence
++        self._living = LivingIntelligence(
++            settings.data_dir / "living",
++            task_runtime=self._runtime,
++            shadow_engine=self._shadow,
++            relationship_learner=self._agent.preference_learner,
++        )
++        self._runtime.subscribe(self._living.observe_mission_event)
++
++        # Sprint 13: one continuity/state coordinator above the existing
++        # owners. It references their real registries and policies rather than
++        # cloning tools, memory, personality, attention, or Shadow behavior.
++        self._cognitive = CognitiveOrchestrator(
++            settings.data_dir / "cognitive",
++            registry=self._registry,
++            capability_registry=CAPABILITIES,
++            providers={"shadow": self._shadow, "brain": self._brain},
++            task_runtime=self._runtime,
++            living_context=self._living.context,
++            memory_hierarchy=self._agent._memory_hierarchy,
++            capability_planner=self._agent._capability_planner,
++            personality=self._agent.personality,
++            shadow_engine=self._shadow,
++            attention_manager=self._living.decisions.attention,
++            goal_tracker=self._living.context.goal_tracker,
++            brain_fabric=self._brain,
++        )
+ 
+         # TTS
+         self._tts = PiperTTS(settings)
+-        self._tts_queue = TTSQueue(self._tts)
++        self._speech_renderer = SpeechRenderer(settings.voice)
++        self._tts_queue = TTSQueue(self._tts, renderer=self._speech_renderer)
+ 
+         # Reminders
+         self._task_manager = get_default_manager()
+@@ -104,11 +151,65 @@ class Orchestrator:
+ 
+         self._running = False
+         self._lock = threading.Lock()
++        self._warmup_thread: Optional[threading.Thread] = None
+ 
+     # --------------------------------------------------------------------- #
+     #  Публичный API
+     # --------------------------------------------------------------------- #
+ 
++    def install_stream_sink(self, sink) -> None:
++        """Sprint 1: проброс stream-sink в агент для ТЕКУЩЕГО потока запроса."""
++        install = getattr(self._agent, "install_stream_sink", None)
++        if callable(install):
++            install(sink)
++
++    def clear_stream_sink(self) -> None:
++        clear = getattr(self._agent, "clear_stream_sink", None)
++        if callable(clear):
++            clear()
++
++    def _new_state(self, text: str) -> JarvisState:
++        """Create a state with deterministic intent and bounded executive context."""
++        state = new_state(text)
++        state["intent"] = resolve_keyword_tool(text, text)
++        try:
++            state["executive"] = self._agent.executive.snapshot()
++        except Exception as exc:
++            log.debug("Executive snapshot unavailable: %s", exc)
++            state["executive"] = {}
++        return state
++
++    def _start_local_warmup(self) -> None:
++        """Warm the configured local backend off the request/UI thread."""
++        if not bool(getattr(self._settings, "warmup_local_on_start", False)):
++            return
++        if self._warmup_thread is not None and self._warmup_thread.is_alive():
++            return
++
++        def _warm() -> None:
++            try:
++                from core.llm import Tier, get_llm_backend
++                backend = get_llm_backend(self._settings, Tier.FAST)
++                warm_up = getattr(backend, "warm_up", None)
++                if callable(warm_up):
++                    warm_up()
++                    log.info("Local FAST backend warmed before first request")
++                else:
++                    log.debug("FAST backend has no warm_up hook: %s", type(backend).__name__)
++            except Exception as exc:
++                # Warmup is an optimisation; normal lazy loading remains valid.
++                log.warning("Local backend warmup skipped: %s", exc)
++
++        self._warmup_thread = threading.Thread(target=_warm, name="jarvis-local-warmup", daemon=True)
++        self._warmup_thread.start()
++
++    def consume_streamed_mission(self):
++        """Sprint 1: task_id миссии, стримленной в текущем потоке (или None)."""
++        consume = getattr(self._agent, "consume_streamed_mission", None)
++        if callable(consume):
++            return consume()
++        return None
++
+     def start(self) -> None:
+         """Запускает все фоновые сервисы."""
+         with self._lock:
+@@ -116,6 +217,8 @@ class Orchestrator:
+                 return
+             self._running = True
+ 
++            self._start_local_warmup()
++
+             # Short-term memory manager
+             max_size = getattr(getattr(self._settings, "limits", None), "short_memory_size", 20)
+             from core.memory import SessionManager
+@@ -131,6 +234,9 @@ class Orchestrator:
+             # Proactive
+             self._proactor.start()
+             self._scheduler.start()
++            shadow_cfg = getattr(self._settings, "shadow", None)
++            self._shadow.start(interval_sec=int(getattr(shadow_cfg, "interval_sec", 300)))
++            self._living.start()
+ 
+             log.info("Оркестратор запущен")
+ 
+@@ -143,11 +249,18 @@ class Orchestrator:
+ 
+         self._proactor.stop()
+         self._scheduler.stop()
++        self._living.stop()
++        self._shadow.stop()
+         self._tts_queue.stop(wait=True)
++        try:
++            self._brain.close()
++        except Exception as exc:
++            log.debug("Brain Fabric shutdown cleanup skipped: %s", exc)
+ 
+         log.info("Оркестратор остановлен")
+ 
+-    def handle_input(self, text: str) -> JarvisState:
++    def handle_input(self, text: str, *, channel: str = "text",
++                     implicit_address: Optional[bool] = None) -> JarvisState:
+         """Полный цикл обработки пользовательского ввода.
+ 
+         Единый вход (§3, §5): любой ввод идёт через один реальный путь —
+@@ -172,27 +285,96 @@ class Orchestrator:
+ 
+         # Отмечаем активность для proactor
+         self._proactor.mark_user_activity()
++        self._agent.set_user_context(self._living.context.current)
++
++        # Production config opts into tiny deterministic replies for high-
++        # frequency local probes.  Test/library Settings() stays untouched,
++        # while the live path avoids a 40-second model round trip and prompt
++        # contamination for greetings and elementary definitions.
++        if bool(getattr(self._settings, "warmup_local_on_start", False)):
++            quick = self._quick_local_reply(text)
++            if quick is not None:
++                return self._direct_cognitive_response(text, quick)
++
++        # Text arriving through the explicit chat/WS input is implicitly
++        # addressed to ATLAS. Voice callers can use ``cognitive`` directly
++        # with ``implicit_address=False`` before forwarding an utterance.
++        if implicit_address is None:
++            implicit_address = channel != "voice"
++        cognitive_turn = self._cognitive.begin_interaction(
++            text, channel=channel, implicit_address=implicit_address,
++        )
++        if cognitive_turn.action == "wait":
++            state = self._new_state(text)
++            state["response"] = ""
++            state["tts_text"] = None
++            state["addressed_to_atlas"] = False
++            state["address_confidence"] = cognitive_turn.confidence
++            return state
++        if cognitive_turn.action in {"clarify", "self_knowledge"}:
++            return self._direct_cognitive_response(text, cognitive_turn.response)
++        if cognitive_turn.action in {"continue", "retry"} and cognitive_turn.goal:
++            text = cognitive_turn.goal
++
++        # Sprint 11: natural queries are answered from evidence-backed local
++        # structured context.  This path does not capture pixels or keystrokes.
++        context_reply = self._living.answer_context(text)
++        if context_reply is not None:
++            response = str(context_reply["answer"])
++            output = AssistantOutput.natural(response, speech_mode="focused")
++            state = self._new_state(text)
++            self._session.push("user", text)
++            self._session.push("assistant", response)
++            self._session.to_state(state)
++            state["response"] = response
++            state["context_evidence"] = list(context_reply.get("evidence") or [])
++            spoken = self._queue_assistant_output(output)
++            self._output_callback(response)
++            state["tts_text"] = spoken
++            state["assistant_output"] = output.to_dict()
++            return state
+ 
+         # Единый путь (§3): тяжёлая задача -> фон (мгновенный ACK),
+         # лёгкая -> синхронно в том же агентном цикле (без фоновой миссии).
+-        if self._should_run_background(text):
++        run_background = self._should_run_background(text)
++        self._living.observe_user_input(text, active_mission=run_background)
++        self._agent.set_user_context(self._living.context.current)
++        if run_background:
+             mission = self.submit_goal(text)
++            self._cognitive.state.current_goal = mission.goal
++            self._cognitive.state.active_task = mission.current_step or "mission queued"
++            self._cognitive.state.active_mission_id = mission.task_id
++            self._cognitive.state.mission_state = mission.status.value
++            self._cognitive.store.save(self._cognitive.state)
+             ack = mission.acknowledgement or "Принято, сэр. Работаю."
+-            state = new_state(text)
++            state = self._new_state(text)
+             self._session.push("user", text)
+             self._session.to_state(state)
+             state["response"] = ack
+-            state["tts_text"] = ack
++            ack_output = AssistantOutput.natural(ack, speech_mode="focused")
++            rendered = self._speech_renderer.render(ack_output)
++            state["tts_text"] = rendered.text if rendered else None
++            state["assistant_output"] = ack_output.to_dict()
+             state["mission_id"] = mission.task_id
+             return state
+ 
+         # Синхронный путь через единый агентный цикл
+         # (intent -> risk -> MODEL SELECTION -> tool -> verify -> repair).
+         outcome = self._agent.execute(text)
++        if outcome.tool_used or outcome.mode in {"capability", "unknown_task"}:
++            self._living.observe_capability_outcome(
++                text, verified=outcome.verified,
++                capability_id=outcome.tool_used or outcome.mode,
++            )
++            self._cognitive.record_external_outcome(
++                goal=text, result=outcome.text, verified=bool(outcome.verified),
++                pending=[] if outcome.verified else ["independent result verification"],
++            )
+ 
+-        response = (outcome.text or "").strip() or "(пустой ответ, сэр)."
++        output = assistant_output_from_outcome(outcome)
++        response = output.display_text or "(пустой ответ, сэр)."
+ 
+-        state = new_state(text)
++        state = self._new_state(text)
+         self._session.push("user", text)
+         self._session.to_state(state)
+ 
+@@ -207,16 +389,14 @@ class Orchestrator:
+         self._session.push("assistant", response)
+         self._session.to_state(state)
+ 
+-        # TTS queue
+-        if self._settings.voice.tts_enabled and self._tts.is_available():
+-            from core.voice.tts_sanitizer import sanitize_for_tts
+-            self._tts_queue.add_to_queue(sanitize_for_tts(response))
++        spoken = self._queue_assistant_output(output)
+ 
+         # Output callback (печать/тост)
+         self._output_callback(response)
+ 
+         state["response"] = response
+-        state["tts_text"] = response
++        state["tts_text"] = spoken
++        state["assistant_output"] = output.to_dict()
+         if outcome.needs_confirmation:
+             state["confirmation_id"] = getattr(outcome, "confirmation_id", None)
+             state["needs_confirmation"] = True
+@@ -239,6 +419,15 @@ class Orchestrator:
+         # LOCAL_THRESHOLD из ModelRouter (0.35): выше — в фон.
+         return cx.score >= 0.35
+ 
++    @staticmethod
++    def _quick_local_reply(text: str) -> Optional[str]:
++        lowered = " ".join((text or "").casefold().split())
++        if any(marker in lowered for marker in ("привет", "здравствуй", "ты меня слыш", "слышишь меня")):
++            return "Слышу вас, сэр. Канал связи работает."
++        if "энтроп" in lowered and any(marker in lowered for marker in ("что такое", "объясни", "это")):
++            return "Энтропия — мера неопределённости или числа возможных состояний системы."
++        return None
++
+     # --------------------------------------------------------------------- #
+     #  Ответ на подтверждение HIGH-risk операции (§21)
+     # --------------------------------------------------------------------- #
+@@ -257,12 +446,15 @@ class Orchestrator:
+         if outcome is None:
+             return None
+ 
+-        text = (outcome.text or "").strip() or "(пустой ответ, сэр)."
++        output = assistant_output_from_outcome(outcome)
++        text = output.display_text or "(пустой ответ, сэр)."
+         self._output_callback(text)
++        spoken = self._queue_assistant_output(output)
+ 
+-        state: JarvisState = new_state("")
++        state: JarvisState = self._new_state("")
+         state["response"] = text
+-        state["tts_text"] = text
++        state["tts_text"] = spoken
++        state["assistant_output"] = output.to_dict()
+         if outcome.needs_confirmation:
+             state["confirmation_id"] = getattr(outcome, "confirmation_id", None)
+             state["needs_confirmation"] = True
+@@ -338,9 +530,7 @@ class Orchestrator:
+ 
+         # Немедленное подтверждение пользователю (§5).
+         self._output_callback(ack)
+-        if self._settings.voice.tts_enabled and self._tts.is_available():
+-            from core.voice.tts_sanitizer import sanitize_for_tts
+-            self._tts_queue.add_to_queue(sanitize_for_tts(ack))
++        self._queue_assistant_output(AssistantOutput.natural(ack, speech_mode="focused"))
+ 
+         if unsubscribe is not None:
+             mission.metadata["_unsubscribe"] = unsubscribe
+@@ -354,6 +544,15 @@ class Orchestrator:
+ 
+         result_text = self._agent.run_mission(mission, cancel)
+ 
++        verification = mission.verification or {}
++        verified = bool(verification.get("verified") is True)
++        if not cancel.is_set():
++            self._cognitive.record_external_outcome(
++                goal=mission.goal, result=result_text, verified=verified,
++                pending=[] if verified else ["mission desired state"],
++                mission_id=mission.task_id,
++            )
++
+         # Память и озвучка — только для завершённых, не отменённых задач.
+         if not cancel.is_set():
+             try:
+@@ -364,9 +563,7 @@ class Orchestrator:
+                 self._session.push("assistant", result_text)
+ 
+             self._output_callback(result_text)
+-            if self._settings.voice.tts_enabled and self._tts.is_available():
+-                from core.voice.tts_sanitizer import sanitize_for_tts
+-                self._tts_queue.add_to_queue(sanitize_for_tts(result_text))
++            self._queue_assistant_output(AssistantOutput.natural(result_text))
+ 
+         return result_text
+ 
+@@ -382,6 +579,24 @@ class Orchestrator:
+         """Отменяет миссию по ID (§24)."""
+         return self._runtime.cancel(task_id)
+ 
++    def pause_mission(self, task_id: str) -> bool:
++        paused = self._runtime.pause(task_id)
++        if paused:
++            mission = self._runtime.get(task_id)
++            if mission is not None:
++                self._cognitive.state.current_goal = mission.goal
++                self._cognitive.state.active_task = mission.current_step or ""
++                self._cognitive.state.active_mission_id = mission.task_id
++                self._cognitive.state.mission_state = "paused"
++                self._cognitive.suspend_current()
++        return paused
++
++    def skip_mission_step(self, task_id: str) -> bool:
++        return self._runtime.skip_step(task_id)
++
++    def explain_mission_step(self, task_id: str) -> str:
++        return self._runtime.explain_current_step(task_id)
++
+     def get_mission(self, task_id: str) -> Optional[Mission]:
+         """Возвращает миссию по ID (для UI/статуса)."""
+         return self._runtime.get(task_id)
+@@ -398,6 +613,21 @@ class Orchestrator:
+     def runtime(self) -> TaskRuntime:
+         return self._runtime
+ 
++    @property
++    def living(self):
++        """Sprint 11 integration facade for local context and proactive policy."""
++        return self._living
++
++    @property
++    def cognitive(self) -> CognitiveOrchestrator:
++        """Sprint 13 typed continuity and factual self-knowledge facade."""
++        return self._cognitive
++
++    @property
++    def brain(self):
++        """Sprint 15 model-orchestration facade owned by Cognitive Core."""
++        return self._brain
++
+     @property
+     def agent(self) -> Agent:
+         return self._agent
+@@ -482,15 +712,41 @@ class Orchestrator:
+         """Дефолтный вывод: print + toast."""
+         print(f"🤖 {text}")
+         if self._settings.voice.tts_enabled:
+-            show_toast("Джарвис", text[:100])
++            show_toast("АТЛАС", text[:100])
+ 
+     def _proactive_output(self, text: str) -> None:
+         """Вывод проактивного сообщения."""
+         print(f"💡 [Проактивно] {text}")
+         if self._settings.voice.tts_enabled:
+-            from core.voice.tts_sanitizer import sanitize_for_tts
+-            self._tts_queue.add_to_queue(sanitize_for_tts(text))
+-            show_toast("Джарвис (проактивно)", text[:100])
++            self._queue_assistant_output(
++                AssistantOutput.natural(text, speech_mode="background")
++            )
++            show_toast("АТЛАС (проактивно)", text[:100])
++
++    def _queue_assistant_output(self, output: AssistantOutput) -> Optional[str]:
++        """Single typed path into TTS; returns the final safe spoken text."""
++        rendered = self._speech_renderer.render(output)
++        if rendered is None:
++            return None
++        if self._settings.voice.tts_enabled and self._tts.is_available():
++            self._tts_queue.add_output(output)
++        return rendered.text
++
++    def _direct_cognitive_response(self, user_text: str, response: str) -> JarvisState:
++        """Render a deterministic cognitive answer through the existing voice path."""
++        output = AssistantOutput.natural(response, speech_mode="focused")
++        state = self._new_state(user_text)
++        if self._session is not None:
++            self._session.push("user", user_text)
++            self._session.push("assistant", response)
++            self._session.to_state(state)
++        spoken = self._queue_assistant_output(output)
++        self._output_callback(response)
++        state["response"] = response
++        state["tts_text"] = spoken
++        state["assistant_output"] = output.to_dict()
++        state["cognitive_state"] = self._cognitive.state.to_safe_dict()
++        return state
+ 
+     def _check_reminders(self) -> bool:
+         """Проверка сработавших напоминаний для proactor.
+@@ -507,10 +763,13 @@ class Orchestrator:
+         return False
+ 
+     def _nightly_consolidation(self) -> None:
+-        """Ночная консолидация (заглушка)."""
++        """Bounded local sleep-time consolidation; no external actions."""
+         log.info("Ночная консолидация: запуск...")
+-        # TODO: анализ дня, суммаризация, дедуп памяти, утренний брифинг
+-        log.info("Ночная консолидация: завершена (заглушка)")
++        try:
++            report = self._agent.executive.sleep()
++            log.info("Ночная консолидация завершена: %s", report)
++        except Exception as exc:
++            log.warning("Ночная консолидация пропущена: %s", exc)
+ 
+     # --------------------------------------------------------------------- #
+     #  Свойства для доступа к компонентам
+@@ -534,4 +793,4 @@ class Orchestrator:
+ 
+     @property
+     def proactor(self) -> Proactor:
+-        return self._proactor
+\ No newline at end of file
++        return self._proactor
+diff --git a/core/router/intent_router.py b/core/router/intent_router.py
+index 47305b7..fc0cd41 100644
+--- a/core/router/intent_router.py
++++ b/core/router/intent_router.py
+@@ -69,7 +69,8 @@ _CATEGORY_KEYWORDS: Dict[str, List[str]] = {
+         "статус систем", "память компьютера", "батаре", "аккумулятор",
+         "перезагруз", "выключи компьютер", "яркость", "микрофон", "камер",
+         "wifi", "процессор", "cpu", "диск", "volume", "mute", "shutdown",
+-        "reboot", "brightness",
++        "reboot", "brightness", "который час", "сколько времени", "текущее время",
++        "время", "дата", "time", "clock",
+     ],
+     INTENT_APP: [
+         "открой", "открыть", "запусти", "запустить", "закрой", "закрыть",
+diff --git a/core/state.py b/core/state.py
+index 66a1751..4d7ad9a 100644
+--- a/core/state.py
++++ b/core/state.py
+@@ -86,6 +86,7 @@ class JarvisState(TypedDict, total=False):
+ 
+     user_input: str                        # текст пользователя (микрофона нет)
+     intent: Optional[str]                  # категория от keyword-роутера: app/media/web/...
++    executive: Dict[str, Any]              # bounded Executive Mind snapshot
+     tier: str                              # выбранный тир совета: fast/analyst/coder/architect
+     short_memory: List[Message]            # последние N сообщений (ОЗУ)
+     retrieved_context: RetrievedContext    # что подняли слои памяти
+@@ -93,6 +94,7 @@ class JarvisState(TypedDict, total=False):
+     action_results: List[ActionResult]      # результаты инструментов
+     response: Optional[str]                # финальный текст ответа
+     tts_text: Optional[str]                # текст для озвучки (может быть короче response)
++    assistant_output: Dict[str, Any]       # typed display/speech/debug/error contract
+     timestamp: str                         # ISO-8601 UTC начала витка
+     error: Optional[str]                   # человекочитаемая ошибка витка
+ 
+@@ -122,9 +124,10 @@ def new_state(
+         source: кто инициировал виток ('user' / 'proactive' / 'reminder').
+         tier: стартовый тир (по умолчанию лицо Джарвиса — 'fast').
+     """
+-    return JarvisState(
++    state = JarvisState(
+         user_input=user_input,
+         intent=None,
++        executive={},
+         tier=tier,
+         short_memory=list(short_memory) if short_memory else [],
+         retrieved_context=RetrievedContext(),
+@@ -132,12 +135,21 @@ def new_state(
+         action_results=[],
+         response=None,
+         tts_text=None,
++        assistant_output={},
+         timestamp=utc_timestamp(),
+         error=None,
+         source=source,
+         escalations=[],
+         latency={},
+     )
++    # Every state-producing path is self-describing.  The local import avoids
++    # a cycle while the router package is initialising.
++    try:
++        from core.router.intent_router import resolve_keyword_tool
++        state["intent"] = resolve_keyword_tool(user_input, user_input)
++    except Exception:
++        state["intent"] = None
++    return state
+ 
+ 
+ def push_message(state: JarvisState, role: Role, content: str,
+diff --git a/core/verifier.py b/core/verifier.py
+index 77e158b..7b9efdc 100644
+--- a/core/verifier.py
++++ b/core/verifier.py
+@@ -343,6 +343,23 @@ def verify_system_metrics(result: ActionResult) -> VerificationResult:
+     return VerificationResult(False, "system_metrics", "метрик в ответе нет")
+ 
+ 
++def verify_current_time(result: ActionResult) -> VerificationResult:
++    """current_time: локальный ответ содержит время и дату."""
++    if not result.ok:
++        return VerificationResult(False, "current_time", result.error or "ok=False")
++    text = _output_text(result)
++    if re.search(r"\b\d{2}:\d{2}:\d{2}\b", text) and re.search(r"\b\d{4}-\d{2}-\d{2}\b", text):
++        return VerificationResult(True, "current_time", "локальные часы и дата присутствуют")
++    return VerificationResult(False, "current_time", "формат времени не подтверждён")
++
++
++def verify_play_music(result: ActionResult) -> VerificationResult:
++    """play_music: success означает, что launch/open вызов отработал."""
++    if result.ok and _output_text(result):
++        return VerificationResult(True, "media_open", "медиаточка открыта локальным launcher-ом")
++    return VerificationResult(False, "media_open", result.error or "медиаточка не открыта")
++
++
+ def default_verify(result: ActionResult) -> VerificationResult:
+     """Fallback: доверяем ok, но ЧЕСТНО помечаем strict=False (§14)."""
+     if result.ok:
+@@ -381,6 +398,8 @@ register_verifier("close_app", verify_process_gone)
+ register_verifier("web_fetch", verify_page_loaded)
+ register_verifier("web_search", verify_search_results)
+ register_verifier("system_status", verify_system_metrics)
++register_verifier("current_time", verify_current_time)
++register_verifier("play_music", verify_play_music)
+ register_verifier("weather", verify_non_empty_output)
+ register_verifier("add_reminder", verify_reminder_registered)
+ register_verifier("list_reminders", verify_non_empty_output)

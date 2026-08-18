@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import html
+from urllib.parse import urljoin
 from typing import Any, Dict
 
 import requests
@@ -66,7 +67,7 @@ _REMOVE_SELECTORS = [
 ]
 
 
-def fetch_page(url: str, max_length: int = _MAX_TEXT_LENGTH) -> str:
+def fetch_page(url: str, max_length: int = _MAX_TEXT_LENGTH, timeout: float | None = None) -> str:
     """Скачивает страницу и извлекает чистый текст.
 
     Args:
@@ -89,17 +90,45 @@ def fetch_page(url: str, max_length: int = _MAX_TEXT_LENGTH) -> str:
 
     # §21/Q05 — SSRF-защита: блокируем внутренние/зарезервированные адреса
     # (loopback, private, link-local/cloud-metadata, file:// и пр.) ДО запроса.
-    from core.network_guard import assert_safe_url
+    from core.network_guard import assert_safe_url, safe_redirect_url
     assert_safe_url(url)
 
     headers = {"User-Agent": _USER_AGENT}
-    resp = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
+    current_url = url
+    resp = None
+    for _hop in range(4):
+        resp = requests.get(current_url, headers=headers, timeout=float(timeout or _REQUEST_TIMEOUT),
+                            allow_redirects=False, stream=True)
+        if 300 <= resp.status_code < 400 and resp.headers.get("Location"):
+            current_url = safe_redirect_url(current_url, resp.headers["Location"])
+            resp.close()
+            continue
+        break
+    if resp is None:
+        raise ValueError("Пустой ответ")
+    if int(resp.headers.get("Content-Length", "0") or 0) > 5 * 1024 * 1024:
+        resp.close()
+        raise ValueError("Ответ превышает лимит 5 MB")
     resp.raise_for_status()
 
     # Определяем кодировку
     resp.encoding = resp.apparent_encoding or "utf-8"
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    max_bytes = 5 * 1024 * 1024
+    body_buffer = bytearray()
+    iterator = getattr(resp, "iter_content", None)
+    if callable(iterator):
+        for chunk in iterator(64 * 1024):
+            if not chunk:
+                continue
+            body_buffer.extend(chunk)
+            if len(body_buffer) > max_bytes:
+                resp.close()
+                raise ValueError("Ответ превышает лимит 5 MB")
+        body = bytes(body_buffer)
+    else:
+        body = bytes(getattr(resp, "content", b""))[:max_bytes]
+    soup = BeautifulSoup(body, "html.parser")
 
     # Удаляем шум
     for selector in _REMOVE_SELECTORS:
@@ -180,9 +209,11 @@ class WebFetchTool(Tool):
     def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
         url = args["url"]
         max_length = args.get("max_length", _MAX_TEXT_LENGTH)
+        budget = getattr(getattr(context, "settings", None), "latency_budgets", None)
+        timeout = float(getattr(budget, "research_source_timeout_ms", 8000.0)) / 1000.0
 
         try:
-            text = fetch_page(url, max_length)
+            text = fetch_page(url, max_length, timeout=timeout)
             if not text:
                 return ActionResult(
                     tool=self.name,

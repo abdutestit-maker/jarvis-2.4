@@ -5,6 +5,11 @@ dist/
 __pycache__/
 .pytest_cache/
 data/
+!data/
+data/*
+!data/tools/
+!data/tools/templates/
+!data/tools/templates/basic_tool.py
 *.gguf
 *.onnx
 *.onnx.json
@@ -26,6 +31,23 @@ venv/
 
 # debug artifacts (live-run screenshots)
 _live_screenshot.png
+_live_probe_result.json
+_cfgprobe.txt
+_fetest.txt
+_tsc.txt
+_shots/
+NUL
 
 # browser-automation (SPRINT P2-B): user-data-dir браузера (куки/сессии) — не коммитить
 browser-user-data/
+
+# generated verification workspaces and local media (keep compact manifests/reports)
+artifacts/**/patch_probe/
+artifacts/**/patch_stage*/
+artifacts/**/rollback_probe*/
+artifacts/**/rollback_verification/workspace*/
+artifacts/**/live_workspace/
+artifacts/**/source_snapshots/
+artifacts/**/*.wav
+artifacts/**/*.tmp
+artifacts/**/test_installations/

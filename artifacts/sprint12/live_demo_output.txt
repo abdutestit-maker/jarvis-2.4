@@ -1,0 +1,52 @@
+2026-08-17 18:17:36 | INFO     | jarvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture']
+{
+  "sprint": 12,
+  "mode": "local_production_components",
+  "inputs": {
+    "short_requests": 3,
+    "accepted_help_events": 3,
+    "preference_change": "detailed"
+  },
+  "observed": {
+    "short_style": {
+      "tone": "professional_friendly",
+      "verbosity": "short",
+      "max_sentences": 3,
+      "explanation_depth": "concise",
+      "structured": false,
+      "formality": "respectful",
+      "humor_level": 0.35,
+      "initiative": "assistant",
+      "address": "сэр"
+    },
+    "short_response": "Проверил первый пункт. Второй тоже в порядке. Ошибок нет.",
+    "acceptance_confidence": [
+      0.667,
+      0.75,
+      0.8
+    ],
+    "changed_style": {
+      "tone": "professional_friendly",
+      "verbosity": "detailed",
+      "max_sentences": 12,
+      "explanation_depth": "step_by_step",
+      "structured": false,
+      "formality": "respectful",
+      "humor_level": 0.07,
+      "initiative": "assistant",
+      "address": "сэр"
+    },
+    "persisted_communication_style": "detailed",
+    "relationship_records": 2
+  },
+  "checks": {
+    "repeated_short_requests_learned": true,
+    "short_response_bounded": true,
+    "accepted_help_confidence_increased": true,
+    "sprint11_feedback_recorded": true,
+    "changed_preference_applied": true,
+    "changed_preference_persisted": true,
+    "secret_not_stored": true
+  },
+  "verified": true
+}

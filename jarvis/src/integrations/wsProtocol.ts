@@ -21,6 +21,11 @@ type SocketEnvelope = {
   risk?: unknown;
   vitals?: unknown;
   message?: unknown;
+  has_name?: unknown;
+  text?: unknown;
+  active_window?: unknown;
+  url?: unknown;
+  confidence?: unknown;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -75,6 +80,18 @@ export function mapSocketEnvelope(raw: unknown, receivedAt = Date.now()): Transp
 
   if (kind === 'vitals') {
     return [{ type: 'vitals:update', payload: asRecord(envelope.vitals) ?? {}, timestamp: receivedAt }];
+  }
+
+  if (kind === 'profile') {
+    return [{ type: 'profile:status', payload: { hasName: envelope.has_name === true }, timestamp: receivedAt }];
+  }
+
+  if (kind === 'voice_input') {
+    return [{ type: 'event:voice_input', payload: { text: asString(envelope.text) ?? '', confidence: typeof envelope.confidence === 'number' ? envelope.confidence : 1 }, timestamp: receivedAt }];
+  }
+
+  if (kind === 'screen_capture') {
+    return [{ type: 'screen:capture', payload: { text: asString(envelope.text) ?? '', activeWindow: asString(envelope.active_window) ?? '', url: asString(envelope.url) ?? '' }, timestamp: receivedAt }];
   }
 
   if (kind === 'error') {

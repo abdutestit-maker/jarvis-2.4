@@ -1,0 +1,9 @@
+{
+  "check_command": "git -c core.autocrlf=false -c core.safecrlf=false apply --check --whitespace=nowarn --directory=artifacts/sprint12/rollback_probe_1825 artifacts/sprint12/sprint12.patch",
+  "check_exit": 0,
+  "apply_command": "git -c core.autocrlf=false -c core.safecrlf=false apply --whitespace=nowarn --directory=artifacts/sprint12/rollback_probe_1825 artifacts/sprint12/sprint12.patch",
+  "apply_exit": 0,
+  "file_count": 27,
+  "hash_mismatches": [],
+  "verified": true
+}

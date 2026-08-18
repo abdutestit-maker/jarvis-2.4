@@ -115,6 +115,9 @@ export class WebSocketBackend implements BackendAdapter {
   async sendCommand(text: string, files: AttachedFile[]): Promise<void> {
     const content = text.trim();
     if (!content) return;
+    // UI listens to this as an input-overlay close signal. It is emitted
+    // before network work so a slow backend can never block the screen.
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('jarvis:command-sent'));
 
     const command: ActivityEvent = {
       id: `command-${Date.now()}-${this.sequence++}`,
@@ -142,6 +145,22 @@ export class WebSocketBackend implements BackendAdapter {
 
   async interrupt(): Promise<void> {
     await this.send({ type: 'interrupt' });
+  }
+
+  /** Desktop global shortcut: preserve the established launcher WS event. */
+  async hotkeyPressed(): Promise<void> {
+    await this.send({ type: 'hotkey_pressed' });
+  }
+
+  async voiceListen(): Promise<void> { await this.send({ type: 'voice_listen' }); }
+
+  /** Ambient sources are informational and do not enter the command router. */
+  async ambientInitiated(text: string): Promise<void> {
+    if (text.trim()) await this.send({ type: 'ambient_initiated', text: text.trim() });
+  }
+
+  async saveFirstLaunchName(name: string): Promise<void> {
+    if (name.trim()) await this.send({ type: 'first_launch', name: name.trim() });
   }
 
   async answerConfirmation(confirmationId: string, approved: boolean): Promise<void> {

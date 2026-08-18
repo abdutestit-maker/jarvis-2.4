@@ -151,7 +151,7 @@ def _find_executable(cmd: str) -> Optional[str]:
         # where.exe работает только для .exe
         try:
             result = subprocess.run(
-                ["where.exe", cmd], capture_output=True, text=True, timeout=3
+                ["where.exe", cmd], capture_output=True, text=True, timeout=3, shell=False
             )
             if result.returncode == 0:
                 return result.stdout.strip().splitlines()[0]
@@ -212,12 +212,30 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
         )
 
     try:
+        # Opening an already-running app is idempotent.  Reusing the existing
+        # process avoids a second cold UI startup and keeps repeated operator
+        # turns inside the fast-path budget.
+        process_names = _APP_PROCESS_NAMES.get(name.strip().lower(), [])
+        resolved_name = Path(cmd).name if cmd and ":" not in cmd else ""
+        candidates = [*process_names, resolved_name]
+        if _process_name_matches(candidates):
+            return ActionResult(
+                tool="open_app",
+                args={"name": name, "args": args},
+                ok=True,
+                output=f"{name} уже запущен.",
+            )
         # URI-схемы (ms-settings:) запускаем через start
         if ":" in cmd and not os.path.isabs(cmd):
-            full_cmd = f'start "" "{cmd}"'
-            if args:
-                full_cmd += f" {args}"
-            subprocess.Popen(full_cmd, shell=True)
+            if args.strip():
+                return ActionResult(tool="open_app", args={"name": name, "args": args}, ok=False,
+                                    error="URI-запуск с аргументами требует отдельного подтверждённого провайдера")
+            if hasattr(os, "startfile"):
+                os.startfile(cmd)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", cmd], shell=False)
+            else:
+                subprocess.Popen(["xdg-open", cmd], shell=False)
         else:
             # Обычный исполняемый файл.
             # ВАЖНО: shlex.split() в POSIX-режиме съедает обратные слэши
@@ -226,7 +244,7 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
             cmd_parts = [cmd]
             if args:
                 cmd_parts.extend(shlex.split(args, posix=False))
-            subprocess.Popen(cmd_parts)
+            subprocess.Popen(cmd_parts, shell=False)
         log.info("Запущено приложение: %s (cmd=%s)", name, cmd)
         return ActionResult(
             tool="open_app",
@@ -242,6 +260,21 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
             ok=False,
             error=f"Не удалось запустить '{name}': {exc}",
         )
+
+
+def _process_name_matches(names: List[str]) -> bool:
+    """Cheap process-presence probe used by the idempotent app launcher."""
+    wanted = {str(item).casefold() for item in names if item}
+    if not wanted:
+        return False
+    try:
+        for proc in psutil.process_iter(["name"]):
+            pname = str(proc.info.get("name") or "").casefold()
+            if pname and any(pname == name or pname == f"{name}.exe" or name in pname for name in wanted):
+                return True
+    except Exception:
+        return False
+    return False
 
 
 def close_app(name: str, settings: Optional[Settings] = None) -> ActionResult:

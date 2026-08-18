@@ -1,0 +1,82 @@
+{
+  "wave": 0,
+  "baseline": {
+    "before_passed": 473,
+    "before_skipped": 2,
+    "before_failed": 0,
+    "after_passed": 482,
+    "after_skipped": 2,
+    "after_failed": 0
+  },
+  "regression": {
+    "command": [
+      "C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "-o",
+      "addopts=",
+      "-q",
+      "--disable-warnings"
+    ],
+    "exit_code": 0,
+    "duration_ms": 57497.895,
+    "stdout_tail": "........................................................................ [ 14%]\nss...................................................................... [ 29%]\n........................................................................ [ 44%]\n........................................................................ [ 59%]\n........................................................................ [ 74%]\n........................................................................ [ 89%]\n....................................................                     [100%]\n482 passed, 2 skipped, 2 warnings in 56.55s\n",
+    "stderr_tail": ""
+  },
+  "behavior": {
+    "command": [
+      "C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+      "scripts/_live_probe.py",
+      "--dry-run",
+      "--output",
+      "C:\\Users\\WwW\\AppData\\Local\\Temp\\jarvis-wave0-7urqwvp2\\behavior.json"
+    ],
+    "exit_code": 0,
+    "duration_ms": 868.484,
+    "stdout_tail": "arvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture', 'browser_automation', 'browser_bridge', 'play_music', 'current_time']\n{\n  \"pass\": true,\n  \"offline\": true,\n  \"results\": [\n    {\n      \"cmd\": \"Поставь музыку\",\n      \"sec\": 0.12,\n      \"meta\": {\n        \"intent\": \"media\",\n        \"tool\": \"play_music\"\n      },\n      \"resp\": \"Открыл медиасервис\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Который час?\",\n      \"sec\": 0.04,\n      \"meta\": {\n        \"intent\": \"system\",\n        \"tool\": \"current_time\"\n      },\n      \"resp\": \"Сейчас 12:00\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Открой блокнот\",\n      \"sec\": 0.59,\n      \"meta\": {\n        \"intent\": \"app\",\n        \"tool\": \"open_app\"\n      },\n      \"resp\": \"Запустил блокнот\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Что такое энтропия?\",\n      \"sec\": 0.3,\n      \"meta\": {\n        \"intent\": \"web\",\n        \"tool\": \"\"\n      },\n      \"resp\": \"Энтропия — мера неопределённости.\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Найди книгу 48 законов власти\",\n      \"sec\": 0.2,\n      \"meta\": {\n        \"intent\": \"web\",\n        \"tool\": \"web_search\"\n      },\n      \"resp\": \"Исследование сохранено для повторения: research-abc123\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Неизвестная команда\",\n      \"sec\": 0.3,\n      \"meta\": {\n        \"intent\": \"none\",\n        \"tool\": \"\"\n      },\n      \"resp\": \"Сейчас разберусь — готовлю capability research.\",\n      \"err\": null,\n      \"failures\": []\n    }\n  ],\n  \"latency\": {\n    \"path\": \"fast\",\n    \"count\": 6,\n    \"p50_ms\": 250.0,\n    \"p95_ms\": 517.5,\n    \"max_ms\": 590.0,\n    \"mean_ms\": 258.333\n  }\n}\n",
+    "stderr_tail": ""
+  },
+  "latency": {
+    "command": [
+      "C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+      "scripts/measure_latency_budgets.py",
+      "--dry-run",
+      "--output",
+      "C:\\Users\\WwW\\AppData\\Local\\Temp\\jarvis-wave0-7urqwvp2\\latency.json"
+    ],
+    "exit_code": 0,
+    "duration_ms": 136.361,
+    "stdout_tail": "{\n  \"pass\": true,\n  \"path\": \"fast\",\n  \"observations\": [\n    120.0,\n    155.0,\n    190.0,\n    225.0,\n    260.0,\n    295.0,\n    330.0,\n    120.0,\n    155.0,\n    190.0,\n    225.0,\n    260.0,\n    295.0,\n    330.0,\n    120.0,\n    155.0,\n    190.0,\n    225.0,\n    260.0,\n    295.0\n  ],\n  \"summary\": {\n    \"path\": \"fast\",\n    \"count\": 20,\n    \"p50_ms\": 225.0,\n    \"p95_ms\": 330.0,\n    \"max_ms\": 330.0,\n    \"mean_ms\": 219.75\n  },\n  \"budget\": {\n    \"p50_ms\": 600,\n    \"p95_ms\": 1000,\n    \"hard_max_ms\": 1500\n  },\n  \"warmup_excluded\": true\n}\n",
+    "stderr_tail": ""
+  },
+  "latency_budgets": {
+    "fast": {
+      "p50_ms": 600,
+      "p95_ms": 1000,
+      "hard_max_ms": 1500
+    },
+    "deliberate": {
+      "first_progress_p95_ms": 2500,
+      "p50_ms": 8000,
+      "p95_ms": 15000
+    },
+    "research": {
+      "first_progress_p95_ms": 3000,
+      "source_timeout_ms": 8000
+    },
+    "background": {
+      "enqueue_p95_ms": 100
+    }
+  },
+  "artifact_policy": {
+    "directory": "E:\\jarvis-project\\artifacts\\verification\\wave0",
+    "retained_roles": [
+      "manifest.json",
+      "verification.json",
+      "diff.patch",
+      "rollback.ps1"
+    ],
+    "raw_logs_retained": false
+  },
+  "pass": true
+}

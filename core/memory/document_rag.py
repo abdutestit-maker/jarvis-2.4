@@ -18,12 +18,12 @@ from config.settings import Settings
 from core.memory.embedder import Embedder
 from core.utils.logger import get_logger
 
-__all__ = ["DocumentRAG", "read_pdf", "read_text_file", "chunk_text", "DOCUMENTS_COLLECTION"]
+__all__ = ["DocumentRAG", "read_pdf", "read_text_file", "read_document", "chunk_text", "DOCUMENTS_COLLECTION"]
 
 log = get_logger(__name__)
 
 #: Поддерживаемые расширения для индексации.
-_SUPPORTED_EXTENSIONS = (".txt", ".md", ".pdf", ".text")
+_SUPPORTED_EXTENSIONS = (".txt", ".md", ".pdf", ".text", ".docx", ".xlsx", ".pptx", ".png", ".jpg", ".jpeg", ".webp")
 
 #: Имя коллекции ChromaDB для документов.
 DOCUMENTS_COLLECTION = "documents"
@@ -65,6 +65,54 @@ def read_text_file(path: Path) -> str:
         return path.read_text(encoding="cp1251", errors="replace")
     except OSError as exc:
         raise RuntimeError(f"Не удалось прочитать файл {path}: {exc}") from exc
+
+
+def read_document(path: Path) -> str:
+    """Extract text from local text, office and image formats."""
+    suffix = path.suffix.casefold()
+    if suffix in {".txt", ".md", ".text"}:
+        return read_text_file(path)
+    if suffix == ".pdf":
+        return read_pdf(path)
+    if suffix == ".docx":
+        try:
+            from docx import Document
+        except ImportError as exc:
+            raise RuntimeError("python-docx не установлен") from exc
+        return "\n".join(p.text for p in Document(str(path)).paragraphs if p.text.strip())
+    if suffix == ".xlsx":
+        try:
+            from openpyxl import load_workbook
+        except ImportError as exc:
+            raise RuntimeError("openpyxl не установлен") from exc
+        book = load_workbook(str(path), read_only=True, data_only=True)
+        rows: list[str] = []
+        for sheet in book.worksheets:
+            rows.append(f"[sheet: {sheet.title}]")
+            for row in sheet.iter_rows(values_only=True):
+                values = [str(item) for item in row if item is not None]
+                if values:
+                    rows.append(" | ".join(values))
+        return "\n".join(rows)
+    if suffix == ".pptx":
+        try:
+            from pptx import Presentation
+        except ImportError as exc:
+            raise RuntimeError("python-pptx не установлен") from exc
+        slides: list[str] = []
+        for index, slide in enumerate(Presentation(str(path)).slides, start=1):
+            texts = [shape.text for shape in slide.shapes if hasattr(shape, "text") and shape.text.strip()]
+            if texts:
+                slides.append(f"[slide: {index}]\n" + "\n".join(texts))
+        return "\n\n".join(slides)
+    if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
+        try:
+            import pytesseract
+            from PIL import Image
+        except ImportError as exc:
+            raise RuntimeError("pytesseract/Pillow не установлены") from exc
+        return str(pytesseract.image_to_string(Image.open(path), lang="rus+eng") or "")
+    raise RuntimeError(f"Формат не поддерживается: {path.suffix}")
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
@@ -122,6 +170,7 @@ class DocumentRAG:
         self._initialized = False
         # Запоминаем уже проиндексированные файлы, чтобы index_all не дублировал.
         self._indexed: Set[str] = set()
+        self._indexed_mtimes: dict[str, int] = {}
         self._init_client()
 
     # ------------------------------------------------------------------ #
@@ -189,10 +238,7 @@ class DocumentRAG:
             return 0
 
         try:
-            if path.suffix.lower() == ".pdf":
-                text = read_pdf(path)
-            else:
-                text = read_text_file(path)
+            text = read_document(path)
         except Exception as exc:
             log.warning("Не удалось прочитать %s: %s — пропускаю", path, exc)
             return 0
@@ -206,9 +252,22 @@ class DocumentRAG:
         file_key = str(path.resolve())
         try:
             ids = [f"{hashlib.md5(file_key.encode()).hexdigest()}-{i}" for i in range(len(chunks))]
-            metadatas = [{"source": file_key, "chunk_index": i} for i in range(len(chunks))]
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            metadatas = [{
+                "source": file_key,
+                "chunk_index": i,
+                "sha256": digest,
+                "mtime_ns": path.stat().st_mtime_ns,
+                "format": path.suffix.casefold().lstrip("."),
+            } for i in range(len(chunks))]
+            if file_key in self._indexed:
+                try:
+                    self._collection.delete(ids=ids)
+                except Exception:
+                    pass
             self._collection.add(documents=chunks, ids=ids, metadatas=metadatas)
             self._indexed.add(file_key)
+            self._indexed_mtimes[file_key] = path.stat().st_mtime_ns
             log.info("Проиндексирован %s: %d чанков", path.name, len(chunks))
             return len(chunks)
         except Exception as exc:
@@ -234,7 +293,9 @@ class DocumentRAG:
         chunks_total = 0
         skipped = 0
         for file_path in files:
-            if str(file_path.resolve()) in self._indexed:
+            file_key = str(file_path.resolve())
+            if (file_key in self._indexed and
+                    self._indexed_mtimes.get(file_key) == file_path.stat().st_mtime_ns):
                 skipped += 1
                 continue
             added = self.index_file(file_path)

@@ -343,6 +343,23 @@ def verify_system_metrics(result: ActionResult) -> VerificationResult:
     return VerificationResult(False, "system_metrics", "метрик в ответе нет")
 
 
+def verify_current_time(result: ActionResult) -> VerificationResult:
+    """current_time: локальный ответ содержит время и дату."""
+    if not result.ok:
+        return VerificationResult(False, "current_time", result.error or "ok=False")
+    text = _output_text(result)
+    if re.search(r"\b\d{2}:\d{2}:\d{2}\b", text) and re.search(r"\b\d{4}-\d{2}-\d{2}\b", text):
+        return VerificationResult(True, "current_time", "локальные часы и дата присутствуют")
+    return VerificationResult(False, "current_time", "формат времени не подтверждён")
+
+
+def verify_play_music(result: ActionResult) -> VerificationResult:
+    """play_music: success означает, что launch/open вызов отработал."""
+    if result.ok and _output_text(result):
+        return VerificationResult(True, "media_open", "медиаточка открыта локальным launcher-ом")
+    return VerificationResult(False, "media_open", result.error or "медиаточка не открыта")
+
+
 def default_verify(result: ActionResult) -> VerificationResult:
     """Fallback: доверяем ok, но ЧЕСТНО помечаем strict=False (§14)."""
     if result.ok:
@@ -381,6 +398,8 @@ register_verifier("close_app", verify_process_gone)
 register_verifier("web_fetch", verify_page_loaded)
 register_verifier("web_search", verify_search_results)
 register_verifier("system_status", verify_system_metrics)
+register_verifier("current_time", verify_current_time)
+register_verifier("play_music", verify_play_music)
 register_verifier("weather", verify_non_empty_output)
 register_verifier("add_reminder", verify_reminder_registered)
 register_verifier("list_reminders", verify_non_empty_output)

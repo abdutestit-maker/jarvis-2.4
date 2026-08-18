@@ -1,0 +1,134 @@
+[
+  {
+    "path": "core/cognitive/models.py",
+    "role": "modified",
+    "original_sha256": "94455896b37bc030adaa394d06069671d6880fb40fa0d696db87ea90abf3d0d4",
+    "current_sha256": "7253fb87e6f4f150d2e50e55dd5c6f727c57f6c9d1c4c518b9b7787d2ba2d2ec"
+  },
+  {
+    "path": "core/cognitive/state.py",
+    "role": "modified",
+    "original_sha256": "3070c9c8bd8870f21487361363723cbb7094f01355174d34a7fc9840126564a4",
+    "current_sha256": "c8409c70c5d9add8c51e743a8a37f18c42e7f78b58b4f0cfab84032487672ab5"
+  },
+  {
+    "path": "core/cognitive/orchestrator.py",
+    "role": "modified",
+    "original_sha256": "29f6baa0de54ce594fc7e262c06a919dd0b5a215a531b01fb478f7b2da75e0b9",
+    "current_sha256": "abefd1f3565948f93a68c984844b3ff991293e92b5223fdcb582007a67181a31"
+  },
+  {
+    "path": "core/metacognition/__init__.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "f41f25a87a5f4b0fa74d00d7b7487b5650931dd1c095e7095b0a7ad76f97b822"
+  },
+  {
+    "path": "core/metacognition/audit.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "ad96f1299a2a586aca133f495dbcdba4e3df8d3e93d8a11311c512d4a238c1c1"
+  },
+  {
+    "path": "core/metacognition/calibration.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "badc32917a463b228234e4fa911301d0d266cfa10312303c140363a63facc8c9"
+  },
+  {
+    "path": "core/metacognition/correction.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "52364aec74dcfcb43c5f1a56f50f648b14f9e06bea9f85573e22dfb7c063e35c"
+  },
+  {
+    "path": "core/metacognition/engine.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "f075bce56f5298947527b17aea56525c50f168dd9cf59ea43a07028f1db057af"
+  },
+  {
+    "path": "core/metacognition/expectation.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "41cf0b8ac9c866e43fbc33a16c312a37e026f881c1c093332394369e4d0daf12"
+  },
+  {
+    "path": "core/metacognition/failures.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "fab9ee9b8367b993799ebdb07bdef8ad3544a3121de683f8db3414e47e6a6482"
+  },
+  {
+    "path": "core/metacognition/freshness.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "4d99fdcb9452bdd53a70acc7492fa67819fb3922ea8f3b3dfd0f498e8d81bb1e"
+  },
+  {
+    "path": "core/metacognition/models.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "c03b7b745970e63d0902c8ba845bcc9307a08f1efd20514f9eb95b6bb06278d1"
+  },
+  {
+    "path": "core/metacognition/store.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "bf7bd112e2b4543b87aea858c279bcdfff368bca2bee3d50875260badf4e59e6"
+  },
+  {
+    "path": "docs/sprints/SPRINT14_SPEC.md",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "78b7a642c4c1053ff87f92bc464c566aff352821e275a69ea2e6bac03b37b6aa"
+  },
+  {
+    "path": "scripts/rollback_sprint14.ps1",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "2975b9aecb7db8035a08cf8039d215f151aa206c6955a2f1ab77caa53cddf45d"
+  },
+  {
+    "path": "scripts/sprint14_live_demo.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "b4f20d43ad0d4f9260e0b8898c8c6c5936665aa797d2a50aaedd4a4d9462a272"
+  },
+  {
+    "path": "tests/test_sprint14_adversarial.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "e5280489f6dc4167b3f2c4fc6d2c0326f8b65870d2c93829d8362818a88ea50c"
+  },
+  {
+    "path": "tests/test_sprint14_correction.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "f301fb53b8ead59a3117549797b2371f9c1bf551a650248ed5d214bdca78513b"
+  },
+  {
+    "path": "tests/test_sprint14_epistemic.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "eab50cbf123b66ae2a4bc01ada3c4ee2f2b760fc2782574fc6fb969ff92bf551"
+  },
+  {
+    "path": "tests/test_sprint14_integration.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "81d589d62f69ab1063806eb5428e20e8d9ef1970a34158b4d705d475455b6449"
+  },
+  {
+    "path": "tests/test_sprint14_knowledge.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "257025972f226004e37195e17ac76940621fe110e4c6cc83495c2b2661540bb9"
+  },
+  {
+    "path": "tests/test_sprint14_live_demo.py",
+    "role": "added",
+    "original_sha256": null,
+    "current_sha256": "82e183f7ba56229e61c5a8c76312a56f59f5028facbaf31b79709d755076cd18"
+  }
+]

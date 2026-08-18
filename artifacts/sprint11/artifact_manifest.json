@@ -1,0 +1,33 @@
+{
+  "modified_artifact": {
+    "path": "E:\\jarvis-project\\artifacts\\sprint11\\sprint11_modified.zip",
+    "bytes": 432669,
+    "sha256": "0e90ddaf0dcd5ebe5edc90af48e60397d8112eb7abd90662f4e1a56461ddb766",
+    "reopened": true
+  },
+  "patch": {
+    "path": "E:\\jarvis-project\\artifacts\\sprint11\\sprint11.patch",
+    "bytes": 185657,
+    "sha256": "660ba3efec3cde115199ca5d4c1ad89478d7cf3c203ff3da91f3744a0ac8398e",
+    "reopened": true
+  },
+  "verification_record": {
+    "path": "E:\\jarvis-project\\artifacts\\sprint11\\verification_record.json",
+    "bytes": 21754,
+    "sha256": "671a880253e3861b8d3cf1e439cb25cb7a073da31fbe645efea55be4d1cac773",
+    "reopened": true
+  },
+  "rollback": {
+    "path": "E:\\jarvis-project\\scripts\\rollback_sprint11.ps1",
+    "bytes": 3206,
+    "sha256": "c7fa5fbd7730198cfc3cbcdd39a9926f1bd7496be447d26a1f689fad3070478c",
+    "reopened": true
+  },
+  "checks": {
+    "modified_artifact": true,
+    "patch": true,
+    "verification_record": true,
+    "rollback": true
+  },
+  "all_verified": true
+}

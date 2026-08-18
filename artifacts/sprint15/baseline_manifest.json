@@ -1,0 +1,175 @@
+{
+  "sprint": "15",
+  "created_at": "2026-08-17T16:23:01.0280713Z",
+  "baseline_tests": {
+    "passed": 427,
+    "skipped": 2,
+    "failed": 0,
+    "exit_code": 0,
+    "seconds": 53.43
+  },
+  "files": [
+    {
+      "path": "config/settings.py",
+      "kind": "existing",
+      "sha256": "a2e76cc2b8ef6577b928239a155a5a7090bba9990a814bed3846c6891d5aadc7",
+      "bytes": 35360
+    },
+    {
+      "path": "config/settings.example.json",
+      "kind": "existing",
+      "sha256": "1fc4b24d42f06658947aa89e05cc40e06c28ba148199a3716694c90a06830a63",
+      "bytes": 3380
+    },
+    {
+      "path": "core/model_router.py",
+      "kind": "existing",
+      "sha256": "f881e180d9373d9150e500dfee417578ee1dcc3f94198468538d013a518e71a0",
+      "bytes": 21747
+    },
+    {
+      "path": "core/orchestrator.py",
+      "kind": "existing",
+      "sha256": "59dc9ff3bf4779b8a7fcdd234a95983b330df096c0a87d644babb738580bc0b4",
+      "bytes": 32609
+    },
+    {
+      "path": "core/router/council.py",
+      "kind": "existing",
+      "sha256": "5d87b5c7744dd5b29c750380df9a0e00e7bcd0640b76b268b5b79d7455a62b95",
+      "bytes": 12266
+    },
+    {
+      "path": "core/agent.py",
+      "kind": "existing",
+      "sha256": "da0034219a8cee9f7044379711967ed9f059bb0452cc7df532cb8aa745430fd6",
+      "bytes": 89146
+    },
+    {
+      "path": "core/cognitive/orchestrator.py",
+      "kind": "existing",
+      "sha256": "abefd1f3565948f93a68c984844b3ff991293e92b5223fdcb582007a67181a31",
+      "bytes": 19204
+    },
+    {
+      "path": "core/cognitive/self_model.py",
+      "kind": "existing",
+      "sha256": "97da1e33dfafa7812d1ce4c78877439fa3bcd8ff534c264799e9e13ac5c68a56",
+      "bytes": 7389
+    },
+    {
+      "path": "core/shadow/engine.py",
+      "kind": "existing",
+      "sha256": "fcc2872db066ad384bdc6ef7a3c61a0cc034bd969ee27a5f85eee826bdd0de30",
+      "bytes": 15855
+    },
+    {
+      "path": "core/brain",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "tests/test_sprint15_providers.py",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "tests/test_sprint15_routing.py",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "tests/test_sprint15_context.py",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "tests/test_sprint15_integration.py",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "tests/test_sprint15_security.py",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "scripts/sprint15_live_demo.py",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "scripts/measure_sprint15_performance.py",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "scripts/rollback_sprint15.ps1",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "docs/sprints/SPRINT15_SPEC.md",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-17-brain-fabric-design.md",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-17-brain-fabric.md",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/sprint15/live",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/sprint15/performance_before.json",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/sprint15/performance_after.json",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "docs/sprints/SPRINT15_VERIFICATION.md",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/sprint15/sprint15.patch",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/sprint15/verification_record.md",
+      "kind": "new",
+      "sha256": null,
+      "bytes": 0
+    }
+  ]
+}

@@ -31,6 +31,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -48,21 +49,30 @@ from core.llm import (
     BackendConfigError,
     BackendUnavailable,
     Tier,
+    breaker,
     get_llm_backend,
+    get_offline_backend,
 )
-from core.model_router import ModelRouter, RoutingDecision
+from core.memory.budget import fit_messages_to_budget
+from core.memory.facts import detect_tone, learn_facts
+from core.memory.profile import get_relevant_profile_context
+from core.memory.relationship import MemoryHierarchy, PreferenceLearner, RelationshipMemoryStore
+from core.memory.short_term import SessionManager
+from core.model_router import ModelRouter, RoutingDecision, classify_conversation
+from core.personality import PersonalityEngine
 from core.repair import RepairLoop
 from core.research import ResearchEngine, is_research_goal
 from core.router.intent_router import resolve_keyword_tool
 from core.safety import RiskAssessment, assess_risk
 from core.redact import redact_args
 from core.skill_forge import SkillForge, SkillManifest, SkillStatus
-from core.structured import PLAN_SCHEMA_HINT, parse_structured, validate_tool_call
+from core.structured import PLAN_SCHEMA_HINT, AnswerStreamExtractor, parse_structured, validate_tool_call
 from core.task_runtime import (
     EVENT_CONFIRMATION_REQUIRED,
     EVENT_PLAN_READY,
     EVENT_REPAIR_COMPLETED,
     EVENT_REPAIR_STARTED,
+    EVENT_STREAM_CHUNK,
     EVENT_STEP_COMPLETED,
     EVENT_STEP_STARTED,
     EVENT_TASK_FAILED,
@@ -74,10 +84,36 @@ from core.task_runtime import (
 )
 from core.utils.logger import get_logger
 from core.verifier import VerificationResult, verify_action_result
+from core.executive import ExecutiveMind
+from core.intelligence import ResearchPending, SkillCatalog, TeachingSession, TutorEngine, UniversalIntake
 
 __all__ = ["Agent", "AgentConfig", "AgentOutcome", "ACK_PHRASES", "pick_acknowledgement"]
 
 log = get_logger(__name__)
+
+#: Префикс ошибки планирования «модель недоступна» (сеть/провайдер/ключ).
+#: Такая ошибка — НЕ «не умею» (§29): это временный сбой инфраструктуры,
+#: и пользователь должен получить короткую честную фразу без сырых деталей
+#: и без создания черновика навыка.
+MODEL_ERROR_PREFIX = "model_error:"
+
+#: Текст для пользователя при сбое модели (голос/чат). Технические детали —
+#: только в лог. Тон согласован с TTS-санитайзером (core/voice/tts_sanitizer.py).
+MODEL_UNAVAILABLE_TEXT = "Сэр, сейчас не отвечает. Попробуйте ещё раз."
+
+
+def _hide_reasoning_stream(cumulative: str) -> str:
+    """Прячет служебные ``<think>``-блоки из НАРАСТАЮЩЕГО текста стрима.
+
+    Закрытый блок вырезается целиком; незакрытый (модель ещё думает) —
+    скрывает всё после его начала. Применяется только в прямом разговорном
+    режиме (Sprint 2), где пользователю идёт сырой текст модели.
+    """
+    out = re.sub(r"<think>.*?</think>", "", cumulative, flags=re.DOTALL | re.IGNORECASE)
+    if "<think>" in out.lower():
+        idx = out.lower().rfind("<think>")
+        out = out[:idx]
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -121,7 +157,7 @@ def pick_acknowledgement(intent: str, goal: str = "",
 
         backend = get_llm_backend(settings, Tier.FAST)
         prompt = (
-            f"Ты — Джарвис. Пользователь только что дал команду: \"{goal}\". "
+            f"Ты — АТЛАС. Пользователь только что дал команду: \"{goal}\". "
             f"Сгенерируй ОДНУ короткую (до 5 слов) фразу подтверждения приёма "
             f"в стиле живого дворецкого, без приветствий и пояснений. "
             f"Не начинай выполнять задачу. Только подтверди, что понял. "
@@ -171,6 +207,9 @@ class AgentOutcome:
     risk: Optional[RiskAssessment] = None
     mode: str = "conversation"
     trace: List[str] = field(default_factory=list)
+    #: Sprint 3 STEP 5: ответ пришёл с фолбэк-модели, а не с основной
+    #: (quality indicator для UI/TTS — не маскируем деградацию).
+    degraded: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -183,6 +222,7 @@ class AgentOutcome:
             "risk": self.risk.to_dict() if self.risk else None,
             "mode": self.mode,
             "trace": list(self.trace),
+            "degraded": self.degraded,
         }
 
 
@@ -203,6 +243,7 @@ class Agent:
         council: Optional[Any] = None,
         config: Optional[AgentConfig] = None,
         model_router: Optional[Any] = None,
+        brain_fabric: Optional[Any] = None,
     ) -> None:
         """
         Args:
@@ -216,7 +257,30 @@ class Agent:
         self._settings = settings
         self._config = config or AgentConfig()
         self._council = council
+        self._brain_fabric = brain_fabric
         self._registry = DEFAULT_REGISTRY
+        # Executive Mind owns goals/commitments/world state, while this Agent
+        # remains the sole owner of tool execution and verification.
+        self._executive = ExecutiveMind(
+            (settings.paths.resolved("data_dir") or settings.data_dir) / "executive",
+            registry=self._registry,
+            capability_registry=CAPABILITIES,
+        )
+        # Sprint 8: Shadow Engine observes only when explicitly enabled in
+        # local settings. It is separate from the active request path.
+        from core.shadow import ShadowEngine
+        shadow_cfg = getattr(settings, "shadow", None)
+        shadow_data_dir = settings.paths.resolved("data_dir")
+        self._shadow = ShadowEngine(
+            data_dir=shadow_data_dir or "data", registry=self._registry, settings=settings,
+            enabled=bool(getattr(shadow_cfg, "enabled", False)),
+        )
+        from core.capability_engine import CapabilityCatalog, CapabilityPlanner
+        capability_dir = (shadow_data_dir or self._settings.data_dir) / "capabilities"
+        self._capability_catalog = CapabilityCatalog(capability_dir)
+        self._capability_planner = CapabilityPlanner(
+            self._capability_catalog, self._registry,
+        )
         # P5 §5.7: делим ЕДИНЫЙ роутер моделей с CouncilRouter, чтобы оба
         # пути (REPL/WebSocket и агентная миссия) маршрутизировались одинаково.
         self._model_router = model_router if model_router is not None else ModelRouter(settings)
@@ -238,6 +302,141 @@ class Agent:
         self._pending_confirmations: Dict[str, Dict[str, Any]] = {}
         self._confirmation_timers: Dict[str, "threading.Timer"] = {}
         self._lock = threading.RLock()
+        # Sprint 1: стриминг sync-ответов. Sink устанавливается ПОТОКОМ,
+        # обрабатывающим конкретный запрос (thread-local), поэтому параллельные
+        # запросы друг друга не видят и не перемешивают.
+        self._stream_tls = threading.local()
+        # Sprint 4: bounded session memory — последние N сообщений диалога
+        # (10 пар user/assistant, FIFO). Подаётся ТОЛЬКО в разговорный путь;
+        # tool-промпты остаются чистыми (спринт, STEP 2.4).
+        session_size = int(getattr(getattr(settings, "limits", None),
+                                   "session_memory_messages", 20))
+        self._session = SessionManager(max_size=session_size)
+        # Sprint 12: identity and relationship preferences are typed local
+        # state. The resulting compact prompt fragment is only one consumer;
+        # personality itself is not represented by a free-form prompt.
+        self._relationship_memory = RelationshipMemoryStore(
+            (shadow_data_dir or self._settings.data_dir) / "relationship",
+        )
+        try:
+            self._relationship_memory.prune()
+        except Exception as exc:
+            log.debug("Очистка устаревшей relationship memory пропущена: %s", exc)
+        self._preference_learner = PreferenceLearner(self._relationship_memory)
+        self._personality = PersonalityEngine()
+        self._memory_hierarchy = MemoryHierarchy(
+            self._relationship_memory, session=self._session,
+        )
+        self._user_context: Dict[str, Any] = {}
+        self._intake = UniversalIntake()
+        self._tutor = TutorEngine()
+        self._skills = SkillCatalog()
+
+    @property
+    def personality(self) -> PersonalityEngine:
+        return self._personality
+
+    @property
+    def relationship_memory(self) -> RelationshipMemoryStore:
+        return self._relationship_memory
+
+    @property
+    def preference_learner(self) -> PreferenceLearner:
+        return self._preference_learner
+
+    @property
+    def intake(self) -> UniversalIntake:
+        return self._intake
+
+    @property
+    def tutor(self) -> TutorEngine:
+        return self._tutor
+
+    @property
+    def skills(self) -> SkillCatalog:
+        return self._skills
+
+    def teach(self, topic: str, *, level: str = "adaptive", mode: str = "socratic",
+              session: TeachingSession | None = None) -> dict[str, Any]:
+        """Bounded local teaching API used by Tutor Mode and tests."""
+        return self._tutor.teach(topic, level=level, mode=mode, session=session).to_dict()
+
+    @property
+    def executive(self) -> ExecutiveMind:
+        return self._executive
+
+    def set_user_context(self, context: Any) -> None:
+        """Updates privacy-minimal attention state used for response style."""
+        if isinstance(context, dict):
+            source = context
+        else:
+            source = vars(context) if context is not None and hasattr(context, "__dict__") else {}
+        allowed = {
+            "busy", "user_busy", "typing_active", "meeting_active", "fullscreen",
+            "active_application", "probable_activity", "active_mission",
+        }
+        self._user_context = {key: source[key] for key in allowed if key in source}
+        self._memory_hierarchy.working.update(self._user_context)
+
+    # ------------------------------------------------------------------ #
+    #  Sprint 1 — stream sink (прогрессивный ответ в UI)
+    # ------------------------------------------------------------------ #
+
+    def install_stream_sink(self, sink) -> None:
+        """Регистрирует приёмник кумулятивного текста ответа для ТЕКУЩЕГО потока.
+
+        ``sink(visible_text_so_far: str)`` вызывается по мере реальной
+        генерации модели (SSE-дельты). Если бэкенд не поддерживает
+        streaming — sink просто не вызывается, поведение не меняется.
+        """
+        self._stream_tls.sink = sink
+
+    def clear_stream_sink(self) -> None:
+        self._stream_tls.sink = None
+
+    def _stream_consume(self, backend, messages: List[Dict[str, Any]], system: str,
+                        extract_answer: bool = True) -> str:
+        """chat() со стримингом, если установлен sink и бэкенд умеет streaming.
+
+        Возвращает ПОЛНЫЙ сырой ответ (как chat). Видимый кумулятивный текст
+        уходит в sink по мере прихода дельт — это реальный стриминг провайдера,
+        не фейк-чанкинг готовой строки. ``extract_answer=True`` (план-JSON)
+        извлекает поле ``answer``; ``False`` (прямой разговор) отдаёт сырой
+        текст с скрытием служебных ``<think>``-блоков.
+        Сбой сети/провайдера (BackendUnavailable/BackendConfigError)
+        пробрасывается наружу — существующая логика фолбэка тиров (§15)
+        сохранена без изменений.
+        """
+        sink = getattr(self._stream_tls, "sink", None)
+        stream = getattr(backend, "streaming", None)
+        if sink is None or stream is None:
+            return backend.chat(messages, system=system)
+
+        extractor = AnswerStreamExtractor() if extract_answer else None
+        parts: List[str] = []
+        try:
+            for piece in stream(messages, system=system):
+                if not piece:
+                    continue
+                parts.append(piece)
+                if extractor is not None:
+                    visible = extractor.feed(piece)
+                else:
+                    visible = _hide_reasoning_stream("".join(parts))
+                if visible:
+                    sink(visible)
+        except (BackendUnavailable, BackendConfigError):
+            raise  # наружу -> фолбэк тира / model_error (Sprint 1 STEP 5)
+        except Exception as exc:
+            # Неожиданная ошибка стриминга (бэкенд-специфика): честно
+            # деградируем до обычного chat() того же тира.
+            log.warning("streaming() упал (%s) — fallback на chat()", exc)
+            return backend.chat(messages, system=system)
+
+        raw = "".join(parts)
+        if not raw.strip():
+            return backend.chat(messages, system=system)
+        return raw
 
     # ------------------------------------------------------------------ #
     #  Публичный вход: исполнение миссии
@@ -248,8 +447,28 @@ class Agent:
 
         Вызывается ``TaskRuntime`` в отдельном потоке. Никаких ограничений
         на длительность (§4) — только реальная отмена через ``cancel``.
+
+        Sprint 1 STEP 2: кумулятивный текст реального SSE-потока транслируется
+        в события миссии (EVENT_STREAM_CHUNK, correlation = task_id), а
+        финальный _output_callback того же потока закрывает стримленный
+        пузырь (см. consume_streamed_mission).
         """
-        outcome = self.execute(mission.goal, mission=mission, cancel=cancel)
+        tls = self._stream_tls
+        tls.streamed_rid = None
+
+        def _mission_sink(visible: str) -> None:
+            if getattr(tls, "streamed_rid", None) is None:
+                tls.streamed_rid = mission.task_id
+            try:
+                mission.emit(EVENT_STREAM_CHUNK, payload={"text": visible})
+            except Exception:  # pragma: no cover - события не ломают генерацию
+                pass
+
+        self.install_stream_sink(_mission_sink)
+        try:
+            outcome = self.execute(mission.goal, mission=mission, cancel=cancel)
+        finally:
+            self.clear_stream_sink()
         mission.verification = outcome.verification.to_dict() if outcome.verification else None
         mission.metadata["mode"] = outcome.mode
         mission.metadata["verified"] = outcome.verified
@@ -257,13 +476,115 @@ class Agent:
             mission.metadata["needs_confirmation"] = True
         return outcome.text
 
+    def consume_streamed_mission(self) -> Optional[str]:
+        """Отдаёт и сбрасывает task_id миссии, стримленной в ТЕКУЩЕМ потоке.
+
+        Вызывается ws-мостом в output_callback: финальный текст должен
+        закрыть УЖЕ открытый стрименный пузырь (тот же task_id), а не
+        создавать второй.
+        """
+        tls = self._stream_tls
+        rid = getattr(tls, "streamed_rid", None)
+        tls.streamed_rid = None
+        return rid
+
     def execute(self, goal: str, mission: Optional[Mission] = None,
                 cancel: Optional[threading.Event] = None) -> AgentOutcome:
         """Главный цикл: intent -> risk -> mode -> plan -> execute -> verify -> repair.
 
         Цикл сокращается автоматически (§3): тривиальный разговор и простые
         команды не проходят через планирование.
+
+        Sprint 4: перед генерацией из реплики извлекаются явные факты
+        («меня зовут X») в профиль; после — пара (goal, ответ) попадает в
+        bounded session memory для контекста следующих вопросов.
         """
+        goal = (goal or "").strip()
+        executive_contract = None
+        if goal:
+            try:
+                executive_contract = self._executive.begin_turn(
+                    goal, intent=resolve_keyword_tool(goal, goal), source="user",
+                )
+            except Exception as exc:
+                log.debug("Executive turn intake skipped: %s", exc)
+            try:
+                self._preference_learner.observe_user_message(goal)
+            except Exception as exc:  # Relationship learning never blocks execution.
+                log.debug("Обучение предпочтений пропущено: %s", exc)
+            try:
+                learn_facts(self._settings, goal)
+            except Exception as exc:  # noqa: BLE001 — память не ломает миссию
+                log.debug("Извлечение фактов не удалось: %s", exc)
+
+        outcome = self._execute_core(goal, mission, cancel)
+        try:
+            task_type = self._personality.infer_task_type(goal, mode=outcome.mode)
+            outcome.text = self._personality.naturalize(
+                outcome.text, verified=outcome.verified, task_type=task_type,
+            )
+            # Streaming has already exposed cumulative text. Apply the hard
+            # brevity bound only at a non-streaming conversational boundary.
+            if outcome.mode == "conversation" and getattr(self._stream_tls, "sink", None) is None:
+                outcome.text = self._personality.adapt_response(
+                    outcome.text,
+                    self._personality.style_for(
+                        user_context=self._user_context, task_type=task_type,
+                        user_preference=self._preference_learner.profile(),
+                    ),
+                )
+        except Exception as exc:  # Personality wording never changes mission state.
+            log.debug("Адаптация ответа пропущена: %s", exc)
+        try:
+            shadow_outcome = "success" if outcome.verified else (
+                "unfulfilled" if outcome.mode == "unknown_task" else "failure"
+            )
+            self._shadow.observe_command(goal, outcome=shadow_outcome)
+        except Exception as exc:  # Shadow mode must never affect Active mode.
+            log.debug("Shadow command observation skipped: %s", exc)
+        self._remember_exchange(goal, outcome)
+        if executive_contract is not None:
+            def _record_executive() -> None:
+                try:
+                    self._executive.complete_turn(
+                        executive_contract, verified=outcome.verified,
+                        result=outcome.text, tool=outcome.tool_used,
+                        mode=outcome.mode,
+                    )
+                except Exception as exc:
+                    log.debug("Executive outcome recording skipped: %s", exc)
+
+            # Reflex actions return first; durable Goal/World/Eval writes are
+            # persisted immediately after on a daemon worker.  Deliberate
+            # missions retain the synchronous bookkeeping contract.
+            if outcome.mode == "fast_path":
+                threading.Thread(target=_record_executive,
+                                 name="jarvis-executive-write", daemon=True).start()
+            else:
+                _record_executive()
+        return outcome
+
+    def _remember_exchange(self, goal: str, outcome: AgentOutcome) -> None:
+        """Записывает пару (user, assistant) в bounded session memory.
+
+        Пустые, отменённые и «пустой ввод» реплики не пишутся. Служебный
+        префикс [degraded] из ответа убирается (пользовательская память
+        хранит чистый текст).
+        """
+        try:
+            if not goal or outcome.mode in ("empty", "cancelled"):
+                return
+            text = (outcome.text or "").strip()
+            if text.startswith("[degraded] "):
+                text = text[len("[degraded] "):]
+            self._session.push("user", goal)
+            if text:
+                self._session.push("assistant", text)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Запись в session memory не удалась: %s", exc)
+
+    def _execute_core(self, goal: str, mission: Optional[Mission] = None,
+                      cancel: Optional[threading.Event] = None) -> AgentOutcome:
         cancel = cancel or threading.Event()
         goal = (goal or "").strip()
         if not goal:
@@ -274,6 +595,13 @@ class Agent:
         # ---- 1. INTENT (мгновенно, офлайн) ----
         intent = resolve_keyword_tool(goal, goal)
         trace.append(f"intent={intent}")
+        try:
+            contract = self._intake.classify(goal)
+            trace.append(f"task_contract={contract.intent_family}/{contract.mode}")
+            if mission is not None:
+                mission.metadata["task_contract"] = contract.to_dict()
+        except Exception as exc:
+            log.debug("Universal task contract skipped: %s", exc)
         if mission is not None:
             mission.acknowledgement = pick_acknowledgement(intent, goal=goal, settings=self._settings)
             mission.metadata["intent"] = intent
@@ -283,6 +611,15 @@ class Agent:
         # ---- 2. RISK (§21) ----
         risk = assess_risk(goal)
         trace.append(f"risk={risk.level.value}")
+        try:
+            executive_plan = self._executive.compile(
+                goal, intent=intent, risk=risk.level.value,
+            )
+            trace.append(f"command_os={self._executive.commands.explain(executive_plan)}")
+            if mission is not None:
+                mission.metadata["command_os"] = executive_plan.to_dict()
+        except Exception as exc:
+            log.debug("Command OS compile skipped: %s", exc)
         if mission is not None:
             mission.metadata["risk"] = risk.to_dict()
 
@@ -317,7 +654,16 @@ class Agent:
             mission.model_used = routing.tier.value
             mission.metadata["routing"] = routing.to_dict()
 
-        # ---- 5b. MEMORY: извлечение релевантного контекста (P0-5) ----
+        # ---- 5b. FAST PATH before memory/model work ----
+        # Local system/app/media commands do not need Chroma initialization or
+        # a model context.  Keeping this branch first protects the 1.5s hard
+        # budget and prevents cold memory setup from polluting tool latency.
+        fast = self._try_fast_path(goal, intent, mission, cancel, risk)
+        if fast is not None:
+            fast.trace = trace + fast.trace
+            return fast
+
+        # ---- 5c. MEMORY: извлечение релевантного контекста (P0-5) ----
         memory_ctx = self._retrieve_context(goal)
         if memory_ctx and mission is not None:
             mission.metadata["memory_context"] = memory_ctx[:600]
@@ -327,11 +673,19 @@ class Agent:
             trace.append("режим: research workflow")
             return self._handle_research(goal, mission, cancel, trace)
 
-        # ---- 7. FAST PATH (§3): простая команда — без тяжёлого планирования ----
-        fast = self._try_fast_path(goal, intent, mission, cancel, risk)
-        if fast is not None:
-            fast.trace = trace + fast.trace
-            return fast
+        # ---- 7. CONVERSATION GATE (Sprint 2): разговор без действия ----
+        # Офлайн-роутер уверенно распознал разговор: модель НЕ получает список
+        # инструментов и НЕ генерирует JSON-план — слабая fast-модель физически
+        # не может «позвать» list_files. Настоящие действия идут мимо гейта
+        # (явные глаголы/интент файлов/приложений/системы) в planner ниже.
+        is_conversation, conv_reason = classify_conversation(goal, intent)
+        if is_conversation:
+            trace.append(f"conversation gate: {conv_reason}")
+            if mission is not None:
+                mission.metadata["conversation_gate"] = conv_reason
+            return self._answer_conversation(
+                goal, mission, cancel, trace, routing, memory_ctx,
+            )
 
         if cancel.is_set():
             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
@@ -354,7 +708,11 @@ class Agent:
             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
 
         if decision is None:
-            # Модель недоступна/не смогла — это НЕ повод сказать "не умею" (§29).
+            # Сбой модели (сеть/провайдер/ключ) — временная ошибка инфраструктуры,
+            # а НЕ «не умею» (§29): никаких черновиков навыков и сырых ошибок
+            # в чат — короткая честная фраза, детали только в лог.
+            if plan_error.startswith(MODEL_ERROR_PREFIX):
+                return self._handle_model_unavailable(goal, mission, trace, plan_error)
             trace.append(f"planning failed: {plan_error}")
             return self._handle_unknown(goal, caps, mission, trace, plan_error)
 
@@ -430,21 +788,54 @@ class Agent:
     #  Роутинг модели (P0-2) + память (P0-5) + подтверждение (P0-3)
     # ------------------------------------------------------------------ #
 
+    def _tier_breaker_open(self, tier) -> bool:
+        """Sprint 3 STEP 5: breaker модели тира разомкнут (серии сбоев).
+
+        Ключ — ``provider:model``, а не просто провайдер: несколько тиров
+        могут сидеть на одном провайдере (anymodel), и падение одной
+        модели (am/free) не должно блокировать остальные (cx/gpt-5.5).
+        """
+        try:
+            provider = self._settings.get_provider(tier)
+            model_id = self._settings.get_model_id(tier) or ""
+            return breaker.is_open(f"{provider}:{model_id}")
+        except Exception:  # noqa: BLE001 — конфиг может быть урезан в тестах
+            return False
+
     def _backend_for_routing(self, routing: Optional[RoutingDecision]):
         """Возвращает (backend, tier) по решению ModelRouter (cloud-first).
 
         Идёт по цепочке [routing.tier] + fallback_chain, берёт первый
-        реально доступный тир. Если ни один внешний не доступен — честный
-        офлайн-фолбэк на локальную FAST (§17). Решение роутера обязано
-        дойти до реального вызова модели (иначе выбор бессмыслен).
+        реально доступный тир. Тиры с разомкнутым circuit breaker'ом
+        (Sprint 3: 3 подряд сбоя провайдера) пропускаются до конца
+        cooldown. Если ни один внешний не доступен — честный офлайн-фолбэк
+        на ЛОКАЛЬНУЮ модель TIER 4 (§17). Решение роутера обязано дойти
+        до реального вызова модели (иначе выбор бессмыслен).
         """
+        if (self._brain_fabric is not None and routing is not None
+                and getattr(routing, "brain_route", None) is not None):
+            from core.brain import BrainFabricBackend, BrainRequest, BrainRole, PrivacyClass
+            role = BrainRole(routing.role)
+            template = BrainRequest(
+                user_request=routing.request_text, role=role,
+                privacy=(PrivacyClass.LOCAL_ONLY if routing.forced_local else PrivacyClass.PERSONAL),
+                context_tokens=routing.complexity.context_tokens,
+            )
+            return BrainFabricBackend(
+                self._brain_fabric, routing.brain_route, template=template,
+            ), routing.tier
+
         chain: List[Any] = []
         if routing is not None:
             chain = [routing.tier] + list(routing.fallback_chain)
         else:
             chain = [Tier.FAST]
 
+        skipped_breakers: List[str] = []
         for tier in chain:
+            if self._tier_breaker_open(tier):
+                skipped_breakers.append(str(tier))
+                continue
             try:
                 if not self._settings.is_tier_available(tier):
                     continue
@@ -453,16 +844,29 @@ class Agent:
             except (BackendUnavailable, BackendConfigError) as exc:
                 log.debug("Тир %s недоступен для планирования: %s", tier, exc)
                 continue
+        if skipped_breakers:
+            log.info("Circuit breaker: тиры %s пропущены (недавние сбои провайдеров)",
+                     ", ".join(skipped_breakers))
 
-        # Graceful offline fallback на локальную модель.
+        # Graceful offline fallback на локальную модель (TIER 4, без сети).
         try:
-            return self._get_local_backend(), Tier.FAST
+            return get_offline_backend(self._settings), Tier.FAST
         except Exception as exc:
             log.warning("Локальный фолбэк недоступен: %s", exc)
             return None, None
 
-    def _fallback_backend(self, routing: Optional[RoutingDecision], tried):
-        """Следующий доступный бэкенд после ``tried`` (для повтора при сбое)."""
+    def _fallback_backend(self, routing: Optional[RoutingDecision], tried,
+                          policy_override=None):
+        """Следующий доступный бэкенд после ``tried`` (для повтора при сбое).
+
+        ``policy_override`` — короткая «разговорная» политика для простых
+        задач: фолбэк не должен ждать полный бюджет аналитического тира.
+        Тиры с разомкнутым breaker'ом пропускаются (Sprint 3).
+        """
+        if (self._brain_fabric is not None and routing is not None
+                and getattr(routing, "brain_route", None) is not None):
+            # BrainFabricBackend already consumed its bounded semantic chain.
+            return None, None
         chain: List[Any] = []
         if routing is not None:
             chain = [routing.tier] + list(routing.fallback_chain)
@@ -475,23 +879,30 @@ class Agent:
             except ValueError:
                 pass
         for tier in chain:
+            if self._tier_breaker_open(tier):
+                continue
             try:
                 if not self._settings.is_tier_available(tier):
                     continue
-                return get_llm_backend(self._settings, tier), tier
+                return get_llm_backend(self._settings, tier,
+                                       policy_override=policy_override), tier
             except (BackendUnavailable, BackendConfigError):
                 continue
         return None, None
 
     def _retrieve_context(self, goal: str) -> str:
         """Извлекает релевантный контекст из локальной памяти (граф, офлайн)."""
+        parts: List[str] = []
+        try:
+            executive_context = self._executive.context_for(goal, limit=4)
+            if executive_context:
+                parts.append(executive_context)
+        except Exception as exc:
+            log.debug("Executive context недоступен: %s", exc)
         if self._graph is None:
-            return ""
+            return "\n".join(parts)
         try:
             nodes = self._graph.search_nodes(goal, top_k=3)
-            if not nodes:
-                return ""
-            parts: List[str] = []
             for n in nodes:
                 label = (n.get("label") or "").strip()
                 props = n.get("properties") or {}
@@ -621,6 +1032,9 @@ class Agent:
                 "sources_failed": report.sources_failed,
                 "findings": len(report.findings),
                 "verified": report.verified,
+                "status": getattr(report, "status", "completed"),
+                "resume_task_id": getattr(report, "resume_task_id", ""),
+                "local_fallback": list(getattr(report, "local_fallback", []) or []),
             }
 
         verification = VerificationResult(
@@ -658,10 +1072,27 @@ class Agent:
         """
         if risk.needs_confirmation:
             return None
-        if intent not in ("app", "system"):
+        if intent not in ("app", "system", "media", "web"):
             return None
 
-        caps = CAPABILITIES.retrieve(goal, top_k=2)
+        # Deterministic audit fixes: time and media do not compete with the
+        # reminder capability merely because the utterance contains a verb.
+        if intent == "media":
+            selected = CAPABILITIES.get("play_music")
+            caps = [selected] if selected is not None else []
+        elif intent == "web" and any(marker in goal.casefold() for marker in (
+            "найди", "поищи", "поиск", "найти информацию", "find",
+        )):
+            # Explicit web queries take a deterministic provider path.  This
+            # avoids paying the planner/memory cold-start tax for a plain
+            # lookup and keeps the research budget attached to the source.
+            selected = CAPABILITIES.get("web_search")
+            caps = [selected] if selected is not None else []
+        elif intent == "system" and any(word in goal.casefold() for word in ("который час", "сколько времени", "текущее время", "какая дата", "time", "clock")):
+            selected = CAPABILITIES.get("current_time")
+            caps = [selected] if selected is not None else []
+        else:
+            caps = CAPABILITIES.retrieve(goal, top_k=2)
         if not caps:
             return None
         cap = caps[0]
@@ -703,6 +1134,31 @@ class Agent:
         if cap.name == "system_status":
             return {}
 
+        if cap.name == "current_time":
+            return {}
+
+        if cap.name == "play_music":
+            # A network source is never inferred silently.  Local path/URI
+            # may be supplied by an explicit caller or a future planner.
+            mood = ""
+            for marker in ("настроения", "настроение", "mood"):
+                if marker in lowered:
+                    mood = text.split(marker, 1)[-1].strip(" ,:—-")
+                    break
+            return {"mood": mood} if mood else None
+
+        if cap.name == "web_search":
+            query = text
+            for marker in (
+                "найди информацию о", "найди информацию", "найди", "поищи",
+                "поиск", "найти информацию о", "найти информацию", "найти",
+                "search for", "search", "find",
+            ):
+                if lowered.startswith(marker):
+                    query = text[len(marker):].strip(" ,:—-")
+                    break
+            return {"query": query, "max_results": 5} if query else None
+
         if cap.name == "volume":
             if any(w in lowered for w in ("выключи звук", "mute", "без звука")):
                 return {"action": "mute"}
@@ -742,11 +1198,18 @@ class Agent:
         Returns:
             ``(ToolCallDecision | None, error_text)``.
         """
+        # Sprint 3 TIER 2: JSON-план строит минимум внешний тир (analyst):
+        # надёжный tool calling важнее скорости планирования. Разговорный
+        # путь сюда не доходит (conversation gate Sprint 2).
+        if routing is not None:
+            routing = self._model_router.route_for_planning(routing)
         backend, used_tier = self._backend_for_routing(routing)
         if backend is None:
-            return None, "ни одна модель недоступна (ни облачная, ни локальный фолбэк)"
+            return None, MODEL_ERROR_PREFIX + "ни одна модель недоступна (ни облачная, ни локальный фолбэк)"
         if mission is not None and used_tier is not None:
             mission.model_used = used_tier.value
+            if routing is not None and used_tier is not routing.tier:
+                mission.metadata["degraded"] = True
 
         known = [c.name for c in caps]
         tools_desc = describe_tools_for_model(caps, self._registry) or "(нет подходящих инструментов)"
@@ -758,9 +1221,13 @@ class Agent:
                 f"{memory_ctx}\n"
             )
 
+        # Sprint 4 TIER 2: persona + фокус на точность tool calling.
+        # История/факты в tool-промпт НЕ идут (спринт STEP 2.4).
+        from persona.system_prompt import build_agent_system_prompt
+        persona_line = build_agent_system_prompt(self._settings, tier="plan")
         system = (
-            "Ты — J.A.R.V.I.S., операционная интеллектуальная система на компьютере "
-            "пользователя. Твоя задача — решить, КАК выполнить цель.\n"
+            f"{persona_line}\n"
+            "Твоя задача — решить, КАК выполнить цель.\n"
             "Верни СТРОГО ОДИН JSON-объект без markdown и пояснений:\n"
             f"{PLAN_SCHEMA_HINT}\n"
             "Правила:\n"
@@ -786,23 +1253,32 @@ class Agent:
                 "Исправь и верни ТОЛЬКО валидный JSON."
             )
             try:
-                raw = backend.chat([{"role": "user", "content": prompt}], system=system)
+                raw = self._stream_consume(backend, [{"role": "user", "content": prompt}], system)
             except (BackendUnavailable, BackendConfigError) as exc:
                 # Попробуем следующий тир из цепочки фолбэка (cloud->...->local).
                 log.warning("Модель недоступна (%s), пробуем фолбэк: %s", used_tier, exc)
-                fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier)
+                # Простая (разговорная) задача: фолбэк тоже короткий — нечего
+                # ждать полный бюджет аналитического тира ради «привет».
+                fb_policy = (
+                    {"timeout": getattr(self._settings.limits, "fast_tier_timeout_sec", None),
+                     "max_retries": getattr(self._settings.limits, "fast_tier_max_retries", None)}
+                    if routing is not None and routing.tier is Tier.FAST else None
+                )
+                fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier,
+                                                             policy_override=fb_policy)
                 if fb_backend is None:
-                    return None, f"модель недоступна: {exc}"
+                    return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}"
                 backend, used_tier = fb_backend, fb_tier
                 if mission is not None:
                     mission.model_used = used_tier.value
+                    mission.metadata["degraded"] = True
                 try:
-                    raw = backend.chat([{"role": "user", "content": prompt}], system=system)
+                    raw = self._stream_consume(backend, [{"role": "user", "content": prompt}], system)
                 except Exception as exc2:
-                    return None, f"модель недоступна: {exc2}"
+                    return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}"
             except Exception as exc:
                 log.warning("Модель не ответила на планирование: %s", exc)
-                return None, f"модель недоступна: {exc}"
+                return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}"
 
             parsed = parse_structured(raw, required_keys=None)
             if not parsed.ok:
@@ -847,6 +1323,19 @@ class Agent:
         """
         context = ToolContext(user_id="default", settings=self._settings, state=None)
 
+        try:
+            execution_plan = self._executive.compile(
+                goal, tool=tool, args=args, intent="action",
+                risk=getattr(risk.level, "value", str(risk.level)),
+            )
+            rehearsal = self._executive.rehearse(execution_plan)
+            trace.append(f"shadow_rehearsal={'ready' if rehearsal.ready else 'blocked'}")
+            if mission is not None:
+                mission.metadata["command_os"] = execution_plan.to_dict()
+                mission.metadata["rehearsal"] = rehearsal.to_dict()
+        except Exception as exc:
+            log.debug("Shadow rehearsal skipped: %s", exc)
+
         if mission is not None:
             mission.set_status(MissionStatus.EXECUTING, f"выполняю {tool}")
             mission.set_progress(0.5, f"выполнение: {tool}")
@@ -854,7 +1343,14 @@ class Agent:
             mission.emit(EVENT_STEP_STARTED, payload={"tool": tool, "args": args})
             mission.emit(EVENT_TOOL_CALLED, payload={"tool": tool, "args": args})
 
-        result = execute_tool(self._registry, tool, args, context)
+        web_tool = tool in {"web_search", "web_fetch", "weather"}
+        budget_cfg = getattr(self._settings, "latency_budgets", None)
+        web_timeout = float(getattr(budget_cfg, "research_source_timeout_ms", 8000.0)) / 1000.0
+        result = execute_tool(
+            self._registry, tool, args, context,
+            max_retries=0 if web_tool else 2,
+            timeout_sec=web_timeout if web_tool else None,
+        )
         trace.append(f"execute {tool}({args}) -> ok={result.ok}")
 
         if mission is not None:
@@ -876,6 +1372,27 @@ class Agent:
 
         # ---- REPAIR (§10, §11) ----
         if not verification.verified:
+            # Deterministic policy/input failures are not transient provider
+            # faults.  Re-running them only creates noise and a false backlog.
+            if tool == "play_music" and any(marker in (result.error or "") for marker in (
+                "явно разрешить сетевой источник", "Нужен локальный файл", "не найден",
+            )):
+                return AgentOutcome(
+                    text=str(result.error), verified=False, verification=verification,
+                    tool_used=tool, risk=risk, mode="tool", trace=trace,
+                )
+            if web_tool:
+                pending = ResearchPending(
+                    query=goal,
+                    source_errors=[str(result.error or verification.detail or "network source unavailable")],
+                )
+                trace.append(f"research pending: {pending.resume_task_id}")
+                return AgentOutcome(
+                    text=("Источник сейчас недоступен. Задача сохранена для повторной попытки: "
+                          f"{pending.resume_task_id}"),
+                    verified=False, verification=verification, tool_used=tool,
+                    risk=risk, mode="research_pending", trace=trace,
+                )
             if mission is not None:
                 mission.note_error(result.error or verification.detail)
                 mission.set_status(MissionStatus.REPAIRING, "первый способ не сработал")
@@ -885,12 +1402,23 @@ class Agent:
                 })
 
             log.info("Verification не прошла — вход в repair loop (%s)", tool)
+            # Sprint 3 STEP 4: повторный риск-гейт. Каждый retry (патч
+            # аргументов / fallback-инструмент / повтор) проходит ТУ ЖЕ
+            # проверку §21, что и первый вызов: переформулировкой нельзя
+            # обойти подтверждение HIGH-risk операции.
+            def _repair_risk_gate(call_tool: str, call_args: Dict[str, Any]) -> Optional[str]:
+                gate_risk = assess_risk(goal, call_tool, call_args)
+                if gate_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
+                    return "; ".join(gate_risk.reasons) or "повышенный риск операции"
+                return None
+
             repair = self._repair.run(
                 tool_name=tool,
                 args=args,
                 context=context,
                 mission=mission,
                 verification=lambda r: verify_action_result(r).verified,
+                risk_gate=_repair_risk_gate,
             )
             trace.extend(f"repair: {t}" for t in repair.trace)
 
@@ -915,11 +1443,18 @@ class Agent:
                     mode="needs_human", trace=trace,
                 )
             else:
-                # §11 — исчерпали разумные пути: честно сообщаем, БЕЗ "готово" (§14).
-                return self._handle_unknown(
-                    goal, caps, mission, trace,
+                # A known provider that temporarily failed is still a known
+                # capability.  Do not misclassify infrastructure trouble as an
+                # unknown task or generate a duplicate skill.
+                trace.append("known capability provider failed after repair budget")
+                self._shadow.backlog.add(
+                    f"repair_{tool}", priority=0.85,
                     reason=result.error or verification.detail,
-                    attempted_tool=tool,
+                )
+                return AgentOutcome(
+                    text="Источник временно не ответил. Задача сохранена для повторной попытки.",
+                    verified=False, verification=verification, tool_used=tool,
+                    risk=risk, mode="tool", trace=trace,
                 )
 
         # ---- RESULT ----
@@ -955,8 +1490,171 @@ class Agent:
         return body
 
     # ------------------------------------------------------------------ #
+    #  Sprint 2 — прямой разговор (без инструментов и без JSON-плана)
+    # ------------------------------------------------------------------ #
+
+    def _answer_conversation(self, goal: str, mission: Optional[Mission],
+                             cancel: threading.Event, trace: List[str],
+                             routing: Optional[RoutingDecision],
+                             memory_ctx: str = "") -> AgentOutcome:
+        """Разговорный ответ напрямую: БЕЗ списка инструментов и JSON-плана.
+
+        Гейт ``classify_conversation`` уже уверенно определил, что действия
+        нет. Модель получает простой диалоговый промпт — она физически не
+        может «позвать» инструмент, потому что их имена ей не показаны.
+        Стриминг и фолбэк тиров — те же механизмы, что и в planner-пути.
+        """
+        if cancel.is_set():
+            return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
+
+        backend, used_tier = self._backend_for_routing(routing)
+        if backend is None:
+            return self._handle_model_unavailable(
+                goal, mission, trace,
+                MODEL_ERROR_PREFIX + "ни одна модель недоступна (ни облачная, ни локальный фолбэк)",
+            )
+        # Sprint 3 STEP 5.2: ответил не тот тир, что роутер выбрал изначально
+        # (breaker/недоступность) — это деградация, не маскируем её.
+        degraded = routing is not None and used_tier is not None and used_tier is not routing.tier
+        if mission is not None and used_tier is not None:
+            mission.model_used = used_tier.value
+            if degraded:
+                mission.metadata["degraded"] = True
+            mission.set_status(MissionStatus.ANALYZING, "разговорный ответ")
+
+        # Sprint 4: персона + факты профиля + память графа + тон — в system;
+        # bounded-история сессии — в messages (под бюджет TIER 1).
+        user = goal
+        system = self._build_conversation_prompt(memory_ctx, goal, backend)
+        history = self._session.get_recent()
+        budget = int(getattr(self._settings.limits, "context_budget_fast_tokens", 2000))
+        messages = fit_messages_to_budget(system, history, user, budget)
+
+        try:
+            text = self._stream_consume(backend, messages, system, extract_answer=False)
+        except (BackendUnavailable, BackendConfigError) as exc:
+            log.warning("Модель недоступна (%s) в разговоре, пробуем фолбэк: %s", used_tier, exc)
+            fb_policy = (
+                {"timeout": getattr(self._settings.limits, "fast_tier_timeout_sec", None),
+                 "max_retries": getattr(self._settings.limits, "fast_tier_max_retries", None)}
+                if routing is not None and routing.tier is Tier.FAST else None
+            )
+            fb_backend, fb_tier = self._fallback_backend(routing, tried=used_tier,
+                                                         policy_override=fb_policy)
+            if fb_backend is None:
+                return self._handle_model_unavailable(
+                    goal, mission, trace, MODEL_ERROR_PREFIX + f"модель недоступна: {exc}")
+            backend, used_tier = fb_backend, fb_tier
+            degraded = True
+            if mission is not None:
+                mission.model_used = used_tier.value
+                mission.metadata["degraded"] = True
+            # Фолбэк мог привести на офлайн-модель (TIER 4) — персона
+            # честно говорит про ограниченный режим.
+            system = self._build_conversation_prompt(memory_ctx, goal, backend)
+            messages = fit_messages_to_budget(system, history, user, budget)
+            try:
+                text = self._stream_consume(backend, messages, system, extract_answer=False)
+            except Exception as exc2:
+                return self._handle_model_unavailable(
+                    goal, mission, trace, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}")
+
+        text = (text or "").strip() or "Я вас слушаю, сэр."
+        trace.append("режим: прямой разговор (без инструментов)")
+        if degraded:
+            trace.append(f"degraded: ответил {used_tier} вместо {routing.tier if routing else '?'}")
+            text = f"[degraded] {text}"
+        if mission is not None:
+            mission.set_progress(1.0, "ответ сформирован")
+        return AgentOutcome(text=text, verified=True, mode="conversation",
+                            trace=trace, degraded=degraded)
+
+    # ------------------------------------------------------------------ #
+    #  Sprint 4 — persona + memory сборка промпта
+    # ------------------------------------------------------------------ #
+
+    def _is_offline_backend(self, backend) -> bool:
+        """True, если бэкенд — локальная GGUF-модель (TIER 4, офлайн)."""
+        try:
+            from core.llm.local_qwen import LocalQwenBackend
+            return isinstance(backend, LocalQwenBackend)
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _build_conversation_prompt(self, memory_ctx: str, goal: str,
+                                   backend) -> str:
+        """System prompt разговорного пути: персона + факты + тон + память.
+
+        Собирается ``persona.build_agent_system_prompt`` (Sprint 4 STEP 3).
+        Диалоговая природа пути дописывается явно: никаких инструментов.
+        """
+        from persona.system_prompt import build_agent_system_prompt
+
+        profile_ctx = ""
+        try:
+            profile_ctx = get_relevant_profile_context(self._settings, goal)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Профиль недоступен: %s", exc)
+
+        prompt = build_agent_system_prompt(
+            self._settings,
+            tier="fast",
+            profile_ctx=profile_ctx,
+            memory_ctx=(memory_ctx or "")[:400],
+            tone=detect_tone(goal),
+            offline=self._is_offline_backend(backend),
+            personality_context=self._personality_prompt_context(goal),
+        )
+        return (
+            f"{prompt}\n"
+            "Это обычный диалог: никаких инструментов, файлов и команд — "
+            "просто ответь текстом. Не упоминай инструменты."
+        )
+
+    def _personality_prompt_context(self, goal: str) -> str:
+        """Retrieves only the few relationship memories relevant now."""
+        try:
+            profile = self._preference_learner.profile()
+            style = self._personality.style_for(
+                user_context=self._user_context,
+                urgency="high" if bool(self._user_context.get("user_busy")
+                                       or self._user_context.get("busy")) else "normal",
+                task_type=self._personality.infer_task_type(goal, mode="conversation"),
+                user_preference=profile,
+            )
+            relevant = self._relationship_memory.retrieve(goal, limit=4)
+            return self._personality.prompt_fragment(
+                style, memories=(item.fact for item in relevant),
+            )
+        except Exception as exc:
+            log.debug("Relationship context недоступен: %s", exc)
+            return ""
+
+    # ------------------------------------------------------------------ #
     #  §8, §9, §29 — UNKNOWN != IMPOSSIBLE
     # ------------------------------------------------------------------ #
+
+    def _handle_model_unavailable(self, goal: str, mission: Optional[Mission],
+                                  trace: List[str], plan_error: str) -> AgentOutcome:
+        """Сбой модели (таймаут/провайдер/ключ) — НЕ «не умею» и НЕ навык.
+
+        Это временная ошибка инфраструктуры: пользователю — короткая
+        дружелюбная фраза (без HTTP-кодов и трейсбеков), сырые детали —
+        только в лог. Черновик навыка (SkillForge) НЕ создаётся: навыки
+        фиксируются только для реальных «не умею», а не для сетевых сбоев.
+        """
+        detail = plan_error[len(MODEL_ERROR_PREFIX):].strip() or "модель недоступна"
+        log.warning("Модель недоступна при обработке цели: %s", detail)
+        trace.append(f"model unavailable: {detail}")
+        if mission is not None:
+            mission.note_error(detail)
+            mission.set_progress(1.0, "модель недоступна — ответ не сформирован")
+        return AgentOutcome(
+            text=MODEL_UNAVAILABLE_TEXT,
+            verified=False,
+            mode="model_error",
+            trace=trace,
+        )
 
     def _handle_unknown(self, goal: str, caps: List[Capability],
                         mission: Optional[Mission], trace: List[str],
@@ -969,6 +1667,77 @@ class Agent:
             3. возвращаем честный ответ с планом исследования.
         """
         trace.append(f"unknown task path: {reason}")
+        # Sprint 9: a task class is resolved before generating another Python
+        # tool. Existing primitives are composed into a DAG and verified
+        # against desired state; only verified trajectories are learned.
+        try:
+            from core.capability_engine import (
+                CapabilityDefinition, CapabilityEngine, CapabilityKind,
+            )
+            capability_plan = self._capability_planner.plan(goal)
+            trace.append(f"capability acquisition={capability_plan.acquisition}")
+            if capability_plan.steps:
+                capability_engine = CapabilityEngine(
+                    self._capability_catalog, self._registry,
+                    context=ToolContext(settings=self._settings),
+                )
+                capability_report = capability_engine.execute(capability_plan, max_repairs=2)
+                trace.extend(f"capability: {item}" for item in capability_report.action_trace)
+                if capability_report.needs_confirmation:
+                    return AgentOutcome(
+                        text="Сэр, для следующего системного изменения требуется подтверждение.",
+                        verified=False, needs_confirmation=True,
+                        risk=assess_risk(goal), mode="confirmation_required", trace=trace,
+                    )
+                if capability_report.completed:
+                    return AgentOutcome(
+                        text="Готово. Проверяйте, сэр.", verified=True,
+                        tool_used=capability_plan.capability_id,
+                        mode="capability", trace=trace,
+                    )
+                self._shadow.backlog.add(
+                    capability_plan.capability_id or _skill_name_from_goal(goal),
+                    priority=0.95,
+                    reason="reactive capability execution or verification failed",
+                )
+                trace.append("failed capability queued for shadow repair")
+            elif capability_plan.acquisition == "research":
+                experimental_id = _skill_name_from_goal(goal)
+                self._capability_catalog.save(CapabilityDefinition(
+                    id=experimental_id, description=goal,
+                    kind=CapabilityKind.EXPERIMENTAL, confidence=0.3,
+                    success_criteria=list(capability_plan.requirements),
+                ))
+                self._shadow.backlog.add(
+                    experimental_id, priority=0.9,
+                    reason="reactive unknown request needs capability research",
+                )
+                trace.append("structured capability research queued")
+        except Exception as exc:
+            trace.append(f"capability engine skipped: {type(exc).__name__}")
+
+        # Sprint 8: for a low-risk novel request, Shadow Engine may already
+        # have a verified local tool ready (or create one with Qwen3-1.7B).
+        # The generated-tool sandbox permits only side-effect-free stdlib code;
+        # anything risky remains on the ordinary confirmation path below.
+        on_demand_risk = assess_risk(goal)
+        if not on_demand_risk.needs_confirmation:
+            try:
+                prepared = self._shadow.prepare_on_demand(goal)
+                if prepared is not None:
+                    trace.append(f"shadow on-demand: {prepared.name} ({prepared.status}, {prepared.confidence}%)")
+                    if prepared.status == "registered":
+                        result = execute_tool(
+                            self._registry, prepared.name, {"request": goal},
+                            ToolContext(settings=self._settings), max_retries=0,
+                        )
+                        if result.ok:
+                            return AgentOutcome(
+                                text=str(result.output or "Сейчас разберусь — способ подготовлен."),
+                                verified=True, tool_used=prepared.name, mode="tool", trace=trace,
+                            )
+            except Exception as exc:  # Generated tools never break Active mode.
+                trace.append(f"shadow on-demand skipped: {type(exc).__name__}")
         if mission is not None:
             mission.note_error(reason or "нет готового способа")
             mission.metadata["unknown_task"] = True
@@ -1007,8 +1776,9 @@ class Agent:
         why = f" Причина: {reason}." if reason else ""
         available = ", ".join(c.name for c in caps) if caps else "нет подходящих"
 
+        from core.shadow import active_mode_message
         text = (
-            f"Готового способа для этой задачи у меня пока нет — я ещё этому не научен.{attempted}{why}\n"
+            f"{active_mode_message(goal)}{attempted}{why}\n"
             f"Доступные сейчас инструменты: {available}.\n"
             f"Что я могу сделать дальше: изучить документацию и способ решения, "
             f"собрать процедуру, проверить её на безопасном примере и сохранить как навык."
@@ -1031,10 +1801,15 @@ class Agent:
     # ------------------------------------------------------------------ #
 
     def _get_local_backend(self):
-        """Локальная Qwen3-4B — быстрый мозг (§16). None, если недоступна."""
+        """Локальная Qwen3-4B — офлайн-мозг TIER 4 (§16, Sprint 3).
+
+        Строится НАПРЯМУЮЮ из ``settings.local_model`` (GGUF), а не через
+        FAST-тир: провайдер FAST теперь внешний (am/free), и старый путь
+        молча возвращал ту же удалённую модель вместо офлайн-фолбэка.
+        None, если GGUF недоступна.
+        """
         try:
-            from core.llm import Tier, get_llm_backend
-            backend = get_llm_backend(self._settings, Tier.FAST)
+            backend = get_offline_backend(self._settings)
             if not backend.is_available():
                 log.warning("Локальная модель недоступна: %s", backend.unavailable_reason())
                 return None

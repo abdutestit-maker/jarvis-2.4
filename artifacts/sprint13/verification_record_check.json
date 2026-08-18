@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "record": "E:\\jarvis-project\\artifacts\\sprint13\\verification_record.json",
+  "record_sha256": "1c01b2b4ba701410f71dfa4818197fe6ef4e88f31ceae7983805fe8b6ed53efb",
+  "checks": {
+    "status_verified": true,
+    "baseline_exit_zero": true,
+    "baseline_literal": true,
+    "final_exit_zero": true,
+    "final_literal": true,
+    "voice_exit_zero": true,
+    "live_exit_zero": true,
+    "patch_verified": true,
+    "rollback_verified": true,
+    "package_verified": true,
+    "no_sprint14": true,
+    "modified_artifact_exists": true,
+    "modified_artifact_sha256": true,
+    "patch_exists": true,
+    "patch_sha256": true,
+    "rollback_exists": true,
+    "rollback_sha256": true,
+    "verification_record_reopened": true
+  }
+}

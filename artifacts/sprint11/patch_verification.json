@@ -1,0 +1,125 @@
+{
+  "stage": "E:\\jarvis-project\\artifacts\\sprint11\\patch_stage_verified3",
+  "check_exit": 0,
+  "apply_exit": 0,
+  "files": 23,
+  "all_normalized_text_match": true,
+  "comparisons": [
+    {
+      "path": "core/agent.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/orchestrator.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/shadow/backlog.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/shadow/engine.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/__init__.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/context.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/inference.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/models.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/monitor.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/proactive.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/resources.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/service.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "core/living/workflow.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "scripts/sprint11_live_demo.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "scripts/rollback_sprint11.ps1",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "docs/sprints/SPRINT11_SPEC.md",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "tasks/sprint11_plan.md",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "tasks/sprint11_todo.md",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "tests/test_sprint11_context.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "tests/test_sprint11_workflow.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "tests/test_sprint11_proactive.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "tests/test_sprint11_resources.py",
+      "exists": true,
+      "normalized_text_match": true
+    },
+    {
+      "path": "tests/test_sprint11_service.py",
+      "exists": true,
+      "normalized_text_match": true
+    }
+  ],
+  "verified": true
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "path": ".gitignore",
+    "sha256": "379684abf96594e268cb38902d5e5d14490d056f5cb987d3660a6f712b5c96c4",
+    "backup": "artifacts\\executive_mind_backup_20260818\\.gitignore"
+  },
+  {
+    "path": "README.md",
+    "sha256": "25f23da1490b914594025dcdf278f10ac2640dbeb34c7d4af2d7c50231c4e1fa",
+    "backup": "artifacts\\executive_mind_backup_20260818\\README.md"
+  },
+  {
+    "path": "core/agent.py",
+    "sha256": "11cf4720a01a0bbb330ab8764c7f854c69ea228e05fe7120c0d72fd9ad4a302a",
+    "backup": "artifacts\\executive_mind_backup_20260818\\core\\agent.py"
+  },
+  {
+    "path": "core/orchestrator.py",
+    "sha256": "5bddc3c791d8567492bde233e7699fdd776c52604c952b8682ecfd4d2c6b9dc9",
+    "backup": "artifacts\\executive_mind_backup_20260818\\core\\orchestrator.py"
+  },
+  {
+    "path": "core/actions/__init__.py",
+    "sha256": "18ca320b0a1fd529523e21d1a4da7da736021414f5b39688241af1eb00a31e8b",
+    "backup": "artifacts\\executive_mind_backup_20260818\\core\\actions\\__init__.py"
+  },
+  {
+    "path": "core/router/intent_router.py",
+    "sha256": "e0a6211bc4d89ed322991d8b455da2c9369ab003d601125ff595335bf5421be2",
+    "backup": "artifacts\\executive_mind_backup_20260818\\core\\router\\intent_router.py"
+  },
+  {
+    "path": "core/capabilities.py",
+    "sha256": "282c6e6ea15ecb6ab1820cdf6fd76b84f8fcc28d474c6a545dbf86c9890b29e6",
+    "backup": "artifacts\\executive_mind_backup_20260818\\core\\capabilities.py"
+  },
+  {
+    "path": "core/memory/profile.py",
+    "sha256": "acb98922f3fb58dec1c74de5e5cf1c9068b3bd7d47bd3b988616b8909812be29",
+    "backup": "artifacts\\executive_mind_backup_20260818\\core\\memory\\profile.py"
+  },
+  {
+    "path": "core/memory/retrieval.py",
+    "sha256": "e570b59bf9d06b26a173c6b86952c2f41f037661e94d3d6be95e7af6c0bf416e",
+    "backup": "artifacts\\executive_mind_backup_20260818\\core\\memory\\retrieval.py"
+  },
+  {
+    "path": "config/settings.py",
+    "sha256": "25ecbaed94963a849152cd978359920a27edd66d1817e676ce7e206750eb399b",
+    "backup": "artifacts\\executive_mind_backup_20260818\\config\\settings.py"
+  },
+  {
+    "path": "config/settings.json",
+    "sha256": "9f42660da5e231fcca8999dcee0a44e7dbdf4fd57ffc6f4a59a02573bba6376e",
+    "backup": "artifacts\\executive_mind_backup_20260818\\config\\settings.json"
+  },
+  {
+    "path": "config/settings.example.json",
+    "sha256": "e3aa4bb2052f8ca68b0a5d76180442f4f267104feb32e3881b4d8ec9ec0426ff",
+    "backup": "artifacts\\executive_mind_backup_20260818\\config\\settings.example.json"
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "goal": "enable fixture feature",
+    "result": "desired state verified by atomic_config",
+    "verified_at": "2026-08-17T14:58:13.182530+00:00",
+    "evidence": [
+      "strategy:atomic_config"
+    ]
+  },
+  {
+    "goal": "enable fixture feature again",
+    "result": "desired state verified by atomic_config",
+    "verified_at": "2026-08-17T14:58:13.248176+00:00",
+    "evidence": [
+      "strategy:atomic_config"
+    ]
+  }
+]

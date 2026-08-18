@@ -1,0 +1,8 @@
+{
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rollback_sprint12.ps1 -ProjectRoot artifacts/sprint12/rollback_probe_1825 -BackupRoot artifacts/sprint12/original",
+  "exit_code": 0,
+  "restored_hash_mismatches": [],
+  "added_product_files_remaining": [],
+  "rollback_script_remains_runnable": true,
+  "verified": true
+}

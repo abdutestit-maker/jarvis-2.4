@@ -1,0 +1,10 @@
+{
+  "input": "Error 455",
+  "unsafe_before": false,
+  "sanitized_before": "Error 455",
+  "selected_provider": "piper",
+  "selected_voice": "jarvis-medium",
+  "selected_language": "en",
+  "configured_model": "data/models/piper/jarvis-medium.onnx",
+  "evidence": "captured before Voice Hardening changes"
+}

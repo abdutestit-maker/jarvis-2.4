@@ -1,0 +1,36 @@
+{
+  "sprint": "Executive Mind + audit remediation",
+  "date": "2026-08-18",
+  "baseline": {
+    "source": "provided live audit",
+    "command": "python -m pytest -q",
+    "literal_output": "295 passed, 2 skipped, 0 failed",
+    "exit_status": 0
+  },
+  "modified": {
+    "command": "python -m pytest -o addopts=\\\"\\\" -rA",
+    "literal_output": "================= 473 passed, 2 skipped, 2 warnings in 53.40s =================",
+    "exit_status": 0
+  },
+  "focused": {
+    "command": "python -m pytest -q tests/test_audit_fixes.py tests/test_executive_mind.py tests/test_conversation_gate.py",
+    "literal_output": "29 passed",
+    "exit_status": 0
+  },
+  "live": {
+    "command": "python scripts/executive_mind_live_smoke.py",
+    "result_path": "E:/jarvis-project/artifacts/executive_mind_live_smoke_result.json",
+    "exit_status": 0,
+    "assertions": ["intent=current_time: system", "intent=play_music: media", "add_reminder not invoked", "offline=true", "second_run_reuse=true"]
+  },
+  "rollback_parse": {
+    "command": "PowerShell Parser::ParseFile scripts/rollback_executive_mind.ps1",
+    "literal_output": "rollback script syntax ok",
+    "exit_status": 0
+  },
+  "artifacts": [
+    "E:/jarvis-project/artifacts/executive_mind_diff.patch",
+    "E:/jarvis-project/artifacts/executive_mind_manifest.json",
+    "E:/jarvis-project/scripts/rollback_executive_mind.ps1"
+  ]
+}

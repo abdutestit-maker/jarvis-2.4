@@ -1,0 +1,35 @@
+{
+    "success":  true,
+    "project_root":  "E:\\jarvis-project\\artifacts\\sprint12\\rollback_probe_1825",
+    "backup_root":  "E:\\jarvis-project\\artifacts\\sprint12\\original",
+    "restored":  [
+                     "core\\agent.py",
+                     "core\\orchestrator.py",
+                     "core\\living\\service.py",
+                     "core\\voice\\greeting.py",
+                     "core\\ws_server.py",
+                     "core\\memory\\__init__.py",
+                     "persona\\system_prompt.py"
+                 ],
+    "removed":  [
+                    "core\\personality\\__init__.py",
+                    "core\\personality\\communication.py",
+                    "core\\personality\\engine.py",
+                    "core\\personality\\humor.py",
+                    "core\\personality\\models.py",
+                    "core\\memory\\relationship\\__init__.py",
+                    "core\\memory\\relationship\\hierarchy.py",
+                    "core\\memory\\relationship\\learning.py",
+                    "core\\memory\\relationship\\models.py",
+                    "core\\memory\\relationship\\store.py",
+                    "persona\\identity.json",
+                    "persona\\personality.json",
+                    "tests\\test_sprint12_personality.py",
+                    "tests\\test_sprint12_relationship.py",
+                    "tests\\test_sprint12_integration.py",
+                    "scripts\\sprint12_live_demo.py",
+                    "docs\\sprints\\SPRINT12_SPEC.md",
+                    "tasks\\sprint12_plan.md",
+                    "tasks\\sprint12_todo.md"
+                ]
+}

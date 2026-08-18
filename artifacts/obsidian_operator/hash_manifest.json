@@ -1,0 +1,113 @@
+{
+  "head": "a00671e70081120521afaf1c8b1206f89418ba59",
+  "files": [
+    {
+      "path": "jarvis/src/App.tsx",
+      "baseline_sha256": "d3a1ddfaba6a1ac290ebe4ae50cd87b70978c250da89d44c86abb7e09131cb34",
+      "modified_sha256": "ef46d3ae71a39824db00831dc72727c752fc8597d8fd614ca147c9599914cb9a",
+      "bytes": 9342
+    },
+    {
+      "path": "jarvis/src/presence.css",
+      "baseline_sha256": "054c4c592221fb6b87c7cd36d958fb93fbf171a61dc932926a03e4ea52060ad7",
+      "modified_sha256": "c8e22d4c0d53fa1809383848b16a90932a2cdb83523be8a392746b19adcb7a9e",
+      "bytes": 17580
+    },
+    {
+      "path": "jarvis/package.json",
+      "baseline_sha256": "6dbfb446b6b5dea29de415a7479c83383d9299c8f6107caf0e2c993b3dfa0e31",
+      "modified_sha256": "0a2bbbf06b847762bbdaab626ae312dcca3a90ed4f1d5f57182afb1c0d26bd94",
+      "bytes": 1015
+    },
+    {
+      "path": "jarvis/src-tauri/tauri.conf.json",
+      "baseline_sha256": "782cb1b74df56f4f843ede3480db827d137831c12be7be7dfeea4ce789c4a94c",
+      "modified_sha256": "dbae624a985d915821d401a6f25f450c4827335f2bc6e3ffd96a2acb79de414b",
+      "bytes": 1020
+    },
+    {
+      "path": "jarvis/src-tauri/capabilities/default.json",
+      "baseline_sha256": "1d273fd13804d418440ac34446388edd2485f779eac864ab277d16feb858e2d3",
+      "modified_sha256": "fe0a52c0b00e1d3d23e9365d1aaf32bee8bf66f61fda182e966bcedf886fd919",
+      "bytes": 809
+    },
+    {
+      "path": "jarvis/src/operator/model.ts",
+      "baseline_sha256": null,
+      "modified_sha256": "605096dc68bd14322d6b95d73dbd036978e0e4a08d6037667349781366545d56",
+      "bytes": 7590
+    },
+    {
+      "path": "jarvis/src/operator/OperatorShell.tsx",
+      "baseline_sha256": null,
+      "modified_sha256": "db9840c15ee31245539e69deaa62d3c9a2256029759ff47b7bd92cbd28afae4b",
+      "bytes": 15865
+    },
+    {
+      "path": "jarvis/scripts/operatorModel.test.ts",
+      "baseline_sha256": null,
+      "modified_sha256": "d275b13896ca237b341fe8323ed22dbc2439f53afef0c1cd01032e1e8a8a4798",
+      "bytes": 2033
+    },
+    {
+      "path": "scripts/capture_obsidian_operator.py",
+      "baseline_sha256": null,
+      "modified_sha256": "77f46378e7221e0ea8e1571433fb0331c8a2bb1b1ea6947233345c3a2a140930",
+      "bytes": 1611
+    },
+    {
+      "path": "scripts/rollback_obsidian_operator.ps1",
+      "baseline_sha256": null,
+      "modified_sha256": "7113dd5ade67d77dffd3c9c9dc7f027561551777650def72e9ed972ef5eec8ce",
+      "bytes": 2188
+    },
+    {
+      "path": "design/obsidian-operator/mockups/01-compact-presence.png",
+      "baseline_sha256": null,
+      "modified_sha256": "feafa717b48fe45ae013a8bd2a0836cb774a420841e88e52aa87b6a4557698b4",
+      "bytes": 1370652
+    },
+    {
+      "path": "design/obsidian-operator/mockups/02-command-center.png",
+      "baseline_sha256": null,
+      "modified_sha256": "23475774d80fa01cad945ee332b24934340a317b42055f5073f04986d0702c40",
+      "bytes": 201613
+    },
+    {
+      "path": "design/obsidian-operator/mockups/03-installation-verification.png",
+      "baseline_sha256": null,
+      "modified_sha256": "936b0395ab32f6e4d2fa8fd1095fdde7e9d6b5ed70f02881bb07572c43f2285a",
+      "bytes": 226875
+    },
+    {
+      "path": "design/obsidian-operator/mockups/04-verified-success.png",
+      "baseline_sha256": null,
+      "modified_sha256": "e111372be8d999543c96536e7b18a8d907ee4d3a9534387cb5ae88f008f828a8",
+      "bytes": 1469287
+    },
+    {
+      "path": "_shots/obsidian-operator/01-compact-live.png",
+      "baseline_sha256": null,
+      "modified_sha256": "af5843808147d4dc37f8878d7c852f30d53d294cf0a44ae368f82ffbb4132e14",
+      "bytes": 76822
+    },
+    {
+      "path": "_shots/obsidian-operator/02-command-center-live.png",
+      "baseline_sha256": null,
+      "modified_sha256": "23475774d80fa01cad945ee332b24934340a317b42055f5073f04986d0702c40",
+      "bytes": 201613
+    },
+    {
+      "path": "_shots/obsidian-operator/03-verification-live.png",
+      "baseline_sha256": null,
+      "modified_sha256": "936b0395ab32f6e4d2fa8fd1095fdde7e9d6b5ed70f02881bb07572c43f2285a",
+      "bytes": 226875
+    },
+    {
+      "path": "_shots/obsidian-operator/04-verified-live.png",
+      "baseline_sha256": null,
+      "modified_sha256": "45910b4ebc8c714bb0d9132dbdd91ec03fa3c3a44bed8539a3371fa7a019c2fa",
+      "bytes": 194360
+    }
+  ]
+}

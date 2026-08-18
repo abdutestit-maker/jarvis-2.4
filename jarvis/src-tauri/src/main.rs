@@ -23,7 +23,44 @@ fn project_root() -> PathBuf {
 }
 fn launcher_settings() -> LauncherSettings { fs::read_to_string(project_root().join("config/settings.json")).ok().and_then(|raw| serde_json::from_str::<SettingsFile>(&raw).ok()).and_then(|config| config.launcher).unwrap_or_default() }
 fn backend_is_listening() -> bool { TcpStream::connect_timeout(&"127.0.0.1:8771".parse().expect("socket"), Duration::from_millis(150)).is_ok() }
-fn spawn_backend(settings: &LauncherSettings) -> Option<Child> { if backend_is_listening() { return None; } let command = settings.backend_command.clone().unwrap_or_default(); let (program, args) = command.split_first()?; let dir = settings.backend_workdir.as_deref().filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(project_root); match Command::new(program).args(args).current_dir(&dir).spawn() { Ok(child) => Some(child), Err(error) => { eprintln!("JARVIS backend launch failed in {}: {}", dir.display(), error); None } } }
+fn resolve_backend_program(program: &str) -> String {
+    if !program.eq_ignore_ascii_case("python") && !program.eq_ignore_ascii_case("pythonw") {
+        return program.to_string();
+    }
+    let mut candidates = Vec::new();
+    if let Ok(value) = std::env::var("JARVIS_PYTHON") { candidates.push(PathBuf::from(value)); }
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        let root = PathBuf::from(home);
+        candidates.push(root.join("AppData/Local/hermes/hermes-agent/venv/Scripts/pythonw.exe"));
+        candidates.push(root.join("AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe"));
+        candidates.push(root.join("venv/Scripts/pythonw.exe"));
+        candidates.push(root.join("venv/Scripts/python.exe"));
+    }
+    candidates.push(PathBuf::from("pythonw.exe"));
+    candidates.push(PathBuf::from("python.exe"));
+    candidates.into_iter().find(|candidate| candidate.is_file()).map(|candidate| candidate.to_string_lossy().into_owned()).unwrap_or_else(|| program.to_string())
+}
+fn spawn_backend(settings: &LauncherSettings) -> Option<Child> {
+    if backend_is_listening() { return None; }
+    let command = settings.backend_command.clone().unwrap_or_default();
+    let (program, args) = command.split_first()?;
+    let program = resolve_backend_program(program);
+    let dir = settings.backend_workdir.as_deref()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|value| value.is_dir())
+        .unwrap_or_else(project_root);
+    let mut builder = Command::new(program);
+    builder.args(args).current_dir(&dir);
+    #[cfg(windows)] {
+        use std::os::windows::process::CommandExt;
+        builder.creation_flags(0x08000000);
+    }
+    match builder.spawn() {
+        Ok(child) => Some(child),
+        Err(error) => { eprintln!("JARVIS backend launch failed in {}: {}", dir.display(), error); None }
+    }
+}
 fn manage_backend(app: tauri::AppHandle, settings: LauncherSettings) { thread::spawn(move || loop { let state = app.state::<BackendProcess>(); let mut child = match state.0.lock() { Ok(guard) => guard, Err(_) => break }; let restart = child.as_mut().map(|process| process.try_wait().ok().flatten().is_some()).unwrap_or(!backend_is_listening()); if restart { *child = spawn_backend(&settings); } drop(child); thread::sleep(Duration::from_secs(5)); }); }
 
 #[cfg(windows)] fn sync_autostart(enabled: bool) { use winreg::{enums::HKEY_CURRENT_USER, RegKey}; let hkcu = RegKey::predef(HKEY_CURRENT_USER); if let Ok((run, _)) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") { if enabled { if let Ok(exe) = std::env::current_exe() { let _ = run.set_value("JARVIS", &format!("\"{}\" --hidden", exe.display())); } } else { let _ = run.delete_value("JARVIS"); } } }

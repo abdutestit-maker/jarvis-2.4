@@ -33,6 +33,16 @@ function fixtureMessages(fixture: string | null): PresenceMessage[] {
   ];
 }
 
+// The command centre is for real operator work, not every conversational
+// exchange. A greeting or "как дела?" must stay a calm dialogue without an
+// artificial RESEARCH card; the backend still receives every command.
+function needsMission(command: string): boolean {
+  const text = command.trim().toLocaleLowerCase('ru-RU');
+  if (!text) return false;
+  return /\b(установ|настрой|настро|открой|запусти|закрой|скачай|найди|создай|сделай|удали|скопируй|перемести|поставь|включи|выключи|громк|музык|файл|папк|браузер|программ|приложен|проверь|настрой)\w*/u.test(text)
+    || /\b(install|configure|open|launch|download|find|create|delete|copy|move|setup|check)\b/i.test(text);
+}
+
 function initialMode(fixture: string | null): UiMode {
   if (fixture && fixture !== 'compact') return 'command_center';
   const saved = window.localStorage.getItem('jarvis.ui.mode');
@@ -79,7 +89,7 @@ function App() {
         const payload = event.payload as { text: string; confidence: number };
         if (payload.confidence >= 0.7 && payload.text.trim()) {
           append({ id: `voice-${Date.now()}`, role: 'user', text: payload.text, timestamp: Date.now() });
-          setMission(createMission(payload.text));
+          if (needsMission(payload.text)) setMission(createMission(payload.text));
           transition('thinking');
           void backend.sendCommand(payload.text, []).catch(() => transition('error'));
         }
@@ -140,7 +150,7 @@ function App() {
       window.setTimeout(() => { append({ id: 'ritual-known', role: 'jarvis', text: `${text}.\n\nЗапомнил.\n\nДавай знакомиться.`, timestamp: Date.now() }); transition('idle'); }, 600);
       return;
     }
-    setMission(createMission(text));
+    if (needsMission(text)) setMission(createMission(text));
     setConfirmation(null);
     transition('thinking');
     if (!fixture) void backend.sendCommand(text, []).catch(() => transition('error'));

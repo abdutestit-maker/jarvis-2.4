@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
+from core.llm.backend import strip_reasoning_blocks
+
 
 class ErrorCategory(str, Enum):
     PROVIDER_UNAVAILABLE = "provider_unavailable"
@@ -103,7 +105,10 @@ class UserFriendlyErrorMapper:
 
 def assistant_output_from_outcome(outcome: Any) -> AssistantOutput:
     """Adapts AgentOutcome without importing the agent into the voice layer."""
-    display = str(getattr(outcome, "text", "") or "").strip()
+    # The model's private reasoning is never a UI or speech payload.  Strip it
+    # before both boundaries so the TTS sanitizer does not discard an otherwise
+    # valid answer merely because a streaming provider emitted <think> first.
+    display = strip_reasoning_blocks(str(getattr(outcome, "text", "") or "").strip())
     mode = str(getattr(outcome, "mode", "") or "")
     trace = list(getattr(outcome, "trace", []) or [])
     debug = {

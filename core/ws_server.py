@@ -53,6 +53,7 @@ from core.task_runtime import (
     TaskEvent,
 )
 from core.utils.logger import get_logger
+from core.llm.backend import strip_reasoning_blocks
 
 try:
     import websockets  # type: ignore
@@ -161,6 +162,7 @@ class JarvisWSServer:
         def _cb(text: str) -> None:
             # Оркестратор уже отправил typed AssistantOutput в TTS. Callback
             # отвечает только за UI transport — повторная raw озвучка запрещена.
+            text = strip_reasoning_blocks(str(text or "")).strip()
             try:
                 self._orig_output(text)
             except Exception:

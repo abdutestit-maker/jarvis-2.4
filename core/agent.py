@@ -395,7 +395,8 @@ class Agent:
         self._stream_tls.sink = None
 
     def _stream_consume(self, backend, messages: List[Dict[str, Any]], system: str,
-                        extract_answer: bool = True) -> str:
+                        extract_answer: bool = True,
+                        max_tokens: Optional[int] = None) -> str:
         """chat() со стримингом, если установлен sink и бэкенд умеет streaming.
 
         Возвращает ПОЛНЫЙ сырой ответ (как chat). Видимый кумулятивный текст
@@ -410,12 +411,12 @@ class Agent:
         sink = getattr(self._stream_tls, "sink", None)
         stream = getattr(backend, "streaming", None)
         if sink is None or stream is None:
-            return backend.chat(messages, system=system)
+            return backend.chat(messages, system=system, max_tokens=max_tokens)
 
         extractor = AnswerStreamExtractor() if extract_answer else None
         parts: List[str] = []
         try:
-            for piece in stream(messages, system=system):
+            for piece in stream(messages, system=system, max_tokens=max_tokens):
                 if not piece:
                     continue
                 parts.append(piece)
@@ -431,11 +432,11 @@ class Agent:
             # Неожиданная ошибка стриминга (бэкенд-специфика): честно
             # деградируем до обычного chat() того же тира.
             log.warning("streaming() упал (%s) — fallback на chat()", exc)
-            return backend.chat(messages, system=system)
+            return backend.chat(messages, system=system, max_tokens=max_tokens)
 
         raw = "".join(parts)
         if not raw.strip():
-            return backend.chat(messages, system=system)
+            return backend.chat(messages, system=system, max_tokens=max_tokens)
         return raw
 
     # ------------------------------------------------------------------ #
@@ -668,12 +669,7 @@ class Agent:
         if memory_ctx and mission is not None:
             mission.metadata["memory_context"] = memory_ctx[:600]
 
-        # ---- 6. RESEARCH MODE (§18): исследование — отдельный конвейер ----
-        if is_research_goal(goal):
-            trace.append("режим: research workflow")
-            return self._handle_research(goal, mission, cancel, trace)
-
-        # ---- 7. CONVERSATION GATE (Sprint 2): разговор без действия ----
+        # ---- 6. CONVERSATION GATE (Sprint 2): разговор без действия ----
         # Офлайн-роутер уверенно распознал разговор: модель НЕ получает список
         # инструментов и НЕ генерирует JSON-план — слабая fast-модель физически
         # не может «позвать» list_files. Настоящие действия идут мимо гейта
@@ -686,6 +682,14 @@ class Agent:
             return self._answer_conversation(
                 goal, mission, cancel, trace, routing, memory_ctx,
             )
+
+        # ---- 7. RESEARCH MODE (§18): явное исследование ----
+        # Conversation is checked first: "почему..." and "что такое..."
+        # are answered directly, while explicit "найди/поищи" still enters
+        # the resumable research pipeline.
+        if is_research_goal(goal):
+            trace.append("режим: research workflow")
+            return self._handle_research(goal, mission, cancel, trace)
 
         if cancel.is_set():
             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
@@ -1530,14 +1534,24 @@ class Agent:
 
         # Sprint 4: персона + факты профиля + память графа + тон — в system;
         # bounded-история сессии — в messages (под бюджет TIER 1).
-        user = goal
-        system = self._build_conversation_prompt(memory_ctx, goal, backend)
+        # Qwen3 supports the explicit ``/no_think`` switch.  Without it the
+        # model spends the whole conversational budget on hidden reasoning,
+        # while the UI shows an empty stream.  Operator/planner paths keep
+        # their normal reasoning policy.
+        user = f"{goal}\n/no_think"
+        system = self._build_conversation_prompt(memory_ctx, goal, backend, compact=True)
         history = self._session.get_recent()
         budget = int(getattr(self._settings.limits, "context_budget_fast_tokens", 2000))
         messages = fit_messages_to_budget(system, history, user, budget)
+        conversation_max_tokens = max(32, int(getattr(
+            self._settings.limits, "conversation_max_tokens", 128,
+        )))
 
         try:
-            text = self._stream_consume(backend, messages, system, extract_answer=False)
+            text = self._stream_consume(
+                backend, messages, system, extract_answer=False,
+                max_tokens=conversation_max_tokens,
+            )
         except (BackendUnavailable, BackendConfigError) as exc:
             log.warning("Модель недоступна (%s) в разговоре, пробуем фолбэк: %s", used_tier, exc)
             fb_policy = (
@@ -1557,10 +1571,13 @@ class Agent:
                 mission.metadata["degraded"] = True
             # Фолбэк мог привести на офлайн-модель (TIER 4) — персона
             # честно говорит про ограниченный режим.
-            system = self._build_conversation_prompt(memory_ctx, goal, backend)
+            system = self._build_conversation_prompt(memory_ctx, goal, backend, compact=True)
             messages = fit_messages_to_budget(system, history, user, budget)
             try:
-                text = self._stream_consume(backend, messages, system, extract_answer=False)
+                text = self._stream_consume(
+                    backend, messages, system, extract_answer=False,
+                    max_tokens=conversation_max_tokens,
+                )
             except Exception as exc2:
                 return self._handle_model_unavailable(
                     goal, mission, trace, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}")
@@ -1588,33 +1605,69 @@ class Agent:
             return False
 
     def _build_conversation_prompt(self, memory_ctx: str, goal: str,
-                                   backend) -> str:
+                                   backend, compact: bool = False) -> str:
         """System prompt разговорного пути: персона + факты + тон + память.
 
         Собирается ``persona.build_agent_system_prompt`` (Sprint 4 STEP 3).
         Диалоговая природа пути дописывается явно: никаких инструментов.
         """
-        from persona.system_prompt import build_agent_system_prompt
+        from persona.system_prompt import build_agent_system_prompt, persona_core, time_of_day_hint
 
-        profile_ctx = ""
-        try:
-            profile_ctx = get_relevant_profile_context(self._settings, goal)
-        except Exception as exc:  # noqa: BLE001
-            log.debug("Профиль недоступен: %s", exc)
+        if compact:
+            # The immediate conversation path keeps only the deterministic
+            # persona core and the confirmed user name.  It skips relationship
+            # retrieval and the full planner prompt, which were the latency and
+            # stale-profile sources, while preserving Sprint 4 persona hints.
+            persona_name = getattr(getattr(self._settings, "persona", None), "name", "АТЛАС")
+            address = getattr(getattr(self._settings, "persona", None), "address", "сэр")
+            compact_parts = [
+                persona_core(),
+                f"Имя оператора: {persona_name}; обращение: «{address}».",
+                "Стиль: профессионально-дружелюбный собеседник; отвечай естественно и кратко, максимум два коротких предложения.",
+            ]
+            try:
+                profile_ctx = get_relevant_profile_context(self._settings, goal)
+            except Exception as exc:  # noqa: BLE001
+                profile_ctx = ""
+                log.debug("Профиль недоступен: %s", exc)
+            if profile_ctx:
+                compact_parts.append(f"Подтверждённый профиль пользователя: {profile_ctx[:240]}")
+            else:
+                compact_parts.append("Имя пользователя пока неизвестно; при уместности спроси его один раз.")
+            tone = detect_tone(goal)
+            if tone == "casual":
+                compact_parts.append("Пользователь настроен неформально — отвечай живее, допустима лёгкая шутка.")
+            elif tone == "serious":
+                compact_parts.append("Пользователь настроен серьёзно — отвечай по делу, юмор минимален.")
+            if not self._is_offline_backend(backend):
+                compact_parts.append(time_of_day_hint())
+            compact_parts.append(
+                "Отвечай строго на русском языке. Для фактических вопросов используй один проверенный факт; "
+                "не добавляй догадки и вторую причину."
+            )
+            prompt = "\n".join(compact_parts)
+        else:
+            profile_ctx = ""
+            try:
+                profile_ctx = get_relevant_profile_context(self._settings, goal)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Профиль недоступен: %s", exc)
 
-        prompt = build_agent_system_prompt(
-            self._settings,
-            tier="fast",
-            profile_ctx=profile_ctx,
-            memory_ctx=(memory_ctx or "")[:400],
-            tone=detect_tone(goal),
-            offline=self._is_offline_backend(backend),
-            personality_context=self._personality_prompt_context(goal),
-        )
+            prompt = build_agent_system_prompt(
+                self._settings,
+                tier="fast",
+                profile_ctx=profile_ctx,
+                memory_ctx=(memory_ctx or "")[:400],
+                tone=detect_tone(goal),
+                offline=self._is_offline_backend(backend),
+                personality_context=self._personality_prompt_context(goal),
+            )
         return (
             f"{prompt}\n"
             "Это обычный диалог: никаких инструментов, файлов и команд — "
-            "просто ответь текстом. Не упоминай инструменты."
+            "просто ответь текстом. Не упоминай инструменты. "
+            "Для этого ответа отключи скрытое рассуждение: сразу выдай финальный текст "
+            "без блоков <think> и без длинного внутреннего разбора."
         )
 
     def _personality_prompt_context(self, goal: str) -> str:

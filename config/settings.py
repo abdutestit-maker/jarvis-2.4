@@ -393,6 +393,7 @@ class LimitsConfig(_Section):
     session_memory_messages: int = 20
     #: Контекстные бюджеты, токены (оценка ~3 символа/токен).
     context_budget_fast_tokens: int = 2000    # TIER 1: разговор
+    conversation_max_tokens: int = 32        # bounded CPU generation for chat
     context_budget_plan_tokens: int = 4000    # TIER 2: планирование
     context_budget_deep_tokens: int = 8000    # TIER 3: research/coding
 

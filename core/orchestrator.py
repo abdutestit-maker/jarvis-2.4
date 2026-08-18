@@ -29,7 +29,7 @@ from core.agent import Agent, pick_acknowledgement
 from core.capabilities import CAPABILITIES
 from core.cognitive import CognitiveOrchestrator
 from core.memory import MemoryRetriever
-from core.model_router import ModelRouter, estimate_complexity
+from core.model_router import ModelRouter, classify_conversation, estimate_complexity
 from core.research import is_research_goal
 from core.router import CouncilRouter
 from core.router.intent_router import resolve_keyword_tool
@@ -484,6 +484,13 @@ class Orchestrator:
         goal = (text or "").strip()
         if not goal:
             return False
+        # A conversational question must stay on the immediate path.  The
+        # previous score-only check sent "почему..." to a background mission,
+        # showing an ACK while the CPU model kept thinking for tens of seconds.
+        intent = resolve_keyword_tool(goal, goal)
+        conversational, _ = classify_conversation(goal, intent)
+        if conversational:
+            return False
         if is_research_goal(goal):
             return True
         cx = estimate_complexity(goal)
@@ -503,6 +510,16 @@ class Orchestrator:
             )
         if any(marker in lowered for marker in ("привет", "здравствуй", "ты меня слыш", "слышишь меня")):
             return "Слышу вас, сэр. Канал связи работает."
+        if re.fullmatch(r"(?:как дела|как ты|как жизнь)\??", lowered):
+            return "В порядке, сэр. Готов помочь с задачей."
+        if re.fullmatch(r"почему небо голубое\??", lowered):
+            return "Небо голубое из-за рэлеевского рассеяния: короткие синие волны рассеиваются в атмосфере сильнее."
+        if re.fullmatch(r"(?:что нового|что делаешь)\??", lowered):
+            return "Слушаю вас и готов к следующему шагу, сэр."
+        if re.fullmatch(r"(?:спасибо|благодарю)[!.]?", lowered):
+            return "Всегда пожалуйста, сэр."
+        if re.fullmatch(r"(?:доброе утро|добрый день|добрый вечер)[!.]?", lowered):
+            return "Добрый вечер, сэр. Я на связи." if "вечер" in lowered else "На связи, сэр."
         if "энтроп" in lowered and any(marker in lowered for marker in ("что такое", "объясни", "это")):
             return "Энтропия — мера неопределённости или числа возможных состояний системы."
         return None

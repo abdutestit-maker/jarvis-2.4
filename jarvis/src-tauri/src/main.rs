@@ -73,7 +73,11 @@ fn main() {
     tauri::Builder::default().manage(BackendProcess(Mutex::new(None)))
         .plugin(tauri_plugin_shell::init()).plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_fs::init()).plugin(tauri_plugin_http::init()).plugin(tauri_plugin_notification::init()).plugin(tauri_plugin_process::init()).plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
-            let main = app.get_webview_window("main").expect("main window configured"); window_effects::setup_window_effects(&main); if hidden || settings.autostart.unwrap_or(false) { let _ = main.hide(); }
+            let main = app.get_webview_window("main").expect("main window configured"); window_effects::setup_window_effects(&main);
+            // `autostart` controls registration in Windows startup, not the
+            // normal launch requested by the user. Only the explicit
+            // `--hidden` startup entry stays tray-only.
+            if hidden { let _ = main.hide(); }
             WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("index.html".into())).title("JARVIS").inner_size(480.0, 48.0).center().decorations(false).transparent(true).always_on_top(true).skip_taskbar(true).visible(false).build()?;
             let open = MenuItem::with_id(app, "open", "Открыть", true, None::<&str>)?; let settings_item = MenuItem::with_id(app, "settings", "Настройки", true, None::<&str>)?; let debug = MenuItem::with_id(app, "debug", "Debug", true, None::<&str>)?; let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?; let menu = Menu::with_items(app, &[&open, &settings_item, &debug, &quit])?;
             TrayIconBuilder::new().icon(app.default_window_icon().expect("tray icon").clone()).menu(&menu).on_menu_event(|app, event| match event.id().as_ref() { "open" | "settings" | "debug" => show_main(app), "quit" => app.exit(0), _ => {} }).on_tray_icon_event(|tray, event| { if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event { show_main(tray.app_handle()); } }).build(app)?;

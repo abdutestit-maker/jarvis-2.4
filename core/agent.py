@@ -1145,7 +1145,10 @@ class Agent:
                 if marker in lowered:
                     mood = text.split(marker, 1)[-1].strip(" ,:—-")
                     break
-            return {"mood": mood} if mood else None
+            # A bare media command is still a complete intent: launch the
+            # local player.  Returning an empty object keeps it on the
+            # deterministic fast path instead of paying for planner JSON.
+            return {"mood": mood} if mood else {}
 
         if cap.name == "web_search":
             query = text
@@ -1391,7 +1394,10 @@ class Agent:
                     text=("Источник сейчас недоступен. Задача сохранена для повторной попытки: "
                           f"{pending.resume_task_id}"),
                     verified=False, verification=verification, tool_used=tool,
-                    risk=risk, mode="research_pending", trace=trace,
+                    # Keep the public agent mode compatible with the regular
+                    # tool lifecycle; the resumable state is carried by the
+                    # explicit status text and trace entry above.
+                    risk=risk, mode="tool", trace=trace,
                 )
             if mission is not None:
                 mission.note_error(result.error or verification.detail)

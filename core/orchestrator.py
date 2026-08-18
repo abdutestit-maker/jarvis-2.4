@@ -493,6 +493,14 @@ class Orchestrator:
     @staticmethod
     def _quick_local_reply(text: str) -> Optional[str]:
         lowered = " ".join((text or "").casefold().split())
+        # A pasted local installer/path is input context, not a question for
+        # the language model.  Keep the response immediate and explicit so a
+        # bare path never turns into a long generic safety monologue.
+        if re.match(r"^(?:[a-z]:[\\/]|\\\\|/).+", (text or "").strip(), re.IGNORECASE):
+            return (
+                "Путь получен. Выберите действие: проверить файл, открыть папку "
+                "или запустить установку."
+            )
         if any(marker in lowered for marker in ("привет", "здравствуй", "ты меня слыш", "слышишь меня")):
             return "Слышу вас, сэр. Канал связи работает."
         if "энтроп" in lowered and any(marker in lowered for marker in ("что такое", "объясни", "это")):

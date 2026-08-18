@@ -21,6 +21,24 @@ def _open_target(target: str, *, source: str) -> bool:
     return bool(webbrowser.open(target))
 
 
+def _open_default_player() -> bool:
+    """Open the locally associated music player without a network lookup.
+
+    A bare "поставь музыку" is a command to bring up the local playback
+    surface, not a request to invent a track or create a reminder.  The
+    Windows URI is handled by the installed Media Player association; the
+    browser fallback keeps the tool testable on non-Windows hosts.
+    """
+    targets = ("mswindowsmusic:", "mswindowsmusic://") if os.name == "nt" else ("music:",)
+    for target in targets:
+        try:
+            if _open_target(target, source="local"):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
 def play_music(*, query: str = "", mood: str = "", uri: str = "", path: str = "",
                source: str = "auto", allow_network: bool = False) -> ActionResult:
     args = {"query": query, "mood": mood, "uri": uri, "path": path,
@@ -41,8 +59,14 @@ def play_music(*, query: str = "", mood: str = "", uri: str = "", path: str = ""
 
     query = " ".join((query or mood or "").split())
     if not query:
+        if _open_default_player():
+            return ActionResult(
+                tool="play_music", args=args, ok=True,
+                output="Открыл локальный музыкальный плеер. Назовите трек, если нужен конкретный.",
+                side_effects_contained=False,
+            )
         return ActionResult(tool="play_music", args=args, ok=False,
-                            error="Нужен локальный файл, URI плеера или название трека")
+                            error="Локальный музыкальный плеер не найден")
     if not allow_network:
         return ActionResult(tool="play_music", args=args, ok=False,
                             error="Для поиска трека в сети нужно явно разрешить сетевой источник")

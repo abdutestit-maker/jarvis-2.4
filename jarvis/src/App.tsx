@@ -39,6 +39,12 @@ function fixtureMessages(fixture: string | null): PresenceMessage[] {
 function needsMission(command: string): boolean {
   const text = command.trim().toLocaleLowerCase('ru-RU');
   if (!text) return false;
+  // Short reversible controls stay in the compact presence view.  They are
+  // executed by the backend fast path and do not need a fake RESEARCH card.
+  if (/^(?:поставь|включи)\s+(?:мне\s+)?(?:музык\w*|трек\w*|песн\w*)[.!?]?$/u.test(text)
+    || /^(?:который\s+час|сколько\s+времени|текущее\s+время|громкость\s+(?:тише|громче)|(?:сделай\s+)?(?:тише|громче))[.!?]?$/u.test(text)) {
+    return false;
+  }
   return /\b(установ|настрой|настро|открой|запусти|закрой|скачай|найди|создай|сделай|удали|скопируй|перемести|поставь|включи|выключи|громк|музык|файл|папк|браузер|программ|приложен|проверь|настрой)\w*/u.test(text)
     || /\b(install|configure|open|launch|download|find|create|delete|copy|move|setup|check)\b/i.test(text);
 }

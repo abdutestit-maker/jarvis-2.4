@@ -9,10 +9,13 @@ search page as a successful answer.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from config.settings import Settings
 from core.research import ResearchEngine, ResearchReport
+from core.security.atomic import atomic_json_write, load_json
 
 
 @dataclass
@@ -49,7 +52,19 @@ class ResearchGateway:
     def __init__(self, settings: Settings, *, engine: ResearchEngine | None = None) -> None:
         self.settings = settings
         self.engine = engine or ResearchEngine(settings)
-        self._pending: dict[str, str] = {}
+        data_dir = getattr(getattr(settings, "paths", None), "resolved", lambda _name: None)("data_dir")
+        self._pending_path = Path(data_dir or getattr(settings, "data_dir", Path("data"))) / "research" / "pending.json"
+        raw = load_json(self._pending_path, default={})
+        self._pending: dict[str, str] = {
+            str(key): str(value)
+            for key, value in (raw.get("tasks", {}) if isinstance(raw, dict) else {}).items()
+            if str(key).strip() and str(value).strip()
+        }
+
+    def _persist_pending(self) -> None:
+        # The file is deliberately tiny and contains only query text/task IDs;
+        # source payloads and user secrets never enter the resume store.
+        atomic_json_write(self._pending_path, {"tasks": dict(self._pending)})
 
     def search(self, query: str, constraints: Mapping[str, Any] | None = None) -> ResearchResult:
         query = " ".join(str(query or "").split())
@@ -57,6 +72,13 @@ class ResearchGateway:
         result = self._from_report(report)
         if result.resume_task_id:
             self._pending[result.resume_task_id] = query
+            self._persist_pending()
+        elif result.status == "completed":
+            stale = [task_id for task_id, pending_query in self._pending.items() if pending_query == query]
+            if stale:
+                for task_id in stale:
+                    self._pending.pop(task_id, None)
+                self._persist_pending()
         return result
 
     def fetch(self, source_url: str) -> dict[str, Any]:
@@ -88,16 +110,40 @@ class ResearchGateway:
         query = self._pending.get(str(task_id), "")
         if not query:
             return ResearchResult(query="", resume_task_id=str(task_id), source_errors=["unknown resume task"])
-        return self.search(query)
+        result = self.search(query)
+        if result.status == "completed":
+            self._pending.pop(str(task_id), None)
+            self._persist_pending()
+        elif result.resume_task_id and result.resume_task_id != str(task_id):
+            # Keep the original handle stable across retries so the UI can
+            # resume one mission instead of accumulating ghost research IDs.
+            self._pending[str(task_id)] = query
+            result.resume_task_id = str(task_id)
+            self._persist_pending()
+        return result
 
     @staticmethod
     def _from_report(report: ResearchReport) -> ResearchResult:
         data = report.to_dict()
+        observed_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        findings = list(report.findings or [])
+        source_confidence: dict[str, float] = {}
+        for finding in findings:
+            for url in finding.sources:
+                source_confidence[url] = max(
+                    source_confidence.get(url, 0.0),
+                    1.0 if len(finding.sources) >= 2 else 0.72,
+                )
         return ResearchResult(
             query=report.query,
             status=report.status,
-            sources=[{"url": url} for url in report.sources_read],
-            source_errors=list(report.sources_failed),
+            sources=[{
+                "url": url,
+                "observed_at": observed_at,
+                "confidence": round(source_confidence.get(url, 0.72), 3),
+                "status": "available",
+            } for url in report.sources_read],
+            source_errors=[f"{url}: unavailable" for url in report.sources_failed],
             local_fallback=list(report.local_fallback),
             resume_task_id=report.resume_task_id,
             report=data,

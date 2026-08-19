@@ -263,7 +263,11 @@ class Orchestrator:
         state.setdefault("latency", {})["total_ms"] = round(elapsed_ms, 3)
         state["latency"]["path"] = path
         state.setdefault("evidence", []).append(EvidenceRecord(
-            claim="request completed", source="orchestrator",
+            claim="request reached verified state" if state.get("verified") else "request completed without verified state",
+            source="orchestrator",
+            confidence=1.0 if state.get("verified") else 0.0,
+            expected_state={"verified": True},
+            observed_state={"verified": bool(state.get("verified")), "tool": str(state.get("tool", ""))},
             latency_ms=elapsed_ms, path=path,
         ).to_dict())
         return state
@@ -480,31 +484,39 @@ class Orchestrator:
                     "fast",
                 )
 
-        # Text arriving through the explicit chat/WS input is implicitly
-        # addressed to ATLAS. Voice callers can use ``cognitive`` directly
-        # with ``implicit_address=False`` before forwarding an utterance.
-        if implicit_address is None:
-            implicit_address = channel != "voice"
-        cognitive_turn = self._cognitive.begin_interaction(
-            text, channel=channel, implicit_address=implicit_address,
-        )
-        if cognitive_turn.action == "wait":
+        # Reflex actions must reach the deterministic tool path before the
+        # continuity coordinator tries to interpret them as a follow-up to a
+        # stale mission (for example, "Системный статус" after "Открой
+        # блокнот"). Conversation and voice addressing still use the
+        # cognitive layer; explicit actions never pay that ambiguity tax.
+        pre_intent = resolve_keyword_tool(text, text)
+        cognitive_turn = None
+        if pre_intent not in {"app", "system", "media", "file", "browser"}:
+            # Text arriving through the explicit chat/WS input is implicitly
+            # addressed to JARVIS. Voice callers can use ``cognitive``
+            # directly with ``implicit_address=False`` before forwarding.
+            if implicit_address is None:
+                implicit_address = channel != "voice"
+            cognitive_turn = self._cognitive.begin_interaction(
+                text, channel=channel, implicit_address=implicit_address,
+            )
+        if cognitive_turn is not None and cognitive_turn.action == "wait":
             state = self._new_state(text)
             state["response"] = ""
             state["tts_text"] = None
             state["addressed_to_atlas"] = False
             state["address_confidence"] = cognitive_turn.confidence
             return self._stamp_latency(state, request_started, "fast")
-        if cognitive_turn.action in {"clarify", "self_knowledge"}:
+        if cognitive_turn is not None and cognitive_turn.action in {"clarify", "self_knowledge"}:
             return self._stamp_latency(self._direct_cognitive_response(text, cognitive_turn.response), request_started, "fast")
-        if cognitive_turn.action in {"continue", "retry"} and cognitive_turn.goal:
+        if cognitive_turn is not None and cognitive_turn.action in {"continue", "retry"} and cognitive_turn.goal:
             text = cognitive_turn.goal
+            pre_intent = resolve_keyword_tool(text, text)
 
         # Sprint 11: natural queries are answered from evidence-backed local
         # structured context. Action intents skip retrieval entirely: loading
         # Chroma/RAG/graph on a media or app command is a latency regression,
         # not intelligence.
-        pre_intent = resolve_keyword_tool(text, text)
         context_reply = (
             self._living.answer_context(text)
             if pre_intent not in {"app", "system", "media", "file", "browser"}

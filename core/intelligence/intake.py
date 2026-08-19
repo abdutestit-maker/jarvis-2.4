@@ -31,7 +31,7 @@ _RULES: tuple[tuple[IntentFamily, tuple[str, ...], str], ...] = (
     (IntentFamily.EXPLAIN, ("объясни", "что такое", "почему", "как работает", "explain"), "tutor"),
     (IntentFamily.RESEARCH, ("найди информацию", "найди книгу", "поищи", "исследуй", "изучи", "сравни", "проверь документацию", "research", "search", "find"), "research"),
     (IntentFamily.MONITOR, ("следи", "наблюдай", "отслеживай", "monitor"), "monitor"),
-    (IntentFamily.OPERATE, ("открой", "запусти", "закрой", "поставь музыку", "который час", "громче", "тише", "напомни", "open", "launch", "play"), "conversation"),
+    (IntentFamily.OPERATE, ("открой", "запусти", "закрой", "поставь музыку", "который час", "системный статус", "статус компьютера", "громче", "тише", "напомни", "open", "launch", "play"), "conversation"),
     (IntentFamily.CREATE, ("создай", "сделай файл", "напиши", "сгенерируй", "create"), "operator"),
 )
 

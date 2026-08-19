@@ -89,6 +89,26 @@ class MissionLedger:
             row = self._db.execute("SELECT payload FROM missions WHERE task_id = ?", (task_id,)).fetchone()
         return MissionRecord(**json.loads(row["payload"])) if row else None
 
+    def load_by_idempotency(self, key: str) -> MissionRecord | None:
+        """Find a mission submitted with the same caller idempotency key.
+
+        ``contract`` is JSON rather than a second mutable mission table, so
+        this bounded lookup deliberately scans the small mission ledger.  It
+        keeps the schema additive for existing databases and prevents a
+        reconnect from minting duplicate TaskContract UUIDs.
+        """
+        wanted = str(key or "").strip()
+        if not wanted:
+            return None
+        with self._lock:
+            rows = self._db.execute("SELECT payload FROM missions ORDER BY updated_at DESC").fetchall()
+        for row in rows:
+            payload = json.loads(row["payload"])
+            contract = payload.get("contract") if isinstance(payload, dict) else None
+            if isinstance(contract, dict) and str(contract.get("idempotency_key", "")) == wanted:
+                return MissionRecord(**payload)
+        return None
+
     def events(self, mission_id: str) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._db.execute(

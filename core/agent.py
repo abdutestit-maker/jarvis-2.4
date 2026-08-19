@@ -1267,6 +1267,9 @@ class Agent:
         elif intent == "system" and any(word in goal.casefold() for word in ("который час", "сколько времени", "текущее время", "какая дата", "time", "clock")):
             selected = CAPABILITIES.get("current_time")
             caps = [selected] if selected is not None else []
+        elif intent == "system" and any(word in goal.casefold() for word in ("системный статус", "статус компьютера", "состояние системы", "статус системы")):
+            selected = CAPABILITIES.get("system_status")
+            caps = [selected] if selected is not None else []
         else:
             caps = CAPABILITIES.retrieve(goal, top_k=2)
         if not caps:

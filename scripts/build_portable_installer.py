@@ -32,6 +32,9 @@ DEFAULT_OUTPUT = (
     / "J.A.R.V.I.S._4.0.0_x64-setup.exe"
 )
 
+EXPECTED_MODEL_NAME = "Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf"
+EXPECTED_MODEL_SHA256 = "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc"
+
 
 def _find_7z(explicit: str | None) -> Path:
     candidates = []
@@ -71,13 +74,47 @@ def _verify_payload(app_bundle: Path) -> None:
     ]
     missing = [str(path) for path in required if not path.exists()]
     model_dir = app_bundle / "resources" / "jarvis-runtime" / "data" / "models"
-    if not list(model_dir.glob("*.gguf")):
+    models = list(model_dir.glob("*.gguf"))
+    expected_model = model_dir / EXPECTED_MODEL_NAME
+    if not models:
         missing.append(f"{model_dir}/*.gguf")
+    elif not expected_model.is_file():
+        missing.append(str(expected_model))
+    elif _sha256(expected_model) != EXPECTED_MODEL_SHA256:
+        raise ValueError(
+            f"Bundled model hash mismatch for {expected_model.name}: "
+            f"{_sha256(expected_model)}"
+        )
     voice_dir = model_dir / "piper"
     if not list(voice_dir.glob("*.onnx")):
         missing.append(f"{voice_dir}/*.onnx")
     if missing:
         raise FileNotFoundError("Installer payload is incomplete: " + ", ".join(missing))
+
+
+def _sync_runtime_resource(app_bundle: Path) -> None:
+    """Keep the release payload aligned with the staged local runtime.
+
+    ``tauri build --no-bundle`` builds the frontend executable but does not
+    refresh bundled resources.  Without this explicit sync an installer can
+    silently reuse a previous GGUF from ``target/release``.
+    """
+    source = ROOT / "jarvis" / "src-tauri" / "resources" / "jarvis-runtime"
+    target = app_bundle / "resources" / "jarvis-runtime"
+    source_model = source / "data" / "models" / EXPECTED_MODEL_NAME
+    target_model = target / "data" / "models" / EXPECTED_MODEL_NAME
+    if not source_model.is_file():
+        raise FileNotFoundError(f"Staged runtime model is missing: {source_model}")
+    source_hash = _sha256(source_model)
+    if source_hash != EXPECTED_MODEL_SHA256:
+        raise ValueError(f"Staged runtime model hash mismatch: {source_hash}")
+    target_hash = _sha256(target_model) if target_model.is_file() else ""
+    if target_hash == source_hash:
+        return
+    if target.exists():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target)
 
 
 def _write_install_files(app_bundle: Path) -> tuple[Path, Path]:
@@ -96,9 +133,19 @@ if (-not (Test-Path -LiteralPath $exe)) {
 # CREATE_NO_WINDOW, so no terminal window is shown when JARVIS runs.
 try {
     $desktop = [Environment]::GetFolderPath("Desktop")
+    $programs = [Environment]::GetFolderPath("Programs")
+    $shell = New-Object -ComObject WScript.Shell
     if ($desktop) {
-        $shell = New-Object -ComObject WScript.Shell
         $shortcut = $shell.CreateShortcut((Join-Path $desktop "J.A.R.V.I.S..lnk"))
+        $shortcut.TargetPath = $exe
+        $shortcut.WorkingDirectory = $app
+        $shortcut.IconLocation = "$exe,0"
+        $shortcut.Save()
+    }
+    if ($programs) {
+        $menu = Join-Path $programs "J.A.R.V.I.S."
+        New-Item -ItemType Directory -Path $menu -Force | Out-Null
+        $shortcut = $shell.CreateShortcut((Join-Path $menu "J.A.R.V.I.S..lnk"))
         $shortcut.TargetPath = $exe
         $shortcut.WorkingDirectory = $app
         $shortcut.IconLocation = "$exe,0"
@@ -123,6 +170,7 @@ Start-Process -FilePath $exe -WorkingDirectory $app
 def build(app_bundle: Path, output: Path, seven_zip: Path) -> dict[str, object]:
     app_bundle = app_bundle.resolve()
     output = output.resolve()
+    _sync_runtime_resource(app_bundle)
     _verify_payload(app_bundle)
     output.parent.mkdir(parents=True, exist_ok=True)
 

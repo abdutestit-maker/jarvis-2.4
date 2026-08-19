@@ -49,6 +49,33 @@ def test_executor_requires_verified_outcome_and_records_evidence(tmp_path: Path)
     kernel.close()
 
 
+def test_submit_reuses_idempotency_key_and_task_contract(tmp_path: Path):
+    kernel = CognitiveKernel(tmp_path)
+    first = kernel.submit("подготовь отчёт", context={"idempotency_key": "ws-42"})
+    second = kernel.submit("подготовь отчёт", context={"idempotency_key": "ws-42"})
+    assert second.id == first.id
+    assert second.task_id == first.task_id
+    assert len(kernel.ledger.events(first.id)) == 2
+    kernel.close()
+
+
+def test_semantic_undo_requires_and_runs_explicit_rollback_executor(tmp_path: Path):
+    kernel = CognitiveKernel(tmp_path)
+    handle = kernel.submit("изменить настройку")
+    mission = kernel.ledger.load(handle.id)
+    assert mission is not None
+    mission.rollback_plan = {"capability": "restore_fixture", "expected_state": {"theme": "Light"}}
+    kernel.ledger.save(mission, event_type="mission.rollback_declared")
+    kernel.register_rollback_executor("restore_fixture", lambda **_: {
+        "success": True, "action_taken": True, "verified_fields": {"theme": "Light"}
+    })
+    outcome = kernel.undo(handle.id)
+    assert outcome.success is True
+    assert outcome.action_taken is True
+    assert kernel.ledger.load(handle.id).status == "rolled_back"
+    kernel.close()
+
+
 def test_ledger_redacts_secrets_from_evidence(tmp_path: Path):
     kernel = CognitiveKernel(tmp_path)
     handle = kernel.submit("проверь token: SUPER_SECRET")
@@ -91,3 +118,18 @@ def test_research_gateway_preserves_offline_pending_shape(tmp_path: Path):
     assert result.to_dict()["query"] == "найди официальный источник"
     assert result.resume_task_id == "research-fixture"
     assert gateway.resume("research-fixture").status == "research_pending"
+
+
+def test_research_gateway_persists_resume_handle_across_instances(tmp_path: Path):
+    class Engine:
+        def run(self, query):
+            from core.research import ResearchReport
+            return ResearchReport(query=query, status="research_pending", resume_task_id="research-persisted")
+
+    from config.settings import Settings
+    first = ResearchGateway(Settings(data_dir=tmp_path), engine=Engine())
+    first.search("offline fixture")
+    second = ResearchGateway(Settings(data_dir=tmp_path), engine=Engine())
+    resumed = second.resume("research-persisted")
+    assert resumed.status == "research_pending"
+    assert resumed.query == "offline fixture"

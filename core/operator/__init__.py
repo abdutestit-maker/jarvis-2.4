@@ -3,6 +3,7 @@
 from .adapters import XmlConfigAdapter, XmlSetting
 from .knowledge import AppKnowledge, AppKnowledgeStore
 from .mission import MissionControl, OperatorMission, OperatorMissionReport
+from .setup import SetupMission
 from .reference import (
     DesiredStateDiff,
     ReferenceInterpreter,
@@ -28,6 +29,7 @@ __all__ = [
     "SemanticSelector",
     "SoftwareCandidate",
     "SoftwareResolver",
+    "SetupMission",
     "VideoReferenceProvider",
     "XmlConfigAdapter",
     "XmlSetting",

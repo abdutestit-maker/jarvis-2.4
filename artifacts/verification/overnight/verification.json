@@ -1,0 +1,205 @@
+{
+  "release": "JARVIS 4.0.0",
+  "status": "release_candidate_verified",
+  "source_commit": "740738ba58595187a2ab057823798bbf65250594",
+  "baseline": {
+    "commit": "308405a",
+    "tests_before": {
+      "passed": 528,
+      "skipped": 2,
+      "failed": 0
+    },
+    "tests_after": {
+      "passed": 536,
+      "skipped": 2,
+      "failed": 0
+    },
+    "full_pytest_exit_code": 0,
+    "full_pytest_duration_sec": 82.34
+  },
+  "tests": {
+    "full_regression": {
+      "command": "python -m pytest -o addopts= -rA",
+      "exit_code": 0,
+      "passed": 536,
+      "skipped": 2,
+      "failed": 0
+    },
+    "focused_runtime_voice_frontend": {
+      "passed": 45,
+      "failed": 0,
+      "exit_code": 0
+    },
+    "frontend_build": {
+      "command": "npm run build",
+      "exit_code": 0
+    },
+    "frontend_protocol_tests": {
+      "command": "npm run test:frontend",
+      "exit_code": 0,
+      "wsProtocol": 5,
+      "wsBackend": "passed",
+      "operatorModel": 13
+    }
+  },
+  "model": {
+    "family": "ministral",
+    "profile": "Ministral 3 3B Reasoning 2512",
+    "quantization": "Q4_K_M",
+    "license": "Apache-2.0",
+    "source": "https://huggingface.co/mistralai/Ministral-3-3B-Reasoning-2512-GGUF",
+    "file": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
+    "size_bytes": 2147021472,
+    "sha256": "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc",
+    "production_model_count": 1,
+    "runtime": "llama-server loopback 127.0.0.1:8782",
+    "gpu_backend": "Vulkan0 NVIDIA GeForce RTX 2060 SUPER",
+    "gpu_layers": "all",
+    "n_gpu_layers": -1,
+    "warmup": {
+      "ready_before_first_request": true,
+      "warmup_ms": 3271.3,
+      "cold_observed_ms": 25787.6,
+      "note": "cold startup is paid before readiness, never by the first request"
+    },
+    "generation_samples": {
+      "count": 3,
+      "p50_ms": 501.904,
+      "p95_ms": 719.012,
+      "max_ms": 719.012
+    }
+  },
+  "voice": {
+    "profile": "ru_RU-denis-medium",
+    "runtime": "Piper local",
+    "file": "data/models/piper/ru_RU-denis-medium.onnx",
+    "size_bytes": 63201294,
+    "sha256": "15fab56e11a097858ee115545d0f697fc2a316c41a291a5362349fb870411b0a",
+    "smoke": {
+      "exit_code": 0,
+      "wav_bytes": 141076,
+      "riff": true,
+      "synthesis_ms": 2033,
+      "startup_greeting": false,
+      "hidden_reasoning_spoken": false
+    },
+    "stt_default": "disabled until a local Whisper asset is explicitly bundled; text and TTS remain available"
+  },
+  "behavior_harness": {
+    "report": "runs/quality/live-v4-final-retry.json",
+    "pass": true,
+    "boot_sec": 0.105,
+    "fast_latency": {
+      "path": "fast",
+      "count": 3,
+      "p50_ms": 580.0,
+      "p95_ms": 598.0,
+      "max_ms": 600.0,
+      "mean_ms": 576.667
+    },
+    "cases": [
+      {
+        "command": "Поставь музыку, настроения нет",
+        "tool": "play_music",
+        "verified": true,
+        "reminder_called": false,
+        "seconds": 0.6
+      },
+      {
+        "command": "Который час?",
+        "tool": "current_time",
+        "verified": true,
+        "seconds": 0.55
+      },
+      {
+        "command": "Открой блокнот",
+        "tool": "open_app",
+        "verified": true,
+        "seconds": 0.58
+      },
+      {
+        "command": "Открой блокнот и поставь музыку",
+        "tool": "command_batch",
+        "verified": true,
+        "seconds": 1.08
+      },
+      {
+        "command": "Что такое энтропия простыми словами?",
+        "irrelevant_memory_leaked": false,
+        "seconds": 0.01
+      },
+      {
+        "command": "Неизвестная команда",
+        "tool": null,
+        "verified": false,
+        "mode": "unknown_task",
+        "capability_research": true,
+        "false_success": false,
+        "seconds": 0.61
+      },
+      {
+        "command": "Найди книгу 48 законов власти, хочу почитать",
+        "tool": "web_search",
+        "verified": true,
+        "source_link_present": true,
+        "seconds": 1.93
+      }
+    ],
+    "success_contract": "execute + observe + verify; exit code and ActionResult.ok alone are not success"
+  },
+  "installer": {
+    "path": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._4.0.0_x64-setup.exe",
+    "size_bytes": 2565329714,
+    "sha256": "009d09736b6787a686511265c72bc0115c8b78ea7873b2cdaf2a6c146c659d95",
+    "type": "7zip_sfx",
+    "archive_test_exit_code": 0,
+    "extraction_smoke_exit_code": 0,
+    "clean_extraction_required_files": true,
+    "console_free_runtime": true,
+    "install_path": "%LOCALAPPDATA%\\JARVIS",
+    "bundled_backend": "resources/jarvis-runtime/runtime/jarvis-backend.exe",
+    "bundled_voice": "resources/jarvis-runtime/runtime/piper/piper.exe",
+    "bundled_model": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
+    "single_gguf": true,
+    "runtime_manifest_sources_sanitized": true,
+    "third_party_notices": "resources/jarvis-runtime/THIRD_PARTY_NOTICES.txt",
+    "backend_readiness_smoke": {
+      "ready": true,
+      "hidden_process_launch": true,
+      "first_extracted_observation_sec": 22.2,
+      "port": "127.0.0.1:8771",
+      "cleanup_verified": true
+    }
+  },
+  "frontend": {
+    "production_backend": "real WebSocket only",
+    "mock_gate": "VITE_VISUAL_PREVIEW=1 only",
+    "readiness_handshake": true,
+    "startup_greeting": false,
+    "model_name_in_operator_ui": false,
+    "tauri_version": "4.0.0"
+  },
+  "artifact_policy": {
+    "retained_roles": [
+      "manifest.json",
+      "verification.json",
+      "diff.patch",
+      "rollback.ps1"
+    ],
+    "raw_logs": "runs/quality (not tracked)",
+    "large_payload": "installer remains build output, not Git"
+  },
+  "known_limitations": [
+    "Cold local model/Vulkan startup can take roughly 25-28 seconds; UI remains BOOTING and readiness is emitted before accepting the first deliberate request.",
+    "Network research latency depends on the source; an 8-second per-source timeout returns a resumable research_pending task.",
+    "Push-to-talk STT is disabled in the shipped offline profile until a local Whisper asset is bundled; TTS and typed commands work.",
+    "The installer is unsigned; Windows SmartScreen may display the publisher warning.",
+    "Media verification confirms the local player launch surface, not speaker hardware output."
+  ],
+  "rollback": {
+    "previous_commit": "308405a",
+    "previous_installer": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._3.0.0_x64-setup.exe",
+    "previous_installer_sha256": "cd87eda267821b826f8661e9f4d475ccdd0da2e3a6792fb6b242d8a7bc3394f5",
+    "script": "artifacts/verification/overnight/rollback.ps1"
+  }
+}

@@ -1,10 +1,10 @@
 {
   "wave": 0,
   "baseline": {
-    "before_passed": 473,
+    "before_passed": 528,
     "before_skipped": 2,
     "before_failed": 0,
-    "after_passed": 482,
+    "after_passed": 536,
     "after_skipped": 2,
     "after_failed": 0
   },
@@ -19,34 +19,32 @@
       "--disable-warnings"
     ],
     "exit_code": 0,
-    "duration_ms": 57497.895,
-    "stdout_tail": "........................................................................ [ 14%]\nss...................................................................... [ 29%]\n........................................................................ [ 44%]\n........................................................................ [ 59%]\n........................................................................ [ 74%]\n........................................................................ [ 89%]\n....................................................                     [100%]\n482 passed, 2 skipped, 2 warnings in 56.55s\n",
+    "duration_ms": 71779.067,
+    "stdout_tail": "........................................................................ [ 13%]\n.............................ss......................................... [ 26%]\n........................................................................ [ 40%]\n........................................................................ [ 53%]\n........................................................................ [ 66%]\n........................................................................ [ 80%]\n........................................................................ [ 93%]\n..................................                                       [100%]\n536 passed, 2 skipped, 2 warnings in 70.81s (0:01:10)\n",
     "stderr_tail": ""
   },
   "behavior": {
     "command": [
       "C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
-      "scripts/_live_probe.py",
-      "--dry-run",
+      "scripts/quality_probe.py",
       "--output",
-      "C:\\Users\\WwW\\AppData\\Local\\Temp\\jarvis-wave0-7urqwvp2\\behavior.json"
+      "C:\\Users\\WwW\\AppData\\Local\\Temp\\jarvis-wave0-k674by9p\\behavior.json"
     ],
     "exit_code": 0,
-    "duration_ms": 868.484,
-    "stdout_tail": "arvis.core.actions          | Движок действий инициализирован. Инструменты: ['open_app', 'close_app', 'volume', 'system_status', 'web_search', 'web_fetch', 'list_files', 'read_file', 'write_file', 'search_files', 'file_copy', 'file_move', 'list_files_recursive', 'add_reminder', 'list_reminders', 'cancel_reminder', 'weather', 'screen_capture', 'browser_automation', 'browser_bridge', 'play_music', 'current_time']\n{\n  \"pass\": true,\n  \"offline\": true,\n  \"results\": [\n    {\n      \"cmd\": \"Поставь музыку\",\n      \"sec\": 0.12,\n      \"meta\": {\n        \"intent\": \"media\",\n        \"tool\": \"play_music\"\n      },\n      \"resp\": \"Открыл медиасервис\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Который час?\",\n      \"sec\": 0.04,\n      \"meta\": {\n        \"intent\": \"system\",\n        \"tool\": \"current_time\"\n      },\n      \"resp\": \"Сейчас 12:00\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Открой блокнот\",\n      \"sec\": 0.59,\n      \"meta\": {\n        \"intent\": \"app\",\n        \"tool\": \"open_app\"\n      },\n      \"resp\": \"Запустил блокнот\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Что такое энтропия?\",\n      \"sec\": 0.3,\n      \"meta\": {\n        \"intent\": \"web\",\n        \"tool\": \"\"\n      },\n      \"resp\": \"Энтропия — мера неопределённости.\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Найди книгу 48 законов власти\",\n      \"sec\": 0.2,\n      \"meta\": {\n        \"intent\": \"web\",\n        \"tool\": \"web_search\"\n      },\n      \"resp\": \"Исследование сохранено для повторения: research-abc123\",\n      \"err\": null,\n      \"failures\": []\n    },\n    {\n      \"cmd\": \"Неизвестная команда\",\n      \"sec\": 0.3,\n      \"meta\": {\n        \"intent\": \"none\",\n        \"tool\": \"\"\n      },\n      \"resp\": \"Сейчас разберусь — готовлю capability research.\",\n      \"err\": null,\n      \"failures\": []\n    }\n  ],\n  \"latency\": {\n    \"path\": \"fast\",\n    \"count\": 6,\n    \"p50_ms\": 250.0,\n    \"p95_ms\": 517.5,\n    \"max_ms\": 590.0,\n    \"mean_ms\": 258.333\n  }\n}\n",
+    "duration_ms": 942.709,
+    "stdout_tail": "cal_quality\",\n  \"fixture\": false,\n  \"timestamp\": \"2026-08-19T23:02:32+05:00\",\n  \"config\": {\n    \"offline_mode\": true,\n    \"primary_brain\": \"fast\",\n    \"model\": \"Ministral-3-3B-Reasoning-2512\",\n    \"model_path\": \"E:\\\\jarvis-project\\\\data\\\\models\\\\Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf\"\n  },\n  \"checks\": [\n    {\n      \"name\": \"current_time\",\n      \"ok\": true,\n      \"tool\": \"current_time\",\n      \"output\": \"Сейчас 23:02:32 (Кызылорда (зима)), 2026-08-19.\",\n      \"expected_date\": \"2026-08-19\",\n      \"verified\": true,\n      \"latency_ms\": 1.129,\n      \"implementation\": \"core.actions.time\",\n      \"foreign_tool\": false\n    },\n    {\n      \"name\": \"system_status\",\n      \"ok\": true,\n      \"tool\": \"system_status\",\n      \"output\": \"CPU: 4.2%; RAM: 57.6% (6.8 ГБ свободно); Диск C:\\\\: 87.4% занято (29.2 ГБ свободно)\",\n      \"markers_present\": [\n        \"CPU:\",\n        \"RAM:\",\n        \"Диск\",\n        \"RAM\"\n      ],\n      \"verified\": true,\n      \"latency_ms\": 112.11,\n      \"foreign_tool\": false\n    },\n    {\n      \"name\": \"media_policy\",\n      \"ok\": false,\n      \"tool\": \"play_music\",\n      \"error\": \"Для поиска трека в сети нужно явно разрешить сетевой источник\",\n      \"action_taken\": false,\n      \"reminder_called\": false,\n      \"verified\": true,\n      \"latency_ms\": 2.062,\n      \"foreign_tool\": false\n    },\n    {\n      \"name\": \"unknown_task\",\n      \"acquisition\": \"research\",\n      \"steps\": [],\n      \"research_pending\": true,\n      \"success\": false,\n      \"foreign_tool_call\": false,\n      \"verified\": true,\n      \"latency_ms\": 0.422\n    },\n    {\n      \"name\": \"memory_relevance\",\n      \"facts\": [\n        \"Пользователь любит краткие ответы\"\n      ],\n      \"irrelevant_fact_leaked\": false,\n      \"verified\": true,\n      \"latency_ms\": 5.477\n    }\n  ],\n  \"fast_tools\": {\n    \"count\": 3,\n    \"p50_ms\": 2.062,\n    \"p95_ms\": 112.11,\n    \"max_ms\": 112.11\n  },\n  \"model\": null,\n  \"verified\": true,\n  \"note\": \"Тесты инструментов локальные и детерминированные; запуск модели включается только --real.\"\n}\n",
     "stderr_tail": ""
   },
   "latency": {
     "command": [
       "C:\\Users\\WwW\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
       "scripts/measure_latency_budgets.py",
-      "--dry-run",
       "--output",
-      "C:\\Users\\WwW\\AppData\\Local\\Temp\\jarvis-wave0-7urqwvp2\\latency.json"
+      "C:\\Users\\WwW\\AppData\\Local\\Temp\\jarvis-wave0-k674by9p\\latency.json"
     ],
     "exit_code": 0,
-    "duration_ms": 136.361,
-    "stdout_tail": "{\n  \"pass\": true,\n  \"path\": \"fast\",\n  \"observations\": [\n    120.0,\n    155.0,\n    190.0,\n    225.0,\n    260.0,\n    295.0,\n    330.0,\n    120.0,\n    155.0,\n    190.0,\n    225.0,\n    260.0,\n    295.0,\n    330.0,\n    120.0,\n    155.0,\n    190.0,\n    225.0,\n    260.0,\n    295.0\n  ],\n  \"summary\": {\n    \"path\": \"fast\",\n    \"count\": 20,\n    \"p50_ms\": 225.0,\n    \"p95_ms\": 330.0,\n    \"max_ms\": 330.0,\n    \"mean_ms\": 219.75\n  },\n  \"budget\": {\n    \"p50_ms\": 600,\n    \"p95_ms\": 1000,\n    \"hard_max_ms\": 1500\n  },\n  \"warmup_excluded\": true\n}\n",
+    "duration_ms": 138.138,
+    "stdout_tail": "{\n  \"pass\": true,\n  \"path\": \"fast\",\n  \"observations\": [\n    0.0036999990697950125,\n    0.0004999965312890708,\n    0.00039999940781854093,\n    0.00039999940781854093,\n    0.00039999940781854093,\n    0.00039999940781854093,\n    0.00039999940781854093,\n    0.000700001692166552,\n    0.00039999940781854093,\n    0.00039999940781854093,\n    0.0002999986463692039,\n    0.00039999940781854093,\n    0.0002999986463692039,\n    0.0002999986463692039,\n    0.0002999986463692039,\n    0.000300002284348011,\n    0.000300002284348011,\n    0.00039999940781854093,\n    0.0002999986463692039,\n    0.0002999986463692039\n  ],\n  \"summary\": {\n    \"path\": \"fast\",\n    \"count\": 20,\n    \"p50_ms\": 0.0,\n    \"p95_ms\": 0.001,\n    \"max_ms\": 0.004,\n    \"mean_ms\": 0.001\n  },\n  \"budget\": {\n    \"p50_ms\": 600,\n    \"p95_ms\": 1000,\n    \"hard_max_ms\": 1500\n  },\n  \"warmup_excluded\": false\n}\n",
     "stderr_tail": ""
   },
   "latency_budgets": {

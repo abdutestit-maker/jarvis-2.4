@@ -1,0 +1,37 @@
+{
+  "release": "JARVIS 4.0.0",
+  "pass": true,
+  "source_commit": "740738ba58595187a2ab057823798bbf65250594",
+  "previous_commit": "308405a",
+  "roles": [
+    "manifest.json",
+    "verification.json",
+    "diff.patch",
+    "rollback.ps1"
+  ],
+  "installer": {
+    "path": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._4.0.0_x64-setup.exe",
+    "size_bytes": 2565329714,
+    "sha256": "009d09736b6787a686511265c72bc0115c8b78ea7873b2cdaf2a6c146c659d95"
+  },
+  "model": {
+    "file": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
+    "size_bytes": 2147021472,
+    "sha256": "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc",
+    "source": "official Ministral GGUF"
+  },
+  "voice": {
+    "file": "data/models/piper/ru_RU-denis-medium.onnx",
+    "size_bytes": 63201294,
+    "sha256": "15fab56e11a097858ee115545d0f697fc2a316c41a291a5362349fb870411b0a"
+  },
+  "checks": [
+    "full regression",
+    "behavior harness",
+    "latency budgets",
+    "voice smoke",
+    "frontend build/protocol",
+    "7z archive test",
+    "clean extraction/backend readiness"
+  ]
+}

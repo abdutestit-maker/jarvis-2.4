@@ -1,7 +1,7 @@
 {
   "release": "JARVIS 4.0.0",
   "pass": true,
-  "source_commit": "446d434b259e849a862fbbe7427985cbfed8a9ef",
+  "source_commit": "a1774fb01c4098d4b7a162340149dc6bedcb6b2c",
   "previous_commit": "308405a",
   "roles": [
     "manifest.json",
@@ -11,8 +11,8 @@
   ],
   "installer": {
     "path": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._4.0.0_x64-setup.exe",
-    "size_bytes": 2565467027,
-    "sha256": "8ad80d0c0582f196b9d9e68beb603cb773599c8fd58074ae75e1d8a412900e7b",
+    "size_bytes": 2565467022,
+    "sha256": "4a39e54389a215e9a9e392dbc76fcb56acfcdc1301554c39daf72248e2c40c10",
     "type": "7zip_sfx"
   },
   "model": {

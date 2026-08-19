@@ -110,6 +110,11 @@ def _sync_runtime_resource(app_bundle: Path) -> None:
         raise ValueError(f"Staged runtime model hash mismatch: {source_hash}")
     target_hash = _sha256(target_model) if target_model.is_file() else ""
     if target_hash == source_hash:
+        # Runtime diagnostics are transient and must never ship from a prior
+        # launch attempt.  The staged source has no logs directory.
+        stale_logs = target / "logs"
+        if not (source / "logs").exists() and stale_logs.exists():
+            shutil.rmtree(stale_logs)
         return
     if target.exists():
         shutil.rmtree(target)

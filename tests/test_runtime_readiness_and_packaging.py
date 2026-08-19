@@ -55,3 +55,11 @@ def test_portable_installer_builder_declares_bundled_model_and_voice() -> None:
     assert "runtime/piper/piper.exe" in builder
     assert "qwen3-4b-instruct-q5_k_m.gguf" in builder
     assert "7z.sfx" in builder
+
+
+def test_tauri_resolves_bundled_backend_before_setting_child_directory() -> None:
+    launcher = Path("jarvis/src-tauri/src/main.rs").read_text(encoding="utf-8")
+
+    assert "root.join(&configured)" in launcher
+    assert "resolve_backend_program(program, &root)" in launcher
+    assert "JARVIS_HOME" in launcher

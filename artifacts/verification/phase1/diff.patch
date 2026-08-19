@@ -1,0 +1,692 @@
+diff --git a/config/settings.example.json b/config/settings.example.json
+index 6433d56..a47a974 100644
+--- a/config/settings.example.json
++++ b/config/settings.example.json
+@@ -40,6 +40,7 @@
+     "draft_model_path": "",
+     "speculative_decoding": false,
+     "draft_max_tokens": 5,
++    "native_tool_calling": true,
+     "embedding_gguf_path": "",
+     "n_gpu_layers": -1,
+     "n_ctx": 4096,
+diff --git a/config/settings.py b/config/settings.py
+index 440b0c7..52afadf 100644
+--- a/config/settings.py
++++ b/config/settings.py
+@@ -182,6 +182,9 @@ class LocalModelConfig(_Section):
+     draft_model_path: str = ""
+     speculative_decoding: bool = False
+     draft_max_tokens: int = 5
++    # Prefer structured llama.cpp/OpenAI tool calls; the planner falls back to
++    # its validated JSON contract when a provider or old wheel rejects them.
++    native_tool_calling: bool = True
+     embedding_gguf_path: str = ""
+     n_gpu_layers: int = 0           # 0 = CPU, -1 = все слои на GPU
+     n_ctx: int = 4096
+diff --git a/core/agent.py b/core/agent.py
+index d1feef3..c03aed6 100644
+--- a/core/agent.py
++++ b/core/agent.py
+@@ -49,6 +49,7 @@ from core.llm import (
+     BackendConfigError,
+     BackendUnavailable,
+     Tier,
++    ToolsNotSupportedError,
+     breaker,
+     get_llm_backend,
+     get_offline_backend,
+@@ -1272,6 +1273,75 @@ class Agent:
+             "Верни только JSON."
+         )
+ 
++        # Native function calling is attempted once, before the legacy text
++        # planner.  The fallback remains the source of compatibility for old
++        # llama.cpp wheels, small models and provider-specific templates.
++        native_enabled = bool(getattr(
++            getattr(self._settings, "local_model", None),
++            "native_tool_calling", True,
++        ))
++        native_call = getattr(backend, "chat_with_tools", None)
++        if native_enabled and getattr(backend, "supports_tools", False) and callable(native_call):
++            native_tools = self._native_tool_schemas(caps)
++            if native_tools:
++                try:
++                    native_response = native_call(
++                        [{"role": "user", "content": user}],
++                        tools=native_tools,
++                        system=system,
++                        tool_choice="auto",
++                        max_tokens=getattr(self._settings.local_model, "max_tokens", None),
++                        temperature=getattr(self._settings.local_model, "temperature", None),
++                    )
++                    if getattr(native_response, "tool_calls", ()):
++                        if len(native_response.tool_calls) != 1:
++                            raise ToolsNotSupportedError(
++                                "один запрос должен содержать ровно один tool call"
++                            )
++                        call = native_response.tool_calls[0]
++                        native_data = {
++                            "tool": call.name,
++                            "arguments": dict(call.arguments),
++                            "reason": "native function call",
++                            "risk": "low",
++                            "verification": "проверка результата зарегистрированного инструмента",
++                            "answer": native_response.content,
++                        }
++                    else:
++                        # Some providers use native mode for ordinary answers
++                        # too.  Keep them in the same validated decision type.
++                        native_data = {
++                            "tool": None,
++                            "arguments": {},
++                            "reason": "native text response",
++                            "risk": "low",
++                            "verification": "",
++                            "answer": native_response.content,
++                        }
++                    native_decision, native_error = validate_tool_call(
++                        native_data,
++                        known,
++                        schema_lookup=lambda n: getattr(self._registry.get(n), "input_schema", None),
++                    )
++                    if native_decision is not None:
++                        if mission is not None:
++                            mission.metadata["native_tool_calling"] = True
++                            mission.metadata["decision"] = native_decision.to_dict()
++                            if native_decision.needs_tool:
++                                mission.add_step(
++                                    description=native_decision.reason or f"вызов {native_decision.tool}",
++                                    tool=native_decision.tool,
++                                    args=native_decision.arguments,
++                                )
++                                mission.emit(EVENT_PLAN_READY, payload={"plan": mission.plan})
++                        return native_decision, ""
++                    log.info("Нативный tool call отклонён: %s", native_error)
++                except (ToolsNotSupportedError, BackendUnavailable, BackendConfigError, ValueError) as exc:
++                    # Fall through to the already-tested JSON repair loop.  A
++                    # provider capability mismatch must never become a fake
++                    # successful mutation.
++                    log.info("Native tool calling unavailable; JSON fallback: %s", exc)
++
+         last_error = ""
+         for attempt in range(1, self._config.max_structured_retries + 2):
+             if cancel.is_set():
+@@ -1338,6 +1408,23 @@ class Agent:
+ 
+         return None, last_error or "модель не смогла вернуть валидное решение"
+ 
++    def _native_tool_schemas(self, caps: List[Capability]) -> List[Dict[str, Any]]:
++        """Build deterministic OpenAI-compatible schemas from the registry."""
++        schemas: List[Dict[str, Any]] = []
++        for cap in caps:
++            tool = self._registry.get(cap.name)
++            if tool is None:
++                continue
++            schemas.append({
++                "type": "function",
++                "function": {
++                    "name": tool.name,
++                    "description": tool.description,
++                    "parameters": tool.input_schema,
++                },
++            })
++        return schemas
++
+     # ------------------------------------------------------------------ #
+     #  §14 + §10/§11 — Выполнение с фактической проверкой и самоисправлением
+     # ------------------------------------------------------------------ #
+diff --git a/core/llm/__init__.py b/core/llm/__init__.py
+index bed730c..31b2b7c 100644
+--- a/core/llm/__init__.py
++++ b/core/llm/__init__.py
+@@ -22,6 +22,7 @@ from core.llm.backend import (
+     prepend_system,
+     strip_reasoning_blocks,
+ )
++from core.llm.tool_calls import ToolCall, ToolCallResponse, parse_tool_calls
+ from core.llm.factory import (
+     available_backends,
+     clear_backend_cache,
+@@ -73,4 +74,7 @@ __all__ = [
+     "prepend_system",
+     "messages_to_prompt",
+     "strip_reasoning_blocks",
++    "ToolCall",
++    "ToolCallResponse",
++    "parse_tool_calls",
+ ]
+diff --git a/core/llm/backend.py b/core/llm/backend.py
+index 859d483..030537a 100644
+--- a/core/llm/backend.py
++++ b/core/llm/backend.py
+@@ -23,8 +23,11 @@ __all__ = [
+     "normalize_messages",
+     "prepend_system",
+     "messages_to_prompt",
++    "ToolCallResponse",
+ ]
+ 
++from core.llm.tool_calls import ToolCallResponse
++
+ 
+ # --------------------------------------------------------------------------- #
+ #  Исключения
+@@ -200,6 +203,23 @@ class LLMBackend(ABC):
+             BackendUnavailable: модель недоступна.
+         """
+ 
++    def chat_with_tools(self, messages: List[Dict[str, Any]],
++                        tools: Sequence[Dict[str, Any]],
++                        system: Optional[str] = None,
++                        tool_choice: str | Dict[str, Any] = "auto",
++                        max_tokens: Optional[int] = None,
++                        temperature: Optional[float] = None) -> ToolCallResponse:
++        """Optional native function-calling boundary.
++
++        Providers that do not expose structured calls keep the old text/JSON
++        planner path by raising :class:`ToolsNotSupportedError`.  The method
++        is deliberately non-abstract so existing test and plugin backends do
++        not need a flag-day interface change.
++        """
++        raise ToolsNotSupportedError(
++            f"Бэкенд {self.name} не поддерживает нативные tool calls"
++        )
++
+     # ------------------------------ эмбеддинги ----------------------------- #
+ 
+     def embed(self, text: str) -> List[float]:
+diff --git a/core/llm/local_qwen.py b/core/llm/local_qwen.py
+index ee2a84a..e554379 100644
+--- a/core/llm/local_qwen.py
++++ b/core/llm/local_qwen.py
+@@ -24,10 +24,12 @@ from core.llm.backend import (
+     BackendConfigError,
+     BackendUnavailable,
+     LLMBackend,
++    ToolsNotSupportedError,
+     normalize_messages,
+     prepend_system,
+     strip_reasoning_blocks,
+ )
++from core.llm.tool_calls import ToolCallResponse, parse_tool_calls
+ from core.utils.logger import get_logger
+ 
+ __all__ = ["LocalQwenBackend"]
+@@ -55,7 +57,10 @@ class LocalQwenBackend(LLMBackend):
+         embedding: включить ли режим эмбеддингов у основной модели.
+     """
+ 
+-    supports_tools = False
++    # llama.cpp exposes OpenAI-compatible ``tools`` on current wheels.  The
++    # runtime still probes the call and raises ToolsNotSupportedError when an
++    # older build or chat template rejects it; Agent then uses JSON fallback.
++    supports_tools = True
+ 
+     def __init__(
+         self,
+@@ -302,6 +307,44 @@ class LocalQwenBackend(LLMBackend):
+         return self.chat([{"role": "user", "content": prompt}], system=system,
+                          max_tokens=max_tokens, temperature=temperature)
+ 
++    def chat_with_tools(self, messages: List[Dict[str, Any]],
++                        tools: List[Dict[str, Any]],
++                        system: Optional[str] = None,
++                        tool_choice: str | Dict[str, Any] = "auto",
++                        max_tokens: Optional[int] = None,
++                        temperature: Optional[float] = None) -> ToolCallResponse:
++        """Call llama.cpp's structured tool interface when available.
++
++        No text marker is accepted here.  A malformed native response is
++        treated as a provider capability error so the caller can fall back to
++        the established structured-JSON planner without inventing a tool.
++        """
++        payload = prepend_system(normalize_messages(messages), system)
++        if not payload:
++            raise ValueError("chat_with_tools(): пустой список сообщений")
++        if not tools:
++            raise ValueError("chat_with_tools(): список инструментов пуст")
++
++        llama = self._load()
++        kwargs = self._completion_kwargs(max_tokens, temperature)
++        kwargs["tools"] = tools
++        kwargs["tool_choice"] = tool_choice
++        try:
++            with self._lock:
++                response = llama.create_chat_completion(messages=payload, **kwargs)
++        except TypeError as exc:
++            raise ToolsNotSupportedError(
++                f"llama.cpp wheel does not accept native tools: {exc}"
++            ) from exc
++        except (ValueError, RuntimeError, OSError) as exc:
++            raise BackendUnavailable(f"Нативный tool call не выполнен: {exc}") from exc
++        if not isinstance(response, dict):
++            raise ToolsNotSupportedError("llama.cpp вернул неожиданный native tool response")
++        try:
++            return parse_tool_calls(response)
++        except ValueError as exc:
++            raise ToolsNotSupportedError(f"Нативный tool response невалиден: {exc}") from exc
++
+     def streaming(self, messages: List[Dict[str, Any]], system: Optional[str] = None,
+                   max_tokens: Optional[int] = None,
+                   temperature: Optional[float] = None) -> Generator[str, None, None]:
+diff --git a/core/llm/remote_api.py b/core/llm/remote_api.py
+index cc78748..2645e94 100644
+--- a/core/llm/remote_api.py
++++ b/core/llm/remote_api.py
+@@ -31,10 +31,12 @@ from core.llm.backend import (
+     BackendConfigError,
+     BackendUnavailable,
+     LLMBackend,
++    ToolsNotSupportedError,
+     normalize_messages,
+     prepend_system,
+     strip_reasoning_blocks,
+ )
++from core.llm.tool_calls import ToolCallResponse, parse_tool_calls
+ from core.utils.logger import get_logger
+ 
+ __all__ = ["RemoteAPIBackend", "RetryableHTTPError"]
+@@ -137,7 +139,8 @@ class RemoteAPIBackend(LLMBackend):
+ 
+     def _build_payload(self, messages: List[Dict[str, str]], system: Optional[str],
+                        max_tokens: Optional[int], temperature: Optional[float],
+-                       stream: bool) -> Dict[str, Any]:
++                       stream: bool, tools: Optional[List[Dict[str, Any]]] = None,
++                       tool_choice: str | Dict[str, Any] = "auto") -> Dict[str, Any]:
+         """Собирает тело запроса под диалект провайдера."""
+         tokens = int(max_tokens) if max_tokens else self._max_tokens
+         temp = self._temperature if temperature is None else float(temperature)
+@@ -170,6 +173,16 @@ class RemoteAPIBackend(LLMBackend):
+                 payload["system"] = "\n\n".join(system_parts)
+             if stream:
+                 payload["stream"] = True
++            if tools:
++                # Anthropic calls the OpenAI function schema an input_schema.
++                payload["tools"] = [
++                    {
++                        "name": item.get("function", {}).get("name", ""),
++                        "description": item.get("function", {}).get("description", ""),
++                        "input_schema": item.get("function", {}).get("parameters", {}),
++                    }
++                    for item in tools
++                ]
+             return payload
+ 
+         payload = {
+@@ -180,6 +193,9 @@ class RemoteAPIBackend(LLMBackend):
+         }
+         if stream:
+             payload["stream"] = True
++        if tools:
++            payload["tools"] = tools
++            payload["tool_choice"] = tool_choice
+         return payload
+ 
+     @staticmethod
+@@ -361,6 +377,46 @@ class RemoteAPIBackend(LLMBackend):
+             log.warning("Пустой ответ от %s", self.name)
+         return text
+ 
++    def chat_with_tools(self, messages: List[Dict[str, Any]],
++                        tools: List[Dict[str, Any]],
++                        system: Optional[str] = None,
++                        tool_choice: str | Dict[str, Any] = "auto",
++                        max_tokens: Optional[int] = None,
++                        temperature: Optional[float] = None) -> ToolCallResponse:
++        """Structured OpenAI/Anthropic function calling.
++
++        This method is additive: the legacy text chat contract stays intact,
++        while providers that reject the schema surface a typed capability
++        error to the planner instead of returning a guessed tool name.
++        """
++        normalized = normalize_messages(messages)
++        if not normalized:
++            raise ValueError("chat_with_tools(): пустой список сообщений")
++        if not tools:
++            raise ValueError("chat_with_tools(): список инструментов пуст")
++        payload = self._build_payload(
++            normalized, system, max_tokens, temperature, stream=False,
++            tools=tools, tool_choice=tool_choice,
++        )
++        response = self._request_with_retry(payload)
++        try:
++            data = response.json()
++        except ValueError as exc:
++            raise BackendUnavailable(
++                f"Провайдер {self.provider} вернул не-JSON tool response: {exc}"
++            ) from exc
++        finally:
++            response.close()
++        if not isinstance(data, dict):
++            raise BackendUnavailable(f"Провайдер {self.provider} вернул неожиданный tool response")
++        try:
++            parsed = parse_tool_calls(data)
++        except ValueError as exc:
++            raise ToolsNotSupportedError(
++                f"Провайдер {self.provider} не вернул валидный native tool call: {exc}"
++            ) from exc
++        return parsed
++
+     def direct(self, prompt: str, system: Optional[str] = None,
+                max_tokens: Optional[int] = None,
+                temperature: Optional[float] = None) -> str:
+diff --git a/core/llm/tool_calls.py b/core/llm/tool_calls.py
+new file mode 100644
+index 0000000..930abcf
+--- /dev/null
++++ b/core/llm/tool_calls.py
+@@ -0,0 +1,157 @@
++"""Provider-neutral native tool-call contracts.
++
++The planner used to depend on a text marker (``TOOL_CALL:{...}``).  This
++module keeps the provider response typed at the boundary while allowing the
++existing JSON planner to remain a fallback for older local model builds.
++"""
++
++from __future__ import annotations
++
++import json
++from dataclasses import dataclass, field
++from types import MappingProxyType
++from typing import Any, Mapping, Sequence
++
++__all__ = ["ToolCall", "ToolCallResponse", "parse_tool_calls"]
++
++
++def _arguments(value: Any) -> Mapping[str, Any]:
++    if value is None or value == "":
++        return MappingProxyType({})
++    if isinstance(value, str):
++        try:
++            value = json.loads(value)
++        except (TypeError, ValueError) as exc:
++            raise ValueError(f"tool arguments are not valid JSON: {exc}") from exc
++    if not isinstance(value, Mapping):
++        raise ValueError("tool arguments must be a JSON object")
++    return MappingProxyType(dict(value))
++
++
++@dataclass(frozen=True)
++class ToolCall:
++    """One validated provider tool call.
++
++    ``arguments`` is immutable after parsing so a provider response cannot be
++    changed between Risk Gate validation and execution.
++    """
++
++    call_id: str
++    name: str
++    arguments: Mapping[str, Any] = field(default_factory=dict)
++
++    def __post_init__(self) -> None:
++        object.__setattr__(self, "call_id", str(self.call_id or ""))
++        name = str(self.name or "").strip()
++        if not name:
++            raise ValueError("native tool call has no function name")
++        object.__setattr__(self, "name", name)
++        object.__setattr__(self, "arguments", _arguments(self.arguments))
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "id": self.call_id,
++            "type": "function",
++            "function": {"name": self.name, "arguments": dict(self.arguments)},
++        }
++
++
++@dataclass(frozen=True)
++class ToolCallResponse:
++    """Text plus zero or more native calls from one model turn."""
++
++    content: str = ""
++    tool_calls: tuple[ToolCall, ...] = ()
++    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
++
++    def __post_init__(self) -> None:
++        object.__setattr__(self, "content", str(self.content or ""))
++        object.__setattr__(self, "tool_calls", tuple(self.tool_calls or ()))
++
++    @property
++    def first_tool_call(self) -> ToolCall | None:
++        return self.tool_calls[0] if self.tool_calls else None
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "content": self.content,
++            "tool_calls": [call.to_dict() for call in self.tool_calls],
++        }
++
++
++def _message_from_response(response: Mapping[str, Any]) -> Mapping[str, Any]:
++    choices = response.get("choices") or []
++    if not choices or not isinstance(choices[0], Mapping):
++        return {}
++    message = choices[0].get("message") or choices[0].get("delta") or {}
++    return message if isinstance(message, Mapping) else {}
++
++
++def parse_tool_calls(response: Mapping[str, Any]) -> ToolCallResponse:
++    """Normalize OpenAI-compatible native tool-call responses.
++
++    Both modern ``tool_calls`` and legacy single ``function_call`` payloads
++    are accepted.  Malformed arguments fail closed instead of becoming a
++    guessed mutation.
++    """
++
++    if not isinstance(response, Mapping):
++        raise ValueError("native tool response must be an object")
++    message = _message_from_response(response)
++    anthropic_blocks = response.get("content") if not message else None
++    if isinstance(anthropic_blocks, Sequence) and not isinstance(anthropic_blocks, (str, bytes)):
++        text_parts: list[str] = []
++        raw_calls: list[dict[str, Any]] = []
++        for index, block in enumerate(anthropic_blocks):
++            if not isinstance(block, Mapping):
++                continue
++            if block.get("type") == "text":
++                text_parts.append(str(block.get("text") or ""))
++            elif block.get("type") == "tool_use":
++                raw_calls.append({
++                    "id": str(block.get("id") or f"toolu-{index}"),
++                    "type": "function",
++                    "function": {
++                        "name": block.get("name"),
++                        "arguments": block.get("input") or {},
++                    },
++                })
++        return ToolCallResponse(
++            content="".join(text_parts),
++            tool_calls=tuple(
++                ToolCall(
++                    call_id=str(item["id"]),
++                    name=str(item["function"].get("name") or ""),
++                    arguments=item["function"].get("arguments"),
++                )
++                for item in raw_calls
++            ),
++            raw=response,
++        )
++
++    content = message.get("content") or ""
++    raw_calls = message.get("tool_calls")
++    if raw_calls is None and message.get("function_call") is not None:
++        raw_calls = [{
++            "id": "legacy-call",
++            "type": "function",
++            "function": message.get("function_call"),
++        }]
++    if raw_calls is None:
++        raw_calls = []
++    if not isinstance(raw_calls, Sequence) or isinstance(raw_calls, (str, bytes)):
++        raise ValueError("native tool_calls must be an array")
++
++    parsed: list[ToolCall] = []
++    for index, item in enumerate(raw_calls):
++        if not isinstance(item, Mapping):
++            raise ValueError("native tool call must be an object")
++        function = item.get("function") or {}
++        if not isinstance(function, Mapping):
++            raise ValueError("native tool function must be an object")
++        parsed.append(ToolCall(
++            call_id=str(item.get("id") or f"call-{index}"),
++            name=str(function.get("name") or ""),
++            arguments=_arguments(function.get("arguments")),
++        ))
++    return ToolCallResponse(content=str(content), tool_calls=tuple(parsed), raw=response)
+diff --git a/tests/test_native_tool_calls.py b/tests/test_native_tool_calls.py
+new file mode 100644
+index 0000000..d2e84b1
+--- /dev/null
++++ b/tests/test_native_tool_calls.py
+@@ -0,0 +1,150 @@
++from __future__ import annotations
++
++import pytest
++import threading
++
++from core.llm.backend import ToolsNotSupportedError
++from core.llm.tool_calls import ToolCall, ToolCallResponse, parse_tool_calls
++
++
++def test_parse_native_openai_tool_call_and_json_arguments():
++    response = {
++        "choices": [{
++            "message": {
++                "content": "",
++                "tool_calls": [{
++                    "id": "call-1",
++                    "type": "function",
++                    "function": {
++                        "name": "current_time",
++                        "arguments": "{}",
++                    },
++                }],
++            },
++        }],
++    }
++
++    parsed = parse_tool_calls(response)
++
++    assert parsed.content == ""
++    assert list(parsed.tool_calls) == [ToolCall("call-1", "current_time", {})]
++
++
++def test_parse_native_tool_call_rejects_non_object_arguments():
++    response = {
++        "choices": [{
++            "message": {
++                "tool_calls": [{
++                    "id": "call-2",
++                    "function": {"name": "current_time", "arguments": "[]"},
++                }],
++            },
++        }],
++    }
++
++    with pytest.raises(ValueError, match="object"):
++        parse_tool_calls(response)
++
++
++def test_parse_anthropic_tool_use_content_blocks():
++    response = {
++        "content": [
++            {"type": "text", "text": "готовлю результат"},
++            {"type": "tool_use", "id": "toolu-1", "name": "current_time", "input": {}},
++        ],
++    }
++
++    parsed = parse_tool_calls(response)
++
++    assert parsed.content == "готовлю результат"
++    assert parsed.first_tool_call == ToolCall("toolu-1", "current_time", {})
++
++
++def test_tool_call_response_is_serializable_and_immutable():
++    call = ToolCall("call-3", "play_music", {"mood": "focus"})
++    response = ToolCallResponse(content="", tool_calls=(call,))
++
++    assert response.to_dict()["tool_calls"][0]["function"]["name"] == "play_music"
++    with pytest.raises(TypeError):
++        call.arguments["mood"] = "sleep"  # type: ignore[index]
++
++
++def test_base_backend_keeps_compatibility_but_exposes_clear_native_error():
++    from conftest import FakeBackend
++
++    with pytest.raises(ToolsNotSupportedError):
++        FakeBackend().chat_with_tools([], tools=[])
++
++
++def test_agent_accepts_native_call_before_legacy_json_planner(settings):
++    from conftest import FakeBackend
++    from core.agent import Agent
++    from core.capabilities import CAPABILITIES
++    from core.llm import Tier
++
++    class NativeBackend(FakeBackend):
++        supports_tools = True
++
++        def __init__(self):
++            super().__init__(settings)
++            self.native_calls = 0
++
++        def chat_with_tools(self, messages, tools, **kwargs):
++            self.native_calls += 1
++            return ToolCallResponse(
++                tool_calls=(ToolCall("native-1", "current_time", {}),),
++            )
++
++    backend = NativeBackend()
++    agent = Agent(settings)
++    agent._backend_for_routing = lambda _routing: (backend, Tier.FAST)
++    cap = CAPABILITIES.get("current_time")
++    decision, error = agent._decide_with_model(
++        "покажи время",
++        [cap],
++        None,
++        threading.Event(),
++    )
++
++    assert error == ""
++    assert decision is not None and decision.tool == "current_time"
++    assert backend.native_calls == 1
++
++
++def test_local_qwen_forwards_native_schema_to_llama(tmp_path):
++    from core.llm.local_qwen import LocalQwenBackend
++
++    class LlamaStub:
++        def __init__(self):
++            self.kwargs = None
++
++        def create_chat_completion(self, **kwargs):
++            self.kwargs = kwargs
++            return {
++                "choices": [{
++                    "message": {
++                        "content": "",
++                        "tool_calls": [{
++                            "id": "call-4",
++                            "function": {"name": "current_time", "arguments": "{}"},
++                        }],
++                    },
++                }],
++            }
++
++    model = tmp_path / "model.gguf"
++    model.write_bytes(b"fixture")
++    backend = LocalQwenBackend(model)
++    llama = LlamaStub()
++    backend._llama = llama
++
++    result = backend.chat_with_tools(
++        [{"role": "user", "content": "время"}],
++        [{"type": "function", "function": {
++            "name": "current_time", "description": "time",
++            "parameters": {"type": "object"},
++        }}],
++    )
++
++    assert result.first_tool_call is not None
++    assert llama.kwargs["tools"][0]["function"]["name"] == "current_time"

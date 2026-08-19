@@ -1,0 +1,66 @@
+{
+  "phase": "phase1",
+  "baseline_commit": "dbbc75aead38d5b8a9316a0c8f9c913b20737196",
+  "implementation_commit": "dc24f9e4ba340adc087e056907f0507308b35428",
+  "branch": "codex/universal-kernel",
+  "captured_at": "2026-08-19T12:15:28.079148+00:00",
+  "changed_file_count": 9,
+  "changed_files": [
+    {
+      "path": "config/settings.example.json",
+      "sha256": "fd512eaf765ce61c3f24a65c5e2300433e978f0ef66d600fdc0845677709b0c0",
+      "bytes": 4248
+    },
+    {
+      "path": "config/settings.py",
+      "sha256": "481b03e042819f5df00b5e63ecdf0b72c05dec0857d251937fc4fb6a2ac41511",
+      "bytes": 38796
+    },
+    {
+      "path": "core/agent.py",
+      "sha256": "09fc4b3a66da40d5fe2774f27140b5db266e681a6364c35b61212e909af462e4",
+      "bytes": 111124
+    },
+    {
+      "path": "core/llm/__init__.py",
+      "sha256": "9b8b1faf9047f6e60da0251c1b117c88ec48d135d65b77923c394303f9db739b",
+      "bytes": 2061
+    },
+    {
+      "path": "core/llm/backend.py",
+      "sha256": "07b04430715bc2d9bf5a9ea1f302d082ee8e1249853c1be28f98a8ffc28d4061",
+      "bytes": 11739
+    },
+    {
+      "path": "core/llm/local_qwen.py",
+      "sha256": "c0a87d3c2ee371332ec0141e36e7f509175368131b297ccc8e7bc6668c1f3bb3",
+      "bytes": 25150
+    },
+    {
+      "path": "core/llm/remote_api.py",
+      "sha256": "5abee645cae4ccf4096ec50cb69fac8ce6b2969cdbf87ef86ab1a69de7dc0fb9",
+      "bytes": 34297
+    },
+    {
+      "path": "core/llm/tool_calls.py",
+      "sha256": "b737c40279ef26f44f4b409724946b66f83f3f059d1e270357a7514309b0ed77",
+      "bytes": 5888
+    },
+    {
+      "path": "tests/test_native_tool_calls.py",
+      "sha256": "ef7215c02785f3542cf4365150ed3f20a4e666db107d6599ca3b1d2c1bd350f0",
+      "bytes": 4545
+    }
+  ],
+  "artifacts": [
+    "manifest.json",
+    "verification.json",
+    "diff.patch",
+    "rollback.ps1"
+  ],
+  "untracked_workspace_preserved": [
+    "artifacts/video_review/",
+    "artifacts/verification/conversation-latency/",
+    "runs/"
+  ]
+}

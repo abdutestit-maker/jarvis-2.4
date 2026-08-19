@@ -1,0 +1,54 @@
+{
+  "phase": "phase1",
+  "baseline": {
+    "commit": "dbbc75a",
+    "command": "python -m pytest -o addopts=\"\" -q --maxfail=1",
+    "observed": "493 passed, 2 skipped, 0 failed"
+  },
+  "after": {
+    "commit": "dc24f9e",
+    "command": "python -m pytest -o addopts=\"\" -q --maxfail=1",
+    "observed": "500 passed, 2 skipped, 0 failed, 2 warnings"
+  },
+  "native_tool_calling": {
+    "contract": "ToolCall/ToolCallResponse; immutable arguments; OpenAI and Anthropic normalization",
+    "fallback": "ToolsNotSupportedError -> validated legacy JSON planner",
+    "tests": "7 passed in tests/test_native_tool_calls.py"
+  },
+  "behavior_harness": {
+    "command": "python scripts/_live_probe.py --dry-run",
+    "exit_status": 0,
+    "observed": "pass=true; fast p95=517.5ms; max=590ms"
+  },
+  "frontend": {
+    "command": "npm run test:frontend",
+    "exit_status": 0,
+    "observed": [
+      "wsProtocol: 5 assertions passed",
+      "wsBackend: command, response, confirmation and masked settings passed",
+      "operatorModel: 13 assertions passed"
+    ]
+  },
+  "frontend_build": {
+    "command": "npm run build",
+    "exit_status": 0
+  },
+  "tauri_compile": {
+    "command": "cargo check",
+    "exit_status": 0,
+    "warnings": "existing unused window effect helpers"
+  },
+  "syntax": {
+    "command": "python -m compileall -q core config tests/test_native_tool_calls.py",
+    "exit_status": 0
+  },
+  "success_contract": "native selection is still followed by execute + observe + verify; no provider response is mission success",
+  "rollback": {
+    "path": "artifacts/verification/phase1/rollback.ps1",
+    "base_commit": "dbbc75aead38d5b8a9316a0c8f9c913b20737196"
+  },
+  "known_limitations": [
+    "native calling depends on the local llama.cpp chat-template build and falls back to JSON",
+    "packaged sidecar runtime, STT live capture and Windows live E2E remain next phase"
+  ]
+}

@@ -49,6 +49,7 @@ from core.llm import (
     BackendConfigError,
     BackendUnavailable,
     Tier,
+    ToolsNotSupportedError,
     breaker,
     get_llm_backend,
     get_offline_backend,
@@ -1272,6 +1273,75 @@ class Agent:
             "Верни только JSON."
         )
 
+        # Native function calling is attempted once, before the legacy text
+        # planner.  The fallback remains the source of compatibility for old
+        # llama.cpp wheels, small models and provider-specific templates.
+        native_enabled = bool(getattr(
+            getattr(self._settings, "local_model", None),
+            "native_tool_calling", True,
+        ))
+        native_call = getattr(backend, "chat_with_tools", None)
+        if native_enabled and getattr(backend, "supports_tools", False) and callable(native_call):
+            native_tools = self._native_tool_schemas(caps)
+            if native_tools:
+                try:
+                    native_response = native_call(
+                        [{"role": "user", "content": user}],
+                        tools=native_tools,
+                        system=system,
+                        tool_choice="auto",
+                        max_tokens=getattr(self._settings.local_model, "max_tokens", None),
+                        temperature=getattr(self._settings.local_model, "temperature", None),
+                    )
+                    if getattr(native_response, "tool_calls", ()):
+                        if len(native_response.tool_calls) != 1:
+                            raise ToolsNotSupportedError(
+                                "один запрос должен содержать ровно один tool call"
+                            )
+                        call = native_response.tool_calls[0]
+                        native_data = {
+                            "tool": call.name,
+                            "arguments": dict(call.arguments),
+                            "reason": "native function call",
+                            "risk": "low",
+                            "verification": "проверка результата зарегистрированного инструмента",
+                            "answer": native_response.content,
+                        }
+                    else:
+                        # Some providers use native mode for ordinary answers
+                        # too.  Keep them in the same validated decision type.
+                        native_data = {
+                            "tool": None,
+                            "arguments": {},
+                            "reason": "native text response",
+                            "risk": "low",
+                            "verification": "",
+                            "answer": native_response.content,
+                        }
+                    native_decision, native_error = validate_tool_call(
+                        native_data,
+                        known,
+                        schema_lookup=lambda n: getattr(self._registry.get(n), "input_schema", None),
+                    )
+                    if native_decision is not None:
+                        if mission is not None:
+                            mission.metadata["native_tool_calling"] = True
+                            mission.metadata["decision"] = native_decision.to_dict()
+                            if native_decision.needs_tool:
+                                mission.add_step(
+                                    description=native_decision.reason or f"вызов {native_decision.tool}",
+                                    tool=native_decision.tool,
+                                    args=native_decision.arguments,
+                                )
+                                mission.emit(EVENT_PLAN_READY, payload={"plan": mission.plan})
+                        return native_decision, ""
+                    log.info("Нативный tool call отклонён: %s", native_error)
+                except (ToolsNotSupportedError, BackendUnavailable, BackendConfigError, ValueError) as exc:
+                    # Fall through to the already-tested JSON repair loop.  A
+                    # provider capability mismatch must never become a fake
+                    # successful mutation.
+                    log.info("Native tool calling unavailable; JSON fallback: %s", exc)
+
         last_error = ""
         for attempt in range(1, self._config.max_structured_retries + 2):
             if cancel.is_set():
@@ -1337,6 +1407,23 @@ class Agent:
             return decision, ""
 
         return None, last_error or "модель не смогла вернуть валидное решение"
+
+    def _native_tool_schemas(self, caps: List[Capability]) -> List[Dict[str, Any]]:
+        """Build deterministic OpenAI-compatible schemas from the registry."""
+        schemas: List[Dict[str, Any]] = []
+        for cap in caps:
+            tool = self._registry.get(cap.name)
+            if tool is None:
+                continue
+            schemas.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.input_schema,
+                },
+            })
+        return schemas
 
     # ------------------------------------------------------------------ #
     #  §14 + §10/§11 — Выполнение с фактической проверкой и самоисправлением

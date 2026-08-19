@@ -40,6 +40,7 @@
     "draft_model_path": "",
     "speculative_decoding": false,
     "draft_max_tokens": 5,
+    "native_tool_calling": true,
     "embedding_gguf_path": "",
     "n_gpu_layers": -1,
     "n_ctx": 4096,

@@ -31,10 +31,12 @@ from core.llm.backend import (
     BackendConfigError,
     BackendUnavailable,
     LLMBackend,
+    ToolsNotSupportedError,
     normalize_messages,
     prepend_system,
     strip_reasoning_blocks,
 )
+from core.llm.tool_calls import ToolCallResponse, parse_tool_calls
 from core.utils.logger import get_logger
 
 __all__ = ["RemoteAPIBackend", "RetryableHTTPError"]
@@ -137,7 +139,8 @@ class RemoteAPIBackend(LLMBackend):
 
     def _build_payload(self, messages: List[Dict[str, str]], system: Optional[str],
                        max_tokens: Optional[int], temperature: Optional[float],
-                       stream: bool) -> Dict[str, Any]:
+                       stream: bool, tools: Optional[List[Dict[str, Any]]] = None,
+                       tool_choice: str | Dict[str, Any] = "auto") -> Dict[str, Any]:
         """Собирает тело запроса под диалект провайдера."""
         tokens = int(max_tokens) if max_tokens else self._max_tokens
         temp = self._temperature if temperature is None else float(temperature)
@@ -170,6 +173,16 @@ class RemoteAPIBackend(LLMBackend):
                 payload["system"] = "\n\n".join(system_parts)
             if stream:
                 payload["stream"] = True
+            if tools:
+                # Anthropic calls the OpenAI function schema an input_schema.
+                payload["tools"] = [
+                    {
+                        "name": item.get("function", {}).get("name", ""),
+                        "description": item.get("function", {}).get("description", ""),
+                        "input_schema": item.get("function", {}).get("parameters", {}),
+                    }
+                    for item in tools
+                ]
             return payload
 
         payload = {
@@ -180,6 +193,9 @@ class RemoteAPIBackend(LLMBackend):
         }
         if stream:
             payload["stream"] = True
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = tool_choice
         return payload
 
     @staticmethod
@@ -360,6 +376,46 @@ class RemoteAPIBackend(LLMBackend):
         if not text.strip():
             log.warning("Пустой ответ от %s", self.name)
         return text
+
+    def chat_with_tools(self, messages: List[Dict[str, Any]],
+                        tools: List[Dict[str, Any]],
+                        system: Optional[str] = None,
+                        tool_choice: str | Dict[str, Any] = "auto",
+                        max_tokens: Optional[int] = None,
+                        temperature: Optional[float] = None) -> ToolCallResponse:
+        """Structured OpenAI/Anthropic function calling.
+
+        This method is additive: the legacy text chat contract stays intact,
+        while providers that reject the schema surface a typed capability
+        error to the planner instead of returning a guessed tool name.
+        """
+        normalized = normalize_messages(messages)
+        if not normalized:
+            raise ValueError("chat_with_tools(): пустой список сообщений")
+        if not tools:
+            raise ValueError("chat_with_tools(): список инструментов пуст")
+        payload = self._build_payload(
+            normalized, system, max_tokens, temperature, stream=False,
+            tools=tools, tool_choice=tool_choice,
+        )
+        response = self._request_with_retry(payload)
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise BackendUnavailable(
+                f"Провайдер {self.provider} вернул не-JSON tool response: {exc}"
+            ) from exc
+        finally:
+            response.close()
+        if not isinstance(data, dict):
+            raise BackendUnavailable(f"Провайдер {self.provider} вернул неожиданный tool response")
+        try:
+            parsed = parse_tool_calls(data)
+        except ValueError as exc:
+            raise ToolsNotSupportedError(
+                f"Провайдер {self.provider} не вернул валидный native tool call: {exc}"
+            ) from exc
+        return parsed
 
     def direct(self, prompt: str, system: Optional[str] = None,
                max_tokens: Optional[int] = None,

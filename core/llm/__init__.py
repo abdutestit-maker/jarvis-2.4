@@ -22,6 +22,7 @@ from core.llm.backend import (
     prepend_system,
     strip_reasoning_blocks,
 )
+from core.llm.tool_calls import ToolCall, ToolCallResponse, parse_tool_calls
 from core.llm.factory import (
     available_backends,
     clear_backend_cache,
@@ -73,4 +74,7 @@ __all__ = [
     "prepend_system",
     "messages_to_prompt",
     "strip_reasoning_blocks",
+    "ToolCall",
+    "ToolCallResponse",
+    "parse_tool_calls",
 ]

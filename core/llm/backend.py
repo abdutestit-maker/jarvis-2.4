@@ -23,7 +23,10 @@ __all__ = [
     "normalize_messages",
     "prepend_system",
     "messages_to_prompt",
+    "ToolCallResponse",
 ]
+
+from core.llm.tool_calls import ToolCallResponse
 
 
 # --------------------------------------------------------------------------- #
@@ -199,6 +202,23 @@ class LLMBackend(ABC):
         Raises:
             BackendUnavailable: модель недоступна.
         """
+
+    def chat_with_tools(self, messages: List[Dict[str, Any]],
+                        tools: Sequence[Dict[str, Any]],
+                        system: Optional[str] = None,
+                        tool_choice: str | Dict[str, Any] = "auto",
+                        max_tokens: Optional[int] = None,
+                        temperature: Optional[float] = None) -> ToolCallResponse:
+        """Optional native function-calling boundary.
+
+        Providers that do not expose structured calls keep the old text/JSON
+        planner path by raising :class:`ToolsNotSupportedError`.  The method
+        is deliberately non-abstract so existing test and plugin backends do
+        not need a flag-day interface change.
+        """
+        raise ToolsNotSupportedError(
+            f"Бэкенд {self.name} не поддерживает нативные tool calls"
+        )
 
     # ------------------------------ эмбеддинги ----------------------------- #
 

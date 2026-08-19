@@ -182,6 +182,9 @@ class LocalModelConfig(_Section):
     draft_model_path: str = ""
     speculative_decoding: bool = False
     draft_max_tokens: int = 5
+    # Prefer structured llama.cpp/OpenAI tool calls; the planner falls back to
+    # its validated JSON contract when a provider or old wheel rejects them.
+    native_tool_calling: bool = True
     embedding_gguf_path: str = ""
     n_gpu_layers: int = 0           # 0 = CPU, -1 = все слои на GPU
     n_ctx: int = 4096

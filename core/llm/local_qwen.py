@@ -24,10 +24,12 @@ from core.llm.backend import (
     BackendConfigError,
     BackendUnavailable,
     LLMBackend,
+    ToolsNotSupportedError,
     normalize_messages,
     prepend_system,
     strip_reasoning_blocks,
 )
+from core.llm.tool_calls import ToolCallResponse, parse_tool_calls
 from core.utils.logger import get_logger
 
 __all__ = ["LocalQwenBackend"]
@@ -55,7 +57,10 @@ class LocalQwenBackend(LLMBackend):
         embedding: включить ли режим эмбеддингов у основной модели.
     """
 
-    supports_tools = False
+    # llama.cpp exposes OpenAI-compatible ``tools`` on current wheels.  The
+    # runtime still probes the call and raises ToolsNotSupportedError when an
+    # older build or chat template rejects it; Agent then uses JSON fallback.
+    supports_tools = True
 
     def __init__(
         self,
@@ -301,6 +306,44 @@ class LocalQwenBackend(LLMBackend):
             raise ValueError("direct(): пустой prompt")
         return self.chat([{"role": "user", "content": prompt}], system=system,
                          max_tokens=max_tokens, temperature=temperature)
+
+    def chat_with_tools(self, messages: List[Dict[str, Any]],
+                        tools: List[Dict[str, Any]],
+                        system: Optional[str] = None,
+                        tool_choice: str | Dict[str, Any] = "auto",
+                        max_tokens: Optional[int] = None,
+                        temperature: Optional[float] = None) -> ToolCallResponse:
+        """Call llama.cpp's structured tool interface when available.
+
+        No text marker is accepted here.  A malformed native response is
+        treated as a provider capability error so the caller can fall back to
+        the established structured-JSON planner without inventing a tool.
+        """
+        payload = prepend_system(normalize_messages(messages), system)
+        if not payload:
+            raise ValueError("chat_with_tools(): пустой список сообщений")
+        if not tools:
+            raise ValueError("chat_with_tools(): список инструментов пуст")
+
+        llama = self._load()
+        kwargs = self._completion_kwargs(max_tokens, temperature)
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = tool_choice
+        try:
+            with self._lock:
+                response = llama.create_chat_completion(messages=payload, **kwargs)
+        except TypeError as exc:
+            raise ToolsNotSupportedError(
+                f"llama.cpp wheel does not accept native tools: {exc}"
+            ) from exc
+        except (ValueError, RuntimeError, OSError) as exc:
+            raise BackendUnavailable(f"Нативный tool call не выполнен: {exc}") from exc
+        if not isinstance(response, dict):
+            raise ToolsNotSupportedError("llama.cpp вернул неожиданный native tool response")
+        try:
+            return parse_tool_calls(response)
+        except ValueError as exc:
+            raise ToolsNotSupportedError(f"Нативный tool response невалиден: {exc}") from exc
 
     def streaming(self, messages: List[Dict[str, Any]], system: Optional[str] = None,
                   max_tokens: Optional[int] = None,

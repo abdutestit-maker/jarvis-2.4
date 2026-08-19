@@ -1,7 +1,7 @@
 {
   "release": "JARVIS 4.0.0",
   "pass": true,
-  "source_commit": "0cdb3202f875453a2218590f0a55cd53021fe1a6",
+  "source_commit": "446d434b259e849a862fbbe7427985cbfed8a9ef",
   "previous_commit": "308405a",
   "roles": [
     "manifest.json",
@@ -11,8 +11,8 @@
   ],
   "installer": {
     "path": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._4.0.0_x64-setup.exe",
-    "size_bytes": 2565346470,
-    "sha256": "336087db6aad5ea17424215658e1ffadd81da083634aefc80144d141de5a40c6",
+    "size_bytes": 2565467027,
+    "sha256": "8ad80d0c0582f196b9d9e68beb603cb773599c8fd58074ae75e1d8a412900e7b",
     "type": "7zip_sfx"
   },
   "model": {
@@ -28,11 +28,12 @@
     "profile": "ru_RU-denis-medium"
   },
   "checks": [
-    "full regression 541/2/0",
+    "full regression 542/2/0",
     "behavior harness",
     "20-run real latency budgets",
     "Denis Piper voice smoke",
     "frontend build/protocol",
+    "Tauri frontend → bundled backend smoke",
     "7z archive test",
     "clean extraction/backend readiness",
     "artifact hygiene"

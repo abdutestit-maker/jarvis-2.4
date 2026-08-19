@@ -1,7 +1,7 @@
 {
   "release": "JARVIS 4.0.0",
   "status": "release_candidate_verified",
-  "source_commit": "0cdb3202f875453a2218590f0a55cd53021fe1a6",
+  "source_commit": "446d434b259e849a862fbbe7427985cbfed8a9ef",
   "baseline": {
     "commit": "308405a",
     "tests_before": {
@@ -10,22 +10,22 @@
       "failed": 0
     },
     "tests_after": {
-      "passed": 541,
+      "passed": 542,
       "skipped": 2,
       "failed": 0
     },
     "full_pytest_exit_code": 0,
-    "full_pytest_duration_sec": 73.9
+    "full_pytest_duration_sec": 83.66
   },
   "tests": {
     "full_regression": {
       "command": "python -m pytest -o addopts= -rA",
       "exit_code": 0,
-      "passed": 541,
+      "passed": 542,
       "skipped": 2,
       "failed": 0,
       "warnings": 2,
-      "duration_sec": 73.9
+      "duration_sec": 83.66
     },
     "frontend_build": {
       "command": "npm run build",
@@ -168,8 +168,8 @@
   },
   "installer": {
     "path": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._4.0.0_x64-setup.exe",
-    "size_bytes": 2565346470,
-    "sha256": "336087db6aad5ea17424215658e1ffadd81da083634aefc80144d141de5a40c6",
+    "size_bytes": 2565467027,
+    "sha256": "8ad80d0c0582f196b9d9e68beb603cb773599c8fd58074ae75e1d8a412900e7b",
     "type": "7zip_sfx",
     "archive_test_exit_code": 0,
     "extraction_smoke_exit_code": 0,
@@ -190,7 +190,16 @@
       "port": "127.0.0.1:8771",
       "cleanup_verified": true
     },
-    "third_party_notices": "resources/jarvis-runtime/THIRD_PARTY_NOTICES.txt"
+    "third_party_notices": "resources/jarvis-runtime/THIRD_PARTY_NOTICES.txt",
+    "frontend_backend_smoke": {
+      "extract_exit": 0,
+      "frontend_started": true,
+      "backend_ready": true,
+      "ready_seconds": 30.0,
+      "port": "127.0.0.1:8771",
+      "launch_error_log_present": false,
+      "process_tree_cleanup": true
+    }
   },
   "frontend": {
     "production_backend": "real WebSocket only",
@@ -199,7 +208,8 @@
     "startup_greeting": false,
     "model_name_in_operator_ui": false,
     "tauri_version": "4.0.0",
-    "signal_core_icons": true
+    "signal_core_icons": true,
+    "bundled_backend_path_resolution": "runtime command is resolved against JARVIS_HOME before process spawn"
   },
   "capability_and_execution": {
     "cognitive_kernel": "single mission authority with SQLite WAL ledger",
@@ -240,7 +250,8 @@
     "Network research latency depends on the source; an 8-second per-source timeout returns a resumable research_pending task.",
     "Push-to-talk STT is disabled in the shipped offline profile until a local Whisper asset is bundled; TTS and typed commands work.",
     "The installer is unsigned; Windows SmartScreen may display the publisher warning.",
-    "Media verification confirms the local player launch surface, not speaker hardware output."
+    "Media verification confirms the local player launch surface, not speaker hardware output.",
+    "The first local model/Vulkan readiness can take roughly 25-28 seconds; the frontend reconnects while BOOTING and accepts commands after the backend handshake."
   ],
   "rollback": {
     "previous_commit": "308405a",

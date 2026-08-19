@@ -10,17 +10,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUIState } from '@/hooks/useUIState';
 import { useSessions } from '@/stores/sessionStore';
 import {
-  createRealBackend,
+  createBackend,
   TRANSPORT_STATE_MAP,
 } from '@/integrations/backend';
 import type {
   ActivityEvent, AttachedFile, EntityState, VitalsData, PendingConfirmation,
 } from '@/types';
 
-// ===== CONNECT BACKEND HERE =====
-// Live transport (Tauri event bus) is now wired inside createRealBackend();
-// it falls back to the mock adapter automatically outside Tauri (vite dev).
-const backend = createRealBackend();
+// Production always uses the local WebSocket. The mock exists only when
+// VITE_VISUAL_PREVIEW=1 is explicitly supplied for static visual review.
+const backend = createBackend();
 
 /** Настройки облака (провайдер/модель/ключ) — существующий WS-транспорт, протокол не меняется. */
 export const cloudSettingsApi = backend;

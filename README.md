@@ -12,13 +12,13 @@ python -m core.ws_server
 ```
 
 Для локального режима используется `config/settings.json` и один GGUF
-`Qwen3-4B-Instruct-2507-Q5_K_M` из `data/models`. Все логические роли (fast,
+`Ministral-3-3B-Reasoning-2512-Q4_K_M` из `data/models`. Все логические роли (fast,
 analyst, coder, architect и research) ссылаются на этот же физический файл:
 веса не дублируются и cloud API не вызывается по умолчанию. Параметр
 `warmup_local_on_start` прогревает FAST-тир во время
 старта процесса, поэтому первый пользовательский запрос не оплачивает
 загрузку модели. В поставляемом offline-конфиге `auto_download_models=false`:
-установщик уже содержит один 4B GGUF и не тянет тяжёлую модель на машину
+установщик уже содержит один 3B GGUF и не тянет тяжёлую модель на машину
 пользователя. Если администратор явно включает загрузку, менеджер выбирает
 профиль по RAM/VRAM, скачивает только из pinned `config/models_manifest.json`,
 докачивает через `.part` и принимает файл только после SHA-256 проверки.
@@ -27,11 +27,17 @@ analyst, coder, architect и research) ссылаются на этот же ф�
 показывает READY до фактического подключения.
 Новые модели не нужны.
 
-Провенанс текущего GGUF: [Unsloth Qwen3-4B-Instruct-2507-GGUF](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF).
+Провенанс текущего GGUF: [Ministral-3-3B-Reasoning-2512-GGUF](https://huggingface.co/mistralai/Ministral-3-3B-Reasoning-2512-GGUF).
 Манифест закрепляет официальный HTTPS-источник и SHA-256 для чистой установки;
 локально уже существующий файл не заменяется автоматически.
 
-### Backend + frontend
+### Один запуск
+
+После установки запускается один `J.A.R.V.I.S._4.0.0_x64-setup.exe`: Tauri поднимает
+локальный backend скрыто, ждёт readiness-handshake и открывает настоящее окно.
+Отдельные команды backend/frontend нужны только для разработки.
+
+### Backend + frontend (разработка)
 
 ```powershell
 # backend
@@ -67,12 +73,12 @@ cd jarvis
 npm run tauri:build
 ```
 
-Скрипт кладёт в Tauri resources один 4B GGUF, официальный `llama-server` и
+Скрипт кладёт в Tauri resources один 3B GGUF, официальный `llama-server` и
 его Vulkan DLL, а также компактное дерево `core/config`. В сгенерированный
 `settings.json` записаны `offline_mode=true`, `allow_cloud=false` и локальный
 loopback runtime; API-ключи туда не копируются. Для слабых машин можно добавить
-имеющийся 1.7B fallback флагом `--include-fallback`. Размер текущего 4B
-пакета — около 2.99 GB; Git его не отслеживает.
+имеющийся 1.7B fallback флагом `--include-fallback`. Размер текущего 3B
+пакета — около 2.15 GB плюс runtime; Git его не отслеживает.
 
 На Windows с GGUF больше 2 GB штатный NSIS может упереться в 32-битный mmap.
 Финальный установщик поэтому собирается отдельным 64-битным 7-Zip SFX-контейнером:
@@ -85,7 +91,7 @@ python scripts/build_portable_installer.py
 русский Piper и GGUF в `%LOCALAPPDATA%\JARVIS`, создаёт ярлык и запускает GUI.
 Backend собран PyInstaller `--noconsole`, а Tauri запускает его с
 `CREATE_NO_WINDOW`: при старте приложения консольные окна не появляются.
-Проверка архива: `7z t jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._3.0.0_x64-setup.exe`.
+Проверка архива: `7z t jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._4.0.0_x64-setup.exe`.
 
 ## Executive Mind
 

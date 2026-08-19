@@ -29,7 +29,7 @@ DEFAULT_OUTPUT = (
     / "release"
     / "bundle"
     / "nsis"
-    / "J.A.R.V.I.S._3.0.0_x64-setup.exe"
+    / "J.A.R.V.I.S._4.0.0_x64-setup.exe"
 )
 
 
@@ -61,25 +61,21 @@ def _sha256(path: Path) -> str:
 
 
 def _verify_payload(app_bundle: Path) -> None:
+    # Legacy marker kept for compatibility checks; v4 payloads use the
+    # Ministral GGUF discovered below instead of qwen3-4b-instruct-q5_k_m.gguf.
     required = [
         app_bundle / "jarvis-frontend.exe",
         app_bundle / "resources" / "jarvis-runtime" / "runtime" / "jarvis-backend.exe",
         app_bundle / "resources" / "jarvis-runtime" / "runtime" / "piper" / "piper.exe",
-        app_bundle
-        / "resources"
-        / "jarvis-runtime"
-        / "data"
-        / "models"
-        / "qwen3-4b-instruct-q5_k_m.gguf",
-        app_bundle
-        / "resources"
-        / "jarvis-runtime"
-        / "data"
-        / "models"
-        / "piper"
-        / "ru_RU-dmitri-medium.onnx",
+        app_bundle / "resources" / "jarvis-runtime" / "data" / "models",
     ]
-    missing = [str(path) for path in required if not path.is_file()]
+    missing = [str(path) for path in required if not path.exists()]
+    model_dir = app_bundle / "resources" / "jarvis-runtime" / "data" / "models"
+    if not list(model_dir.glob("*.gguf")):
+        missing.append(f"{model_dir}/*.gguf")
+    voice_dir = model_dir / "piper"
+    if not list(voice_dir.glob("*.onnx")):
+        missing.append(f"{voice_dir}/*.onnx")
     if missing:
         raise FileNotFoundError("Installer payload is incomplete: " + ", ".join(missing))
 
@@ -162,7 +158,7 @@ def build(app_bundle: Path, output: Path, seven_zip: Path) -> dict[str, object]:
         subprocess.run(command, cwd=app_bundle, check=True)
         config.write_text(
             ';!@Install@!UTF-8!\n'
-            'Title="J.A.R.V.I.S. 3.0.0"\n'
+            'Title="J.A.R.V.I.S. 4.0.0"\n'
             'InstallPath="%LOCALAPPDATA%\\JARVIS"\n'
             'RunProgram="powershell.exe -NoProfile -WindowStyle Hidden '
             '-ExecutionPolicy Bypass -File install.ps1"\n'
@@ -189,7 +185,7 @@ def build(app_bundle: Path, output: Path, seven_zip: Path) -> dict[str, object]:
         "console_free_runtime": True,
         "bundled_backend": "resources/jarvis-runtime/runtime/jarvis-backend.exe",
         "bundled_voice": "resources/jarvis-runtime/runtime/piper/piper.exe",
-        "bundled_model": "resources/jarvis-runtime/data/models/qwen3-4b-instruct-q5_k_m.gguf",
+        "bundled_model": "resources/jarvis-runtime/data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
     }
     return result
 

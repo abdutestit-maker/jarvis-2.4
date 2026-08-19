@@ -135,7 +135,7 @@ class ApiEndpoints(_Section):
 class ModelTiers(_Section):
     """Логические роли одной локальной модели.
 
-    В production все роли намеренно указывают на один Qwen GGUF. Это не
+    В production все роли намеренно указывают на один GGUF. Это не
     означает пять загрузок: фабрика разделяет физический backend по пути.
     """
 
@@ -178,7 +178,7 @@ class TierProviders(_Section):
 
 
 class LocalModelConfig(_Section):
-    """Параметры локальной Qwen 4B (llama-cpp-python)."""
+    """Параметры единственной локальной GGUF-модели (llama.cpp)."""
 
     gguf_path: str = "data/models/qwen3-4b-instruct-q5_k_m.gguf"
     # Автопрофиль выбирает самый сильный локальный GGUF, который уже есть на
@@ -341,6 +341,9 @@ class VoiceConfig(_Section):
     stt_model: str = "small"          # размер модели faster-whisper
     stt_device: str = "cpu"           # cpu / cuda
     piper_model_path: str = "data/models/piper/ru_RU-dmitri-medium.onnx"
+    # New production voice can be rolled out without invalidating older
+    # manifests that still expose piper_model_path.  The primary path wins.
+    primary_piper_model_path: str = ""
     piper_binary_path: str = "piper"
     speed: float = 1.0
     volume: float = 1.0
@@ -353,7 +356,13 @@ class VoiceConfig(_Section):
 
     @property
     def resolved_piper_model(self) -> Optional[Path]:
+        # Legacy callers use this field as the compatibility/default path.
         return resolve_path(self.piper_model_path)
+
+    @property
+    def resolved_primary_piper_model(self) -> Optional[Path]:
+        """Actual production voice path; falls back to the legacy field."""
+        return resolve_path(self.primary_piper_model_path or self.piper_model_path)
 
 
 class PathsConfig(_Section):
@@ -647,6 +656,9 @@ class Settings(BaseModel):
     #: Главный логический тир для bare Settings()/library compatibility.
     #: Production config/settings.json overrides this to the local FAST path.
     primary_brain: str = "analyst"
+    #: Physical local model family.  ``qwen`` keeps library compatibility;
+    #: the JARVIS 4 production profile sets ``ministral``.
+    model_family: str = "qwen"
     #: Production config enables local-only mode explicitly. Bare Settings()
     #: remains backwards-compatible for provider/router tests and integrations.
     offline_mode: bool = False

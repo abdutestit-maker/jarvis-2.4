@@ -44,6 +44,12 @@ from core.actions.reminders import TaskManager, get_default_manager
 from core.utils.logger import get_logger
 from core.brain import build_brain_fabric
 from core.intelligence import EvidenceRecord, LatencyBudget, TutorEngine, UniversalIntake
+from core.cognitive_kernel import (
+    CapabilityGraph,
+    CapabilityManifest,
+    CognitiveKernel,
+    EvidenceRecordV2,
+)
 
 __all__ = ["Orchestrator"]
 
@@ -85,6 +91,16 @@ class Orchestrator:
         self._session = None  # будет создан в start()
         self._memory = MemoryRetriever(settings)
         self._registry = DEFAULT_REGISTRY
+
+        # Canonical mission authority. Existing TaskRuntime remains the
+        # compatibility execution surface while every submitted goal gets an
+        # idempotent ledger record for resume/undo/evidence.
+        self._kernel = CognitiveKernel(
+            settings.data_dir / "cognitive_kernel",
+            capability_graph=CapabilityGraph(),
+            intake=UniversalIntake(),
+        )
+        self._register_kernel_capabilities()
 
         # --- Агентное ядро J.A.R.V.I.S. 3.0 (§3, §6) ---
         # Агент исполняет миссии, TaskRuntime даёт им асинхронную жизнь.
@@ -155,7 +171,7 @@ class Orchestrator:
         self._warmup_thread: Optional[threading.Thread] = None
         self._warmup_diagnostics: Dict[str, Any] = {
             "backend": "unknown",
-            "model": "local-qwen",
+            "model": "local-runtime",
             "n_gpu_layers": 0,
             "warmup_ms": 0.0,
             "ready_before_first_request": False,
@@ -163,6 +179,33 @@ class Orchestrator:
         self._warmup_ready = threading.Event()
         self._intake = UniversalIntake()
         self._tutor = TutorEngine()
+
+    def _register_kernel_capabilities(self) -> None:
+        """Project the real action registry into the canonical capability graph."""
+        family_by_name = {
+            "current_time": "system", "volume": "system", "system_status": "system",
+            "open_app": "operate", "close_app": "operate", "play_music": "media",
+            "web_search": "research", "web_fetch": "research", "add_reminder": "monitor",
+            "browser_automation": "operate", "browser_bridge": "operate",
+        }
+        for tool in self._registry.list_tools():
+            name = str(getattr(tool, "name", "") or "")
+            if not name:
+                continue
+            family = family_by_name.get(name, "operate")
+            self._kernel.capabilities.register(CapabilityManifest(
+                name=name,
+                intent_families=(family,),
+                inputs=dict(getattr(tool, "input_schema", {}) or {}),
+                outputs={"state": "verified_state"},
+                preconditions=("runtime_ready",),
+                postconditions=("observed", "verified"),
+                risk="low" if family in {"system", "media", "research"} else "medium",
+                confirmation_policy="policy",
+                verification=("execute", "observe", "verify"),
+                rollback=("available_when_declared",),
+                reliability=0.8,
+            ))
 
     # --------------------------------------------------------------------- #
     #  Публичный API
@@ -242,7 +285,10 @@ class Orchestrator:
                     from core.llm.hardware_profile import apply_profile, recommend_profile
                     from core.utils.model_manager import ModelManager
 
-                    profile = recommend_profile(models_dir=self._settings.models_dir)
+                    profile = recommend_profile(
+                        models_dir=self._settings.models_dir,
+                        model_family=str(getattr(self._settings, "model_family", "qwen") or "qwen"),
+                    )
                     configured = getattr(self._settings.local_model, "resolved_gguf_path", None)
                     configured_exists = bool(configured is not None and configured.is_file())
                     if (profile.download_required
@@ -279,13 +325,17 @@ class Orchestrator:
                 else:
                     configured_layers = int(raw_layers or 0)
                 runtime_backend = str(info.get("runtime_backend", "") or "").casefold()
+                safe_runtime = {
+                    str(key): value for key, value in info.items()
+                    if str(key).casefold() not in {"model", "model_path", "gguf_path", "filename"}
+                }
                 self._warmup_diagnostics.update({
                     "backend": "cuda" if configured_layers != 0 or runtime_backend in {"cuda", "vulkan", "metal"} else "cpu",
-                    "model": str(getattr(backend, "model", "local-qwen")),
+                    "model": "local-runtime",
                     "n_gpu_layers": configured_layers,
                     "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
                     "ready_before_first_request": True,
-                    "runtime": info,
+                    "runtime": safe_runtime,
                     "state": "ready",
                 })
             except Exception as exc:
@@ -367,6 +417,10 @@ class Orchestrator:
             self._brain.close()
         except Exception as exc:
             log.debug("Brain Fabric shutdown cleanup skipped: %s", exc)
+        try:
+            self._kernel.close()
+        except Exception as exc:
+            log.debug("Cognitive kernel shutdown cleanup skipped: %s", exc)
 
         log.info("Оркестратор остановлен")
 
@@ -687,11 +741,16 @@ class Orchestrator:
 
             unsubscribe = self._runtime.subscribe(_filtered)
 
+        kernel_handle = self._kernel.submit(goal, context={"channel": "text"})
+        kernel_record = self._kernel.ledger.load(kernel_handle.id)
+        contract_payload = dict(kernel_record.contract) if kernel_record is not None else self._intake.classify(goal).to_dict()
         mission = self._runtime.submit(
             goal=goal,
             runner=self._mission_runner,
             metadata={"intent": intent, "source": "user",
-                      "task_contract": self._intake.classify(goal).to_dict()},
+                      "task_contract": contract_payload,
+                      "kernel_mission_id": kernel_handle.id,
+                      "kernel_task_id": kernel_handle.task_id},
         )
         mission.acknowledgement = ack
 
@@ -717,6 +776,12 @@ class Orchestrator:
 
     def _mission_runner(self, mission: Mission, cancel: threading.Event) -> str:
         """Исполнитель миссии: агент + память + озвучка результата."""
+        kernel_mission_id = str(mission.metadata.get("kernel_mission_id", ""))
+        if kernel_mission_id:
+            try:
+                self._kernel.transition(kernel_mission_id, "running", next_action="execute")
+            except Exception as exc:
+                log.debug("Kernel mission transition skipped: %s", exc)
         # Контекст диалога — в краткую память до начала работы.
         if self._session is not None:
             self._session.push("user", mission.goal)
@@ -725,6 +790,25 @@ class Orchestrator:
 
         verification = mission.verification or {}
         verified = bool(verification.get("verified") is True)
+        if kernel_mission_id:
+            try:
+                evidence = EvidenceRecordV2(
+                    claim="mission desired state verified" if verified else "mission requires verification",
+                    source="task_runtime",
+                    confidence=1.0 if verified else 0.25,
+                    expected_state={"verified": True},
+                    observed_state={"verified": verified, "status": mission.status.value},
+                    path="deliberate",
+                )
+                self._kernel.record_evidence(kernel_mission_id, evidence)
+                self._kernel.transition(
+                    kernel_mission_id,
+                    "verified" if verified else "verification_failed",
+                    next_action="" if verified else "repair or research",
+                    observed_state={"verified": verified, "status": mission.status.value},
+                )
+            except Exception as exc:
+                log.debug("Kernel mission evidence skipped: %s", exc)
         if not cancel.is_set():
             self._cognitive.record_external_outcome(
                 goal=mission.goal, result=result_text, verified=verified,
@@ -947,6 +1031,8 @@ class Orchestrator:
         return {
             "warmup": dict(self._warmup_diagnostics),
             "warmup_ready": self._warmup_ready.is_set(),
+            "kernel": {"ledger": str(self._kernel.root / "missions.db"),
+                       "capabilities": len(self._kernel.capabilities.snapshot())},
             "budgets": {
                 "fast": {"p50_ms": 600.0, "p95_ms": 1000.0, "hard_max_ms": 1500.0},
                 "deliberate": {"first_progress_p95_ms": 2500.0, "p50_ms": 8000.0, "p95_ms": 15000.0},
@@ -974,6 +1060,11 @@ class Orchestrator:
                 )
             self._warmup_ready.wait(timeout=max(0.0, float(configured)))
         return str(self._warmup_diagnostics.get("state", "starting"))
+
+    @property
+    def kernel(self) -> CognitiveKernel:
+        """Canonical mission/evidence authority for integrations and tests."""
+        return self._kernel
 
     @property
     def intake(self) -> UniversalIntake:

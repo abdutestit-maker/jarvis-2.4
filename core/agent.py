@@ -676,6 +676,15 @@ class Agent:
         if cancel.is_set():
             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
 
+        # Explicit unknown-capability wording is not small talk.  Route it to
+        # the resumable research path before the conversation gate can turn it
+        # into a vague model reply.
+        if intent == "none" and any(marker in goal.casefold() for marker in (
+            "неизвестная команда", "неизвестную команду", "capability research",
+        )):
+            trace.append("unknown capability marker -> research")
+            return self._handle_unknown(goal, [], mission, trace, reason="нет зарегистрированной способности")
+
         # ---- 4. SKILL: есть ли готовый навык под эту цель (§9) ----
         skill = self._match_skill(goal)
         if skill is not None:

@@ -127,12 +127,17 @@ def stage(*, output: Path, include_fallback: bool = False,
     if include_fallback and fallback.is_file() and fallback.resolve() != model.resolve():
         files.append(fallback)
     dlls = sorted(server.parent.glob("*.dll"))
-    voice_model = ROOT / "data" / "models" / "piper" / "ru_RU-dmitri-medium.onnx"
+    configured_voice = getattr(settings.voice, "resolved_primary_piper_model", None)
+    if configured_voice is None:
+        configured_voice = getattr(settings.voice, "resolved_piper_model", None)
+    voice_model = Path(configured_voice) if configured_voice is not None else (
+        ROOT / "data" / "models" / "piper" / "ru_RU-denis-medium.onnx"
+    )
     voice_config = voice_model.with_name(voice_model.name + ".json")
     voice_runtime = ROOT / "data" / "runtime" / "piper"
     if not voice_model.is_file() or not voice_config.is_file():
         raise FileNotFoundError(
-            "Русский Piper voice не найден: data/models/piper/ru_RU-dmitri-medium.onnx(.json)"
+            f"Русский Piper voice не найден: {voice_model}(.json)"
         )
     if not (voice_runtime / "piper.exe").is_file():
         raise FileNotFoundError("Проверенный Piper runtime не найден: data/runtime/piper/piper.exe")
@@ -153,9 +158,12 @@ def stage(*, output: Path, include_fallback: bool = False,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "offline": True,
         "cloud_api": False,
-        "server": {"source": str(server), "filename": "runtime/llama-server.exe"},
-        "backend": {"source": str(backend), "filename": "runtime/jarvis-backend.exe", "windowless": True},
-        "voice": {"provider": "piper", "language": "ru", "model": "data/models/piper/ru_RU-dmitri-medium.onnx", "runtime": "runtime/piper/piper.exe"},
+        # The manifest is shipped to another machine.  Keep it reproducible
+        # without leaking the builder's drive, user profile, or workspace.
+        "server": {"source": "bundled llama.cpp", "filename": "runtime/llama-server.exe"},
+        "backend": {"source": "bundled PyInstaller backend", "filename": "runtime/jarvis-backend.exe", "windowless": True},
+        "voice": {"provider": "piper", "language": "ru", "model": f"data/models/piper/{voice_model.name}", "runtime": "runtime/piper/piper.exe"},
+        "model_family": str(getattr(settings, "model_family", "ministral") or "ministral"),
         "models": [],
         "files": [],
     }
@@ -164,7 +172,7 @@ def stage(*, output: Path, include_fallback: bool = False,
             "filename": f"data/models/{item.name}",
             "size_bytes": item.stat().st_size,
             "sha256": _sha256(item),
-            "source": str(item),
+            "source": "official Ministral GGUF",
         })
     for item in [server, *dlls]:
         manifest["files"].append({"filename": f"runtime/{item.name}", "size_bytes": item.stat().st_size, "sha256": _sha256(item)})
@@ -212,11 +220,15 @@ def stage(*, output: Path, include_fallback: bool = False,
         if source.is_dir():
             shutil.copytree(source, output / source_name, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "settings.json"))
+    notices = ROOT / "THIRD_PARTY_NOTICES.txt"
+    if notices.is_file():
+        shutil.copy2(notices, output / notices.name)
 
     config = json.loads((ROOT / "config" / "settings.example.json").read_text(encoding="utf-8"))
     config["offline_mode"] = True
     config["auto_download_models"] = False
-    config["model_tiers"] = {key: "Qwen3-4B-Instruct-2507-Q5_K_M" for key in ("fast", "analyst", "coder", "architect", "research")}
+    config["model_family"] = "ministral"
+    config["model_tiers"] = {key: "Ministral-3-3B-Reasoning-2512" for key in ("fast", "analyst", "coder", "architect", "research")}
     config["tier_providers"] = {key: "local" for key in ("fast", "analyst", "coder", "architect", "research")}
     config["local_model"].update({
         "gguf_path": f"data/models/{model.name}",
@@ -235,14 +247,20 @@ def stage(*, output: Path, include_fallback: bool = False,
         # phantom analysis run in the UI and made the voice path feel broken.
         "greeting_enabled": False,
     })
+    config.setdefault("logging", {}).update({
+        "console": False,
+    })
     config.setdefault("voice", {}).update({
         "tts_enabled": True,
         "tts_always_on": True,
         "provider": "piper",
         "language": "ru",
-        "voice": "ru_RU-dmitri-medium",
+        "voice": voice_model.stem,
         "fallback": "none",
+        # Keep the legacy field for additive compatibility; PiperTTS uses the
+        # explicit primary path for the shipped voice.
         "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
+        "primary_piper_model_path": f"data/models/piper/{voice_model.name}",
         "piper_binary_path": "runtime/piper/piper.exe",
     })
     (output / "config").mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Живой прогон команд через Orchestrator + замер latency (headless).
 
-Гоняет реальный локальный путь (Qwen3 GGUF), без фронтенда.
+Гоняет реальный локальный путь (производственный Ministral GGUF), без фронтенда.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ COMMANDS = [
     "Открой блокнот",
     "Открой блокнот и поставь музыку",
     "Что такое энтропия простыми словами?",
-    "Неизвестная команда для проверки capability research",
+    "Неизвестная команда",
 ]
 
 FAST_BUDGET = LatencyBudget("fast", 600.0, 1000.0, 1500.0)
@@ -82,8 +82,11 @@ def _assert_behavior(item: dict) -> list[str]:
         failures.append("search returned an unstructured failure instead of result or resumable fallback")
     if "найди книгу" in cmd and not meta.get("verified") and "research-" not in response and "повтор" not in response:
         failures.append("offline search did not expose a resumable task")
-    if "неизвестная команда" in cmd and (meta.get("tool") or meta.get("verified")):
-        failures.append("unknown request reported a tool success")
+    if "неизвестная команда" in cmd:
+        if meta.get("tool") or meta.get("verified"):
+            failures.append("unknown request reported a tool success")
+        if meta.get("mode") != "unknown_task" and "research" not in response and "способ" not in response:
+            failures.append("unknown request did not create capability research")
     if compound_music:
         if meta.get("tool") != "command_batch" or meta.get("verified") is not True:
             failures.append("compound request did not verify every clause")
@@ -216,6 +219,7 @@ def main() -> int:
     target = Path(args.output)
     if not target.is_absolute():
         target = PROJECT_ROOT / target
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"WROTE {target}")
     return 0 if report["pass"] else 1

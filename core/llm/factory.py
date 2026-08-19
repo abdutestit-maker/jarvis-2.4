@@ -212,7 +212,7 @@ def get_llm_backend(settings: Settings, tier: Union[str, Tier] = Tier.FAST,
         backend = _build_backend(settings, provider, model_id, _MODE_CHAT, policy,
                                  task_role=resolved)
         _cache[key] = backend
-        log.info("Создан бэкенд для тира '%s': %s", tier_key, backend.name)
+        log.info("Создан локальный бэкенд для тира '%s'", tier_key) if provider == LOCAL_PROVIDER else log.info("Создан удалённый бэкенд для тира '%s'", tier_key)
         return backend
 
 
@@ -289,7 +289,7 @@ def get_offline_backend(settings: Settings) -> LLMBackend:
                 draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
             )
         _cache[key] = backend
-        log.info("Создан офлайн-бэкенд TIER 4: %s", backend.name)
+        log.info("Создан офлайн-бэкенд TIER 4")
         return backend
 
 
@@ -376,7 +376,7 @@ def warm_up_backends(settings: Settings, tiers: Optional[List[Union[str, Tier]]]
             backend = get_llm_backend(settings, tier)
             backend.warm_up()
             report[tier_key] = True
-            log.info("Тир '%s' прогрет: %s", tier_key, backend.name)
+            log.info("Тир '%s' прогрет", tier_key)
         except (BackendConfigError, BackendUnavailable, ValueError) as exc:
             report[tier_key] = False
             log.error("Прогрев тира '%s' не удался: %s", tier_key, exc)

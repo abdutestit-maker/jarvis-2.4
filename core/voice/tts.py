@@ -145,7 +145,9 @@ class PiperTTS:
             return
 
         # Основной голос (для обратной совместимости)
-        main_model = getattr(voice_cfg, "resolved_piper_model", None)
+        main_model = getattr(voice_cfg, "resolved_primary_piper_model", None)
+        if main_model is None:
+            main_model = getattr(voice_cfg, "resolved_piper_model", None)
         if main_model and main_model.exists():
             config_path = main_model.with_suffix(main_model.suffix + ".json")
             if not config_path.exists():

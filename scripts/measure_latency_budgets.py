@@ -43,6 +43,7 @@ def main() -> int:
                   "budget": {"p50_ms": 600, "p95_ms": 1000, "hard_max_ms": 1500},
                   "warmup_excluded": False}
     target = Path(args.output)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["pass"] else 1

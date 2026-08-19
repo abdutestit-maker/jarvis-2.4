@@ -137,6 +137,9 @@ class ModelProfile:
     #: Нужна ли докачка модели (файла нет в models_dir).
     download_required: bool = False
     reasons: List[str] = field(default_factory=list)
+    #: Physical family selected by the release profile.  Compatibility callers
+    #: keep the historical Qwen default; production v4 opts into Ministral.
+    model_family: str = "qwen"
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -148,6 +151,7 @@ class ModelProfile:
             "draft_model": self.draft_model,
             "download_required": self.download_required,
             "reasons": list(self.reasons),
+            "model_family": self.model_family,
         }
 
     def summary(self) -> str:
@@ -263,7 +267,8 @@ def _pick_from_ladder(vram: float, ram: float) -> tuple[_ModelSpec, bool, str]:
 
 
 def recommend_profile(hw: Optional[HardwareInfo] = None,
-                      models_dir: Optional[Path] = None) -> ModelProfile:
+                      models_dir: Optional[Path] = None,
+                      model_family: str = "qwen") -> ModelProfile:
     """Выбирает модель и параметры llama.cpp под железо КОНКРЕТНОГО юзера.
 
     Универсальность: одна сборка обслуживает и слабый ноутбук, и мощный ПК.
@@ -290,7 +295,26 @@ def recommend_profile(hw: Optional[HardwareInfo] = None,
     vram = hw.vram_total_gb or 0.0
     ram = hw.total_ram_gb or 0.0
 
-    spec, on_gpu, reason = _pick_from_ladder(vram, ram)
+    family = str(model_family or "qwen").strip().casefold()
+    if family in {"ministral", "mistral", "ministral3"}:
+        # One compact edge model.  The CPU context stays conservative so an
+        # 8 GB Windows laptop keeps RAM for the shell and user applications.
+        spec = _ModelSpec(
+            "ministral3-3b-reasoning",
+            "Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
+            "core", 2.5, 4.5, 8192, 4096,
+        )
+        if vram >= spec.min_vram_gb:
+            on_gpu = True
+            reason = f"VRAM {vram} ГБ ≥ {spec.min_vram_gb} — Ministral целиком на GPU"
+        elif ram >= spec.min_ram_gb:
+            on_gpu = False
+            reason = f"RAM {ram} ГБ ≥ {spec.min_ram_gb} — Ministral на CPU"
+        else:
+            on_gpu = False
+            reason = "запас RAM не подтверждён — сохраняем безопасный CPU-профиль Ministral"
+    else:
+        spec, on_gpu, reason = _pick_from_ladder(vram, ram)
     reasons: List[str] = [reason]
 
     if on_gpu:
@@ -316,7 +340,7 @@ def recommend_profile(hw: Optional[HardwareInfo] = None,
 
     profile = ModelProfile(
         tier=tier, core_model=spec.filename, n_gpu_layers=n_gpu_layers,
-        n_ctx=n_ctx, n_batch=n_batch, draft_model=draft,
+        n_ctx=n_ctx, n_batch=n_batch, draft_model=draft, model_family=family,
     )
     profile.download_required = not _model_present(models_dir, spec.filename)
     if profile.download_required:
@@ -337,6 +361,7 @@ def apply_profile(settings: object, *, logger: object | None = None) -> ModelPro
     models_dir = Path(getattr(settings, "models_dir", Path("data/models")))
     profile = recommend_profile(
         models_dir=models_dir,
+        model_family=str(getattr(settings, "model_family", "qwen") or "qwen"),
     )
     local = getattr(settings, "local_model", None)
     if local is None or not bool(getattr(local, "auto_profile", True)):

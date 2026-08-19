@@ -12,6 +12,12 @@ from typing import Any
 from .redaction import redact
 
 
+# Multiple background mission writers can converge on the same state file.
+# Windows refuses one of the concurrent replace operations intermittently;
+# serialising the tiny commit section keeps the WAL-like JSON stores durable.
+_ATOMIC_LOCK = threading.RLock()
+
+
 def _flush_directory(directory: Path) -> None:
     if os.name == "nt":
         return
@@ -27,21 +33,32 @@ def _flush_directory(directory: Path) -> None:
 
 def atomic_write_bytes(path: str | Path, data: bytes) -> Path:
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, raw_tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
-    tmp = Path(raw_tmp)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(tmp, target)
-        _flush_directory(target.parent)
-    finally:
+    with _ATOMIC_LOCK:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, raw_tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+        tmp = Path(raw_tmp)
         try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            last_error: OSError | None = None
+            for attempt in range(4):
+                try:
+                    os.replace(tmp, target)
+                    last_error = None
+                    break
+                except PermissionError as exc:
+                    last_error = exc
+                    time.sleep(0.015 * (attempt + 1))
+            if last_error is not None:
+                raise last_error
+            _flush_directory(target.parent)
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
     return target
 
 

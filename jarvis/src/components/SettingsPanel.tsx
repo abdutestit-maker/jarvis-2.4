@@ -123,10 +123,17 @@ function CloudSection() {
               <span>Провайдер</span>
               <input className={styles.text} value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Провайдер" />
             </label>
-            <label className={styles.field}>
-              <span>Модель</span>
-              <input className={styles.text} value={model} onChange={(e) => setModel(e.target.value)} aria-label="Модель" />
-            </label>
+            {provider !== 'local' ? (
+              <label className={styles.field}>
+                <span>Модель</span>
+                <input className={styles.text} value={model} onChange={(e) => setModel(e.target.value)} aria-label="Модель" />
+              </label>
+            ) : (
+              <div className={styles.field} aria-label="Локальный runtime">
+                <span>Модель</span>
+                <div className={styles.value}>Локальный runtime</div>
+              </div>
+            )}
           </div>
           <label className={styles.field}>
             <span>Base URL</span>

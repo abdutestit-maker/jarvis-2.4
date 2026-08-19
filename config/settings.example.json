@@ -1,28 +1,24 @@
 {
   "_comment": "Скопируйте этот файл в config/settings.json и заполните ключи. Пустой ключ = тир недоступен, совет мудрецов его пропустит.",
-
   "api_keys": {
     "deepseek": "",
     "kimi": "",
     "claude": "",
     "openrouter": ""
   },
-
   "api_endpoints": {
     "deepseek": "https://api.deepseek.com/v1",
     "kimi": "https://api.moonshot.ai/v1",
     "claude": "https://api.anthropic.com/v1",
     "openrouter": "https://openrouter.ai/api/v1"
   },
-
   "model_tiers": {
-    "fast": "Qwen3-4B-Instruct-2507-Q5_K_M",
-    "analyst": "Qwen3-4B-Instruct-2507-Q5_K_M",
-    "coder": "Qwen3-4B-Instruct-2507-Q5_K_M",
-    "architect": "Qwen3-4B-Instruct-2507-Q5_K_M",
-    "research": "Qwen3-4B-Instruct-2507-Q5_K_M"
+    "fast": "Ministral-3-3B-Reasoning-2512",
+    "analyst": "Ministral-3-3B-Reasoning-2512",
+    "coder": "Ministral-3-3B-Reasoning-2512",
+    "architect": "Ministral-3-3B-Reasoning-2512",
+    "research": "Ministral-3-3B-Reasoning-2512"
   },
-
   "tier_providers": {
     "fast": "local",
     "analyst": "local",
@@ -30,14 +26,12 @@
     "architect": "local",
     "research": "local"
   },
-
   "primary_brain": "fast",
   "offline_mode": true,
   "warmup_local_on_start": true,
   "auto_download_models": false,
-
   "local_model": {
-    "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+    "gguf_path": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
     "auto_profile": true,
     "runtime_backend": "auto",
     "server_binary_path": "",
@@ -55,31 +49,30 @@
     "n_ctx": 4096,
     "n_threads": 0,
     "n_batch": 256,
-    "quantization": "Q5_K_M",
+    "quantization": "Q4_K_M",
     "temperature": 0.25,
     "max_tokens": 384,
     "chat_format": null,
     "verbose": false
   },
   "local_coder_model": {
-    "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+    "gguf_path": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
     "n_gpu_layers": 0,
     "n_ctx": 4096,
     "n_threads": 0,
     "n_batch": 256,
-    "quantization": "Q5_K_M",
+    "quantization": "Q4_K_M",
     "temperature": 0.2,
     "max_tokens": 768,
     "chat_format": null,
     "verbose": false
   },
-
   "voice": {
     "tts_enabled": true,
     "tts_always_on": true,
     "provider": "piper",
     "language": "ru",
-    "voice": "ru_RU-dmitri-medium",
+    "voice": "ru_RU-denis-medium",
     "fallback": "none",
     "stt_enabled": false,
     "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
@@ -92,15 +85,33 @@
     "piper_noise_w": 0.8,
     "piper_voices": [],
     "modes": {
-      "normal": {"rate": 1.0, "volume": 1.0},
-      "focused": {"rate": 1.03, "volume": 1.0},
-      "quiet": {"rate": 0.96, "volume": 0.72},
-      "urgent": {"rate": 1.04, "volume": 1.0},
-      "amused": {"rate": 1.02, "volume": 0.95},
-      "background": {"rate": 0.98, "volume": 0.85}
-    }
+      "normal": {
+        "rate": 1.0,
+        "volume": 1.0
+      },
+      "focused": {
+        "rate": 1.03,
+        "volume": 1.0
+      },
+      "quiet": {
+        "rate": 0.96,
+        "volume": 0.72
+      },
+      "urgent": {
+        "rate": 1.04,
+        "volume": 1.0
+      },
+      "amused": {
+        "rate": 1.02,
+        "volume": 0.95
+      },
+      "background": {
+        "rate": 0.98,
+        "volume": 0.85
+      }
+    },
+    "primary_piper_model_path": "data/models/piper/ru_RU-denis-medium.onnx"
   },
-
   "paths": {
     "data_dir": "data",
     "documents_dir": "data/documents",
@@ -110,19 +121,17 @@
     "profile_dir": "data/profile",
     "graph_dir": "data/graph"
   },
-
   "persona": {
-    "name": "АТЛАС",
+    "name": "JARVIS",
     "address": "сэр",
     "persona_file": "persona/persona.md",
     "language": "ru"
   },
-
   "limits": {
     "short_memory_size": 20,
     "response_timeout_sec": 15,
     "proactive_cooldown_min": 30,
-    "local_latency_target_sec": 1.5,
+    "local_latency_target_sec": 3.5,
     "max_retries": 3,
     "rag_top_k": 3,
     "memory_top_k": 5,
@@ -139,7 +148,6 @@
     "research_source_timeout_ms": 8000,
     "background_enqueue_p95_ms": 100
   },
-
   "stt": {
     "enabled": false,
     "model": "faster-whisper-small",
@@ -149,14 +157,14 @@
   },
   "wake_word": {
     "enabled": false,
-    "phrase": "ATLAS",
+    "phrase": "JARVIS",
     "sensitivity": 0.5
   },
   "shadow": {
     "enabled": false,
     "auto_generate": false,
     "interval_sec": 300,
-    "code_model_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf"
+    "code_model_path": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf"
   },
   "brain_policy": {
     "mode": "BALANCED",
@@ -170,11 +178,11 @@
     "providers_path": "data/brain/providers.json"
   },
   "system_triggers": [],
-
   "logging": {
     "level": "INFO",
-    "console": true,
+    "console": false,
     "max_bytes": 5242880,
     "backup_count": 5
-  }
+  },
+  "model_family": "ministral"
 }

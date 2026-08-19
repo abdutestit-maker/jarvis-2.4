@@ -1,0 +1,29 @@
+J.A.R.V.I.S. 4.0 — third-party notices
+
+This distribution is local-only. The following components remain under their
+upstream licenses; their names and license text are not shown in the normal
+operator interface.
+
+Ministral 3 3B Reasoning 2512 GGUF
+  License: Apache License 2.0
+  Source: https://huggingface.co/mistralai/Ministral-3-3B-Reasoning-2512-GGUF
+
+llama.cpp / llama-server
+  License: MIT
+  Source: https://github.com/ggml-org/llama.cpp
+
+Piper voice runtime and ru_RU-denis-medium voice
+  License: MIT (runtime); see the voice metadata distributed beside the ONNX
+  file for the voice-specific attribution and source.
+  Source: https://github.com/rhasspy/piper
+
+ONNX Runtime
+  License: MIT
+  Source: https://github.com/microsoft/onnxruntime
+
+eSpeak NG data bundled by Piper
+  License: GPL-3.0-or-later; source and notices are available at:
+  https://github.com/espeak-ng/espeak-ng
+
+The bundled runtime manifest records SHA-256 values for every binary, model,
+voice, and data file. No API keys, passwords, or personal data are included.

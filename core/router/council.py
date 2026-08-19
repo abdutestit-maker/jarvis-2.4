@@ -187,7 +187,8 @@ class CouncilRouter:
                 state["brain_reason_code"] = decision.reason_code
             else:
                 backend = get_llm_backend(self._settings, tier)
-            log.info("Отвечает тир '%s' (%s)", tier.value, backend.name)
+            log.info("Отвечает тир '%s' (%s)", tier.value,
+                     "local" if str(getattr(decision, "provider", "")).casefold() == "local" else "remote")
             system = _build_system_prompt(state, self._settings)
             messages = _state_to_messages(state)
             return backend.chat(messages, system=system)

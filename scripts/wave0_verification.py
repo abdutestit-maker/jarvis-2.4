@@ -34,8 +34,11 @@ def _run(command: list[str], *, timeout: int = 180) -> dict:
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="jarvis-wave0-") as temp:
-        behavior = _run([sys.executable, "scripts/_live_probe.py", "--dry-run", "--output", str(Path(temp) / "behavior.json")])
-        latency = _run([sys.executable, "scripts/measure_latency_budgets.py", "--dry-run", "--output", str(Path(temp) / "latency.json")])
+        # This gate uses the real local deterministic tools.  The historical
+        # _live_probe --dry-run fixture remains a visual protocol fixture and
+        # is deliberately not counted as behavioral evidence.
+        behavior = _run([sys.executable, "scripts/quality_probe.py", "--output", str(Path(temp) / "behavior.json")])
+        latency = _run([sys.executable, "scripts/measure_latency_budgets.py", "--output", str(Path(temp) / "latency.json")])
     regression = _run([sys.executable, "-m", "pytest", "-o", "addopts=", "-q", "--disable-warnings"], timeout=240)
     output = (regression.get("stdout_tail") or "")
     passed_count = 0
@@ -47,7 +50,8 @@ def main() -> int:
         passed_count, skipped_count, failed_count = map(lambda item: int(item or 0), match.groups())
     report = {
         "wave": 0,
-        "baseline": {"before_passed": 473, "before_skipped": 2, "before_failed": 0,
+        # Captured immediately before the v4 wave on the clean tree.
+        "baseline": {"before_passed": 528, "before_skipped": 2, "before_failed": 0,
                       "after_passed": passed_count, "after_skipped": skipped_count, "after_failed": failed_count},
         "regression": regression,
         "behavior": behavior,

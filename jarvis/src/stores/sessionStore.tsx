@@ -7,8 +7,8 @@
  * each session owns its own event timeline (eventsBySession). Switching
  * sessions actually swaps the rendered timeline — no fake affordance.
  *
- * With the mock backend a session is seeded on first mount; a real backend
- * would populate history per session id. Event counts are capped per
+ * A session is seeded only by the explicit visual-preview backend; the real
+ * backend populates history from local runtime events. Event counts are capped per
  * session (EVENT_CAP) so localStorage never blows its quota on long transcripts.
  */
 

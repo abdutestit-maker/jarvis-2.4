@@ -1,7 +1,7 @@
 {
   "release": "JARVIS 4.0.0",
   "status": "release_candidate_verified",
-  "source_commit": "740738ba58595187a2ab057823798bbf65250594",
+  "source_commit": "0cdb3202f875453a2218590f0a55cd53021fe1a6",
   "baseline": {
     "commit": "308405a",
     "tests_before": {
@@ -10,25 +10,22 @@
       "failed": 0
     },
     "tests_after": {
-      "passed": 536,
+      "passed": 541,
       "skipped": 2,
       "failed": 0
     },
     "full_pytest_exit_code": 0,
-    "full_pytest_duration_sec": 82.34
+    "full_pytest_duration_sec": 73.9
   },
   "tests": {
     "full_regression": {
       "command": "python -m pytest -o addopts= -rA",
       "exit_code": 0,
-      "passed": 536,
+      "passed": 541,
       "skipped": 2,
-      "failed": 0
-    },
-    "focused_runtime_voice_frontend": {
-      "passed": 45,
       "failed": 0,
-      "exit_code": 0
+      "warnings": 2,
+      "duration_sec": 73.9
     },
     "frontend_build": {
       "command": "npm run build",
@@ -40,6 +37,15 @@
       "wsProtocol": 5,
       "wsBackend": "passed",
       "operatorModel": 13
+    },
+    "tauri_no_bundle": {
+      "command": "npm run tauri:build -- --no-bundle",
+      "exit_code": 0
+    },
+    "new_contract_tests": {
+      "setup_mission": true,
+      "kernel_idempotency": true,
+      "research_resume": true
     }
   },
   "model": {
@@ -52,14 +58,14 @@
     "size_bytes": 2147021472,
     "sha256": "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc",
     "production_model_count": 1,
-    "runtime": "llama-server loopback 127.0.0.1:8782",
-    "gpu_backend": "Vulkan0 NVIDIA GeForce RTX 2060 SUPER",
+    "runtime": "bundled llama-server loopback 127.0.0.1:8782",
+    "gpu_backend": "vulkan/cuda llama-server",
     "gpu_layers": "all",
     "n_gpu_layers": -1,
     "warmup": {
       "ready_before_first_request": true,
-      "warmup_ms": 3271.3,
-      "cold_observed_ms": 25787.6,
+      "warmup_ms": 26260.716,
+      "cold_observed_ms": 26057.414,
       "note": "cold startup is paid before readiness, never by the first request"
     },
     "generation_samples": {
@@ -77,99 +83,114 @@
     "sha256": "15fab56e11a097858ee115545d0f697fc2a316c41a291a5362349fb870411b0a",
     "smoke": {
       "exit_code": 0,
-      "wav_bytes": 141076,
-      "riff": true,
-      "synthesis_ms": 2033,
+      "cold_latency_ms": 3406.24,
+      "warm_latency_ms": 500.833,
+      "sample_rate": 22050,
+      "channels": 1,
       "startup_greeting": false,
-      "hidden_reasoning_spoken": false
+      "hidden_reasoning_spoken": false,
+      "barge_in": true
     },
     "stt_default": "disabled until a local Whisper asset is explicitly bundled; text and TTS remain available"
   },
   "behavior_harness": {
-    "report": "runs/quality/live-v4-final-retry.json",
+    "report": "runs/quality/live-v4-final.json",
     "pass": true,
-    "boot_sec": 0.105,
-    "fast_latency": {
-      "path": "fast",
-      "count": 3,
-      "p50_ms": 580.0,
-      "p95_ms": 598.0,
-      "max_ms": 600.0,
-      "mean_ms": 576.667
-    },
+    "boot_sec": 0.426,
+    "cold_preflight_sec": 25.09,
     "cases": [
       {
-        "command": "Поставь музыку, настроения нет",
+        "command": "Поставь музыку",
         "tool": "play_music",
         "verified": true,
-        "reminder_called": false,
-        "seconds": 0.6
+        "reminder_called": false
       },
       {
         "command": "Который час?",
         "tool": "current_time",
-        "verified": true,
-        "seconds": 0.55
+        "verified": true
       },
       {
         "command": "Открой блокнот",
         "tool": "open_app",
-        "verified": true,
-        "seconds": 0.58
+        "verified": true
       },
       {
         "command": "Открой блокнот и поставь музыку",
         "tool": "command_batch",
-        "verified": true,
-        "seconds": 1.08
+        "verified": true
       },
       {
-        "command": "Что такое энтропия простыми словами?",
-        "irrelevant_memory_leaked": false,
-        "seconds": 0.01
+        "command": "Что такое энтропия?",
+        "irrelevant_memory_leaked": false
       },
       {
         "command": "Неизвестная команда",
         "tool": null,
         "verified": false,
         "mode": "unknown_task",
-        "capability_research": true,
-        "false_success": false,
-        "seconds": 0.61
+        "capability_research": true
       },
       {
-        "command": "Найди книгу 48 законов власти, хочу почитать",
+        "command": "Найди книгу 48 законов власти",
         "tool": "web_search",
         "verified": true,
-        "source_link_present": true,
-        "seconds": 1.93
+        "source_link_present": true
       }
     ],
     "success_contract": "execute + observe + verify; exit code and ActionResult.ok alone are not success"
   },
+  "latency_20_real": {
+    "report": "runs/quality/latency-20-real.json",
+    "fixture": false,
+    "pass": true,
+    "count": 20,
+    "summary": {
+      "path": "fast",
+      "count": 20,
+      "p50_ms": 545.21,
+      "p95_ms": 596.937,
+      "max_ms": 608.839,
+      "mean_ms": 538.85
+    },
+    "preflight": {
+      "command": "Открой блокнот",
+      "latency_ms": 1567.193,
+      "cold_start": true,
+      "verified": true
+    },
+    "warmup_excluded": true,
+    "budget": {
+      "p50_ms": 600,
+      "p95_ms": 1000,
+      "hard_max_ms": 1500
+    }
+  },
   "installer": {
     "path": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._4.0.0_x64-setup.exe",
-    "size_bytes": 2565329714,
-    "sha256": "009d09736b6787a686511265c72bc0115c8b78ea7873b2cdaf2a6c146c659d95",
+    "size_bytes": 2565346470,
+    "sha256": "336087db6aad5ea17424215658e1ffadd81da083634aefc80144d141de5a40c6",
     "type": "7zip_sfx",
     "archive_test_exit_code": 0,
     "extraction_smoke_exit_code": 0,
     "clean_extraction_required_files": true,
+    "single_gguf": true,
+    "bundled_model_sha256": "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc",
     "console_free_runtime": true,
     "install_path": "%LOCALAPPDATA%\\JARVIS",
     "bundled_backend": "resources/jarvis-runtime/runtime/jarvis-backend.exe",
     "bundled_voice": "resources/jarvis-runtime/runtime/piper/piper.exe",
-    "bundled_model": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
-    "single_gguf": true,
-    "runtime_manifest_sources_sanitized": true,
-    "third_party_notices": "resources/jarvis-runtime/THIRD_PARTY_NOTICES.txt",
+    "bundled_model": "resources/jarvis-runtime/data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
+    "desktop_shortcut": true,
+    "start_menu_shortcut": true,
     "backend_readiness_smoke": {
       "ready": true,
       "hidden_process_launch": true,
-      "first_extracted_observation_sec": 22.2,
+      "first_extracted_observation_sec": 25.93,
       "port": "127.0.0.1:8771",
       "cleanup_verified": true
-    }
+    },
+    "third_party_notices": "resources/jarvis-runtime/THIRD_PARTY_NOTICES.txt"
   },
   "frontend": {
     "production_backend": "real WebSocket only",
@@ -177,7 +198,31 @@
     "readiness_handshake": true,
     "startup_greeting": false,
     "model_name_in_operator_ui": false,
-    "tauri_version": "4.0.0"
+    "tauri_version": "4.0.0",
+    "signal_core_icons": true
+  },
+  "capability_and_execution": {
+    "cognitive_kernel": "single mission authority with SQLite WAL ledger",
+    "idempotent_mission_submission": true,
+    "semantic_undo": "explicit rollback executor required",
+    "setup_pipeline": [
+      "understand",
+      "trusted_source",
+      "verify_publisher",
+      "verify_hash",
+      "verify_signature",
+      "install",
+      "launch",
+      "inspect",
+      "desired_state_diff",
+      "configure",
+      "observe",
+      "verify",
+      "repair",
+      "learn"
+    ],
+    "research_gateway": "persistent resumable pending tasks with source evidence",
+    "system_status_fast_path": "system_status"
   },
   "artifact_policy": {
     "retained_roles": [
@@ -191,6 +236,7 @@
   },
   "known_limitations": [
     "Cold local model/Vulkan startup can take roughly 25-28 seconds; UI remains BOOTING and readiness is emitted before accepting the first deliberate request.",
+    "The first GUI preflight can take about 1.57 seconds after warmup; the 20-command fast gate measures the reusable path and remains below the 1.50-second hard max.",
     "Network research latency depends on the source; an 8-second per-source timeout returns a resumable research_pending task.",
     "Push-to-talk STT is disabled in the shipped offline profile until a local Whisper asset is bundled; TTS and typed commands work.",
     "The installer is unsigned; Windows SmartScreen may display the publisher warning.",
@@ -200,6 +246,7 @@
     "previous_commit": "308405a",
     "previous_installer": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._3.0.0_x64-setup.exe",
     "previous_installer_sha256": "cd87eda267821b826f8661e9f4d475ccdd0da2e3a6792fb6b242d8a7bc3394f5",
-    "script": "artifacts/verification/overnight/rollback.ps1"
+    "script": "artifacts/verification/overnight/rollback.ps1",
+    "dry_run_exit_code": 2
   }
 }

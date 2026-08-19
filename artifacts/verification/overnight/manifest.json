@@ -1,7 +1,7 @@
 {
   "release": "JARVIS 4.0.0",
   "pass": true,
-  "source_commit": "740738ba58595187a2ab057823798bbf65250594",
+  "source_commit": "0cdb3202f875453a2218590f0a55cd53021fe1a6",
   "previous_commit": "308405a",
   "roles": [
     "manifest.json",
@@ -11,8 +11,9 @@
   ],
   "installer": {
     "path": "jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._4.0.0_x64-setup.exe",
-    "size_bytes": 2565329714,
-    "sha256": "009d09736b6787a686511265c72bc0115c8b78ea7873b2cdaf2a6c146c659d95"
+    "size_bytes": 2565346470,
+    "sha256": "336087db6aad5ea17424215658e1ffadd81da083634aefc80144d141de5a40c6",
+    "type": "7zip_sfx"
   },
   "model": {
     "file": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
@@ -23,15 +24,17 @@
   "voice": {
     "file": "data/models/piper/ru_RU-denis-medium.onnx",
     "size_bytes": 63201294,
-    "sha256": "15fab56e11a097858ee115545d0f697fc2a316c41a291a5362349fb870411b0a"
+    "sha256": "15fab56e11a097858ee115545d0f697fc2a316c41a291a5362349fb870411b0a",
+    "profile": "ru_RU-denis-medium"
   },
   "checks": [
-    "full regression",
+    "full regression 541/2/0",
     "behavior harness",
-    "latency budgets",
-    "voice smoke",
+    "20-run real latency budgets",
+    "Denis Piper voice smoke",
     "frontend build/protocol",
     "7z archive test",
-    "clean extraction/backend readiness"
+    "clean extraction/backend readiness",
+    "artifact hygiene"
   ]
 }

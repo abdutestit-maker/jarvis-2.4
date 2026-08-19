@@ -25,6 +25,7 @@ if ($LASTEXITCODE -ne 0) { throw "Git reset failed" }
 # Remove only files introduced by this release, all under the verified workspace.
 & git -C $root clean -fd -- `
     core/cognitive_kernel core/research_gateway.py tests/test_cognitive_kernel.py `
+    core/operator/setup.py scripts/create_jarvis_icon.py tests/test_jarvis4_acceptance_contract.py `
     tests/test_jarvis4_runtime_contract.py THIRD_PARTY_NOTICES.txt `
     artifacts/verification/overnight
 

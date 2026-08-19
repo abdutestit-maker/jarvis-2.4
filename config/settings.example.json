@@ -17,9 +17,9 @@
 
   "model_tiers": {
     "fast": "qwen-4b-local",
-    "analyst": "qwen-1.7b-local",
-    "coder": "qwen-1.7b-local",
-    "architect": "qwen-1.7b-local"
+    "analyst": "qwen-4b-local",
+    "coder": "qwen-4b-local",
+    "architect": "qwen-4b-local"
   },
 
   "tier_providers": {
@@ -32,9 +32,14 @@
   "primary_brain": "fast",
   "offline_mode": true,
   "warmup_local_on_start": true,
+  "auto_download_models": true,
 
   "local_model": {
     "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+    "auto_profile": true,
+    "draft_model_path": "",
+    "speculative_decoding": false,
+    "draft_max_tokens": 5,
     "embedding_gguf_path": "",
     "n_gpu_layers": -1,
     "n_ctx": 4096,
@@ -141,7 +146,7 @@
     "enabled": true,
     "auto_generate": true,
     "interval_sec": 300,
-    "code_model_path": "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
+    "code_model_path": "data/models/Qwen3-1.7B-Q6_K.gguf"
   },
   "brain_policy": {
     "mode": "BALANCED",

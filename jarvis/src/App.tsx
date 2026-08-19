@@ -66,6 +66,8 @@ function App() {
   const [mode, setMode] = useState<UiMode>(() => initialMode(fixture));
   const [mission, setMission] = useState<OperatorMission | null>(() => fixture ? fixtureMission(fixture === 'verified' ? 'verified' : fixture === 'verify' ? 'verify' : 'download') : null);
   const [confirmation, setConfirmation] = useState<PendingConfirmation | null>(() => fixture === 'verify' ? { id: 'fixture-confirmation', prompt: 'Разрешить установку приложения?', tool: 'software.install', risk: { level: 'low' } } : null);
+  const [connected, setConnected] = useState(() => Boolean(fixture) || backend.isConnected());
+  const [runtimeState, setRuntimeState] = useState(() => fixture ? 'ready' : 'starting');
   const streaming = useRef<string | null>(null);
   const overlay = isOverlayWindow();
 
@@ -84,6 +86,12 @@ function App() {
       }
       if (event.type === 'profile:status') {
         setFirstLaunch(!(event.payload as { hasName: boolean }).hasName);
+        return;
+      }
+      if (event.type === 'runtime:status') {
+        const payload = event.payload as { state?: string; ready?: boolean };
+        setRuntimeState(payload.ready ? 'ready' : (payload.state ?? 'starting'));
+        setConnected(backend.isConnected());
         return;
       }
       if (event.type === 'confirmation:required') {
@@ -124,6 +132,11 @@ function App() {
       }
     });
   }, [append, backend, fixture, transition, tts]);
+
+  useEffect(() => {
+    if (fixture) return;
+    return backend.subscribeToConnection((value) => setConnected(value));
+  }, [backend, fixture]);
 
   useEffect(() => {
     if (fixture) return;
@@ -207,6 +220,8 @@ function App() {
       onVoiceListen={voiceListen}
       onConfirm={answerConfirmation}
       onNewSession={newSession}
+      connected={connected}
+      runtimeState={runtimeState}
     />
   </>;
 }

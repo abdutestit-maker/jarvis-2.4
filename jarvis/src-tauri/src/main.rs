@@ -1,27 +1,59 @@
 mod window_effects;
 
-use std::{fs, net::TcpStream, path::PathBuf, process::{Child, Command}, sync::Mutex, thread, time::Duration};
+use std::{fs, net::TcpStream, path::{Path, PathBuf}, process::{Child, Command}, sync::Mutex, thread, time::Duration};
 use serde::Deserialize;
 use tauri::{Emitter, Manager, WebviewWindowBuilder, WebviewUrl, menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 struct BackendProcess(Mutex<Option<Child>>);
+
+impl Drop for BackendProcess {
+    fn drop(&mut self) {
+        if let Ok(mut child) = self.0.lock() {
+            if let Some(process) = child.as_mut() {
+                let _ = process.kill();
+                let _ = process.wait();
+            }
+            *child = None;
+        }
+    }
+}
 #[derive(Clone, Deserialize)] struct SettingsFile { launcher: Option<LauncherSettings> }
 #[derive(Clone, Deserialize)] struct LauncherSettings { autostart: Option<bool>, hotkey: Option<String>, backend_command: Option<Vec<String>>, backend_workdir: Option<String> }
 impl Default for LauncherSettings { fn default() -> Self { Self { autostart: Some(false), hotkey: Some("Ctrl+Space".into()), backend_command: Some(vec!["python".into(), "-m".into(), "core.ws_server".into()]), backend_workdir: Some(String::new()) } } }
 
+fn is_project_root(path: &Path) -> bool {
+    path.join("config").is_dir() && (path.join("core").is_dir() || path.join("resources").is_dir())
+}
+
 fn project_root() -> PathBuf {
     let compiled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut candidates = vec![compiled, std::env::current_dir().unwrap_or_default()];
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(home) = std::env::var("JARVIS_HOME") {
+        candidates.push(PathBuf::from(home));
+    }
     if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.to_path_buf());
+            candidates.push(parent.join("resources"));
+            candidates.push(parent.join("resources/project"));
+        }
         candidates.extend(exe.ancestors().map(PathBuf::from));
     }
+    candidates.push(std::env::current_dir().unwrap_or_default());
+    candidates.push(compiled.clone());
     candidates.into_iter()
-        .find(|path| path.join("config/settings.json").is_file() || path.join("config").is_dir())
+        .find(|path| is_project_root(path))
         .and_then(|path| path.canonicalize().ok())
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .unwrap_or(compiled)
 }
-fn launcher_settings() -> LauncherSettings { fs::read_to_string(project_root().join("config/settings.json")).ok().and_then(|raw| serde_json::from_str::<SettingsFile>(&raw).ok()).and_then(|config| config.launcher).unwrap_or_default() }
+fn launcher_settings() -> LauncherSettings {
+    fs::read_to_string(project_root().join("config/settings.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<SettingsFile>(&raw).ok())
+        .and_then(|config| config.launcher)
+        .unwrap_or_default()
+}
 fn backend_is_listening() -> bool { TcpStream::connect_timeout(&"127.0.0.1:8771".parse().expect("socket"), Duration::from_millis(150)).is_ok() }
 fn resolve_backend_program(program: &str) -> String {
     if !program.eq_ignore_ascii_case("python") && !program.eq_ignore_ascii_case("pythonw") {
@@ -29,6 +61,11 @@ fn resolve_backend_program(program: &str) -> String {
     }
     let mut candidates = Vec::new();
     if let Ok(value) = std::env::var("JARVIS_PYTHON") { candidates.push(PathBuf::from(value)); }
+    let root = project_root();
+    candidates.push(root.join("runtime/pythonw.exe"));
+    candidates.push(root.join("runtime/python.exe"));
+    candidates.push(root.join(".venv/Scripts/pythonw.exe"));
+    candidates.push(root.join(".venv/Scripts/python.exe"));
     if let Ok(home) = std::env::var("USERPROFILE") {
         let root = PathBuf::from(home);
         candidates.push(root.join("AppData/Local/hermes/hermes-agent/venv/Scripts/pythonw.exe"));
@@ -45,20 +82,32 @@ fn spawn_backend(settings: &LauncherSettings) -> Option<Child> {
     let command = settings.backend_command.clone().unwrap_or_default();
     let (program, args) = command.split_first()?;
     let program = resolve_backend_program(program);
+    let root = project_root();
     let dir = settings.backend_workdir.as_deref()
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .filter(|value| value.is_dir())
-        .unwrap_or_else(project_root);
+        .unwrap_or_else(|| root.clone());
     let mut builder = Command::new(program);
-    builder.args(args).current_dir(&dir);
+    builder.args(args).current_dir(&dir)
+        .env("JARVIS_HOME", &root)
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUNBUFFERED", "1");
     #[cfg(windows)] {
         use std::os::windows::process::CommandExt;
         builder.creation_flags(0x08000000);
     }
     match builder.spawn() {
         Ok(child) => Some(child),
-        Err(error) => { eprintln!("JARVIS backend launch failed in {}: {}", dir.display(), error); None }
+        Err(error) => {
+            let _ = fs::create_dir_all(root.join("logs"));
+            let _ = fs::write(
+                root.join("logs/backend-launch-error.txt"),
+                format!("backend launch failed in {}: {}\n", dir.display(), error),
+            );
+            None
+        }
     }
 }
 fn manage_backend(app: tauri::AppHandle, settings: LauncherSettings) { thread::spawn(move || loop { let state = app.state::<BackendProcess>(); let mut child = match state.0.lock() { Ok(guard) => guard, Err(_) => break }; let restart = child.as_mut().map(|process| process.try_wait().ok().flatten().is_some()).unwrap_or(!backend_is_listening()); if restart { *child = spawn_backend(&settings); } drop(child); thread::sleep(Duration::from_secs(5)); }); }

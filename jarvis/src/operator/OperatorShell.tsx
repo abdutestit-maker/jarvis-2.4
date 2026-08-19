@@ -24,6 +24,8 @@ interface Props {
   onVoiceListen: () => void;
   onConfirm: (approved: boolean) => void;
   onNewSession: () => void;
+  connected: boolean;
+  runtimeState: string;
 }
 
 const CLOCK = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -57,7 +59,10 @@ export function syncWindowMode(mode: UiMode): void {
   } catch { /* browser fixture */ }
 }
 
-function statusLabel(state: PresenceState, mission: OperatorMission | null, confirmation: PendingConfirmation | null): string {
+function statusLabel(state: PresenceState, mission: OperatorMission | null, confirmation: PendingConfirmation | null, connected: boolean, runtimeState: string): string {
+  if (!connected) return 'CONNECTING';
+  if (runtimeState === 'loading_model' || runtimeState === 'starting') return 'STARTING';
+  if (runtimeState === 'unavailable') return 'OFFLINE';
   if (confirmation) return 'CONFIRMATION';
   if (mission?.verified) return 'VERIFIED';
   if (mission?.phase === 'verify' || mission?.phase === 'observe') return 'VERIFYING';
@@ -65,6 +70,15 @@ function statusLabel(state: PresenceState, mission: OperatorMission | null, conf
   if (state === 'speaking') return 'SPEAKING';
   if (state === 'error') return 'ERROR';
   return 'READY';
+}
+
+function shellTone(props: Props): string {
+  if (!props.connected || props.runtimeState === 'unavailable') return 'error';
+  if (props.runtimeState === 'loading_model' || props.runtimeState === 'starting') return 'amber';
+  if (props.confirmation) return 'amber';
+  if (props.mission?.verified) return 'lime';
+  if (props.state === 'error') return 'error';
+  return 'cyan';
 }
 
 function SignalCore({ tone, compact = false }: { tone: string; compact?: boolean }) {
@@ -126,8 +140,8 @@ function MessageTimeline({ messages, compact = false }: { messages: PresenceMess
 
 function CompactPresence(props: Props) {
   const clock = useClock();
-  const tone = props.confirmation ? 'amber' : props.mission?.verified ? 'lime' : props.state === 'error' ? 'error' : 'cyan';
-  const label = statusLabel(props.state, props.mission, props.confirmation);
+  const tone = shellTone(props);
+  const label = statusLabel(props.state, props.mission, props.confirmation, props.connected, props.runtimeState);
   return (
     <main className="compactShell">
       <header className="compactTitlebar" data-tauri-drag-region>
@@ -256,8 +270,8 @@ function Sidebar({ messages, mission, onNewSession }: { messages: PresenceMessag
 
 function CommandCenter(props: Props) {
   const clock = useClock();
-  const tone = props.confirmation ? 'amber' : props.mission?.verified ? 'lime' : props.state === 'error' ? 'error' : 'cyan';
-  const label = statusLabel(props.state, props.mission, props.confirmation);
+  const tone = shellTone(props);
+  const label = statusLabel(props.state, props.mission, props.confirmation, props.connected, props.runtimeState);
   return (
     <main className="commandShell">
       <Sidebar messages={props.messages} mission={props.mission} onNewSession={props.onNewSession} />

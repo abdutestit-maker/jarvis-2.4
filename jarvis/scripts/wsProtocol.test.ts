@@ -26,6 +26,11 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  mapSocketEnvelope({ type: 'runtime_status', state: 'loading_model', ready: false, diagnostics: { backend: 'cpu' } }, now),
+  [{ type: 'runtime:status', payload: { state: 'loading_model', ready: false, diagnostics: { backend: 'cpu' } }, timestamp: now }],
+);
+
+assert.deepEqual(
   mapSocketEnvelope({
     type: 'confirmation_required',
     confirmation_id: 'confirm-1',
@@ -47,4 +52,4 @@ assert.deepEqual(
 
 assert.deepEqual(mapSocketEnvelope({ type: 'unknown' }, now), []);
 
-console.log('wsProtocol: 4 assertions passed');
+console.log('wsProtocol: 5 assertions passed');

@@ -144,6 +144,11 @@ def main() -> int:
 
     # Загрузка конфигурации
     settings = load_config()
+    try:
+        from core.llm.hardware_profile import apply_profile
+        apply_profile(settings, logger=log)
+    except Exception as exc:
+        log.warning("Автопрофиль локальной модели пропущен: %s", exc)
     settings.ensure_directories()
 
     # Создание оркестратора

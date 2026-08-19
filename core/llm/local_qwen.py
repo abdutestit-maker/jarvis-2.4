@@ -70,6 +70,9 @@ class LocalQwenBackend(LLMBackend):
         chat_format: Optional[str] = None,
         verbose: bool = False,
         embedding: bool = False,
+        draft_model_path: Optional[Path | str] = None,
+        speculative_decoding: bool = False,
+        draft_max_tokens: int = 5,
     ) -> None:
         self._gguf_path = Path(gguf_path)
         self.model = model_id
@@ -84,6 +87,10 @@ class LocalQwenBackend(LLMBackend):
         self._verbose = bool(verbose)
         self._embedding_mode = bool(embedding)
         self.supports_embeddings = bool(embedding)
+        self._draft_model_path = Path(draft_model_path) if draft_model_path else None
+        self._speculative_decoding = bool(speculative_decoding)
+        self._draft_max_tokens = max(1, int(draft_max_tokens))
+        self._draft_model: Optional[Any] = None
 
         self._llama: Optional[Any] = None
         self._lock = threading.RLock()
@@ -112,8 +119,8 @@ class LocalQwenBackend(LLMBackend):
         if not path.exists():
             return (
                 f"Файл модели не найден: {path}\n"
-                f"Что сделать: скачайте GGUF-модель Qwen 4B (например, "
-                f"qwen3-4b-instruct-q4_k_m.gguf) в каталог {path.parent} "
+                f"Что сделать: скачайте GGUF-модель Qwen из "
+                f"config/models_manifest.json в каталог {path.parent} "
                 f"и укажите точный путь в settings.json -> local_model.gguf_path"
             )
         if path.is_dir():
@@ -167,6 +174,22 @@ class LocalQwenBackend(LLMBackend):
                 "verbose": self._verbose,
                 "embedding": self._embedding_mode,
             }
+            # llama.cpp exposes speculative decoding through an optional
+            # LlamaDraftModel object.  Keep it strictly opt-in: older CPU
+            # wheels simply do not expose the class and continue normally.
+            if (self._speculative_decoding and self._draft_model_path
+                    and self._draft_model_path.is_file()):
+                try:
+                    from llama_cpp import LlamaDraftModel  # type: ignore
+                    self._draft_model = LlamaDraftModel(
+                        model_path=str(self._draft_model_path),
+                        n_ctx=self._n_ctx,
+                        n_gpu_layers=self._n_gpu_layers,
+                    )
+                    kwargs["draft_model"] = self._draft_model
+                except (ImportError, TypeError, ValueError, RuntimeError, OSError) as exc:
+                    self._draft_model = None
+                    log.info("Speculative draft отключён: %s", exc)
             if self._n_threads:
                 kwargs["n_threads"] = self._n_threads
             if self._chat_format:
@@ -392,6 +415,9 @@ class LocalQwenBackend(LLMBackend):
             "warmup_ms": self._warmup_ms,
             "warmup_complete": self._warmup_complete,
             "gpu_offload_supported": self._gpu_offload_supported,
+            "speculative_decoding": bool(self._draft_model is not None),
+            "draft_model_path": str(self._draft_model_path) if self._draft_model_path else "",
+            "draft_max_tokens": self._draft_max_tokens,
         }
 
     def close(self) -> None:
@@ -451,4 +477,7 @@ class LocalQwenBackend(LLMBackend):
             chat_format=local.chat_format,
             verbose=local.verbose,
             embedding=embedding,
+            draft_model_path=getattr(local, "resolved_draft_model_path", None),
+            speculative_decoding=bool(getattr(local, "speculative_decoding", False)),
+            draft_max_tokens=int(getattr(local, "draft_max_tokens", 5)),
         )

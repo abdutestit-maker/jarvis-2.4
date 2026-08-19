@@ -14,7 +14,12 @@ python -m core.ws_server
 Для локального режима используется `config/settings.json` и GGUF Qwen из
 `data/models`. Параметр `warmup_local_on_start` прогревает FAST-тир во время
 старта процесса, поэтому первый пользовательский запрос не оплачивает
-загрузку модели. Диагностика доступна через `Orchestrator.runtime_diagnostics()`.
+загрузку модели. `auto_download_models` при чистой установке выбирает модель
+по RAM/VRAM, скачивает её только из pinned `config/models_manifest.json`,
+докачивает через `.part` и принимает файл только после SHA-256 проверки.
+Диагностика доступна через `Orchestrator.runtime_diagnostics()` и WS-событие
+`runtime_status` (`starting → loading_model → ready`); frontend больше не
+показывает READY до фактического подключения.
 Новые модели не нужны.
 
 ### Backend + frontend
@@ -80,4 +85,4 @@ python -m pytest -o addopts="" -rA
 ```
 
 Верификационный отчёт Sprint 16: `docs/EXECUTIVE_MIND_VERIFICATION.md`.
-Wave 0 evidence: `artifacts/verification/wave0/`.
+Phase 0 evidence: `artifacts/verification/phase0/`.

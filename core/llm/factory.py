@@ -88,6 +88,9 @@ def _build_backend(settings: Settings, provider: str, model_id: str,
             max_tokens=local_cfg.max_tokens,
             chat_format=local_cfg.chat_format,
             verbose=local_cfg.verbose,
+            draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
+            speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
+            draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
             embedding=(mode == _MODE_EMBED),
         )
         backend.task_role = role.value
@@ -223,6 +226,9 @@ def get_offline_backend(settings: Settings) -> LLMBackend:
             max_tokens=local_cfg.max_tokens,
             chat_format=local_cfg.chat_format,
             verbose=local_cfg.verbose,
+            draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
+            speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
+            draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
         )
         _cache[key] = backend
         log.info("Создан офлайн-бэкенд TIER 4: %s", backend.name)

@@ -85,11 +85,15 @@ function socketError(message: string): Error {
 /** Реальный локальный транспорт для command/settings/confirmation protocol. */
 export class WebSocketBackend implements BackendAdapter {
   private readonly listeners = new Set<Listener>();
+  private readonly connectionListeners = new Set<(connected: boolean) => void>();
   private readonly settingsRequests: SettingsRequest[] = [];
   private socket: WebSocket | null = null;
   private connectPromise: Promise<WebSocket> | null = null;
   private resolveConnection: ((socket: WebSocket) => void) | null = null;
   private rejectConnection: ((error: Error) => void) | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
+  private connected = false;
   private vitals: VitalsData = STANDBY_VITALS;
   private sequence = 0;
 
@@ -104,12 +108,28 @@ export class WebSocketBackend implements BackendAdapter {
     this.socketFactory = socketFactory;
   }
 
+  isConnected(): boolean {
+    return this.connected && this.socket?.readyState === WebSocket.OPEN;
+  }
+
+  subscribeToConnection(listener: (connected: boolean) => void): () => void {
+    this.connectionListeners.add(listener);
+    listener(this.isConnected());
+    return () => this.connectionListeners.delete(listener);
+  }
+
   subscribeToEvents(listener: Listener): () => void {
     this.listeners.add(listener);
     void this.connect().catch(() => {
       // Ошибка уже отправлена в подписчиков; нельзя логировать payload settings.
     });
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0 && this.reconnectTimer !== null) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+    };
   }
 
   async sendCommand(text: string, files: AttachedFile[]): Promise<void> {
@@ -199,6 +219,9 @@ export class WebSocketBackend implements BackendAdapter {
 
   private connect(): Promise<WebSocket> {
     if (this.socket?.readyState === WebSocket.OPEN) return Promise.resolve(this.socket);
+    if (this.socket?.readyState === WebSocket.CONNECTING && this.connectPromise) {
+      return this.connectPromise;
+    }
     if (this.connectPromise) return this.connectPromise;
 
     const socket = this.socketFactory(this.url);
@@ -209,8 +232,11 @@ export class WebSocketBackend implements BackendAdapter {
     });
 
     socket.onopen = () => {
+      this.connected = true;
+      this.reconnectAttempt = 0;
       this.resolveConnection?.(socket);
       this.clearConnectionPromise();
+      for (const listener of this.connectionListeners) listener(true);
     };
     socket.onmessage = (event) => this.handleMessage(event.data);
     socket.onerror = () => this.failConnection('не удалось подключиться к локальному backend');
@@ -226,10 +252,15 @@ export class WebSocketBackend implements BackendAdapter {
   }
 
   private failConnection(message: string): void {
+    if (!this.socket && !this.connectPromise && !this.connected) {
+      return;
+    }
     const error = socketError(message);
     this.rejectConnection?.(error);
     this.clearConnectionPromise();
     this.socket = null;
+    const wasConnected = this.connected;
+    this.connected = false;
     this.emit({
       type: 'event:system',
       payload: {
@@ -242,6 +273,21 @@ export class WebSocketBackend implements BackendAdapter {
       timestamp: Date.now(),
     });
     this.emit({ type: 'state:error', payload: null, timestamp: Date.now() });
+    if (wasConnected || this.listeners.size > 0) {
+      for (const listener of this.connectionListeners) listener(false);
+      this.scheduleReconnect();
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.listeners.size === 0 || this.reconnectTimer !== null) return;
+    const attempt = this.reconnectAttempt++;
+    const base = Math.min(5000, 250 * (2 ** Math.min(attempt, 5)));
+    const jitter = Math.floor(Math.random() * 120);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connect().catch(() => this.scheduleReconnect());
+    }, base + jitter);
   }
 
   private handleMessage(data: unknown): void {

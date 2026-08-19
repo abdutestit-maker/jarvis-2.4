@@ -69,9 +69,13 @@ def build_brain_fabric(settings: Any, *, secret_store: SecretStore | None = None
 
     # One physical local backend serves semantic roles. Construction is lazy:
     # LocalQwenBackend does not load GGUF weights until generation/warm-up.
+    # Resolve it through the public FAST factory instead of bypassing that
+    # boundary with get_offline_backend().  This keeps Brain Fabric and the
+    # legacy router on one cache key, and lets injected/local test backends use
+    # the same path as production.
     try:
-        from core.llm import get_offline_backend
-        local_backend = get_offline_backend(settings)
+        from core.llm import Tier, get_llm_backend
+        local_backend = get_llm_backend(settings, Tier.FAST)
         local_profile = ModelCapabilityProfile(
             model=str(local_backend.model),
             roles=frozenset({

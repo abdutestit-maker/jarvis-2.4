@@ -200,7 +200,9 @@ class MetacognitionEngine:
         verification = VerificationStatus.VERIFIED if verified else VerificationStatus.NEEDS_VERIFICATION
         return self.record(
             key=key, claim=claim, value=result.get("value"), status=status,
-            evidence=[evidence], freshness=self.freshness_policy.for_key(key, moment),
+            evidence=[evidence], freshness=self.freshness_policy.for_observation(
+                key, moment, source=source.value,
+            ),
             verification_status=verification, now=moment,
         )
 

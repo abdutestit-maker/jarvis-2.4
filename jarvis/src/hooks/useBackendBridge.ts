@@ -2,10 +2,8 @@
  * J.A.R.V.I.S. v3.0 — Backend Bridge Hook
  *
  * Точка интеграции frontend ↔ backend.
- * Сейчас использует MOCK-адаптер (src/integrations/backend.ts) для визуального
- * preview. Чтобы подключить реальный backend — замените `createMockBackend()`
- * на `createRealBackend()` и реализуйте транспорт внутри него
- * (Tauri events / WebSocket / IPC). UI-логика не меняется.
+ * Подключает реальный локальный WebSocket-транспорт. UI больше не объявляет
+ * backend готовым заранее: readiness и reconnect приходят из транспорта.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -41,6 +39,7 @@ export function useBackendBridge() {
 
   const streamingId = useRef<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [isConnected, setIsConnected] = useState(() => backend.isConnected());
 
   useEffect(() => {
     const unsub = backend.subscribeToEvents((e) => {
@@ -48,6 +47,17 @@ export function useBackendBridge() {
       if (e.type.startsWith('state:')) {
         const next = STATE_MAP[e.type];
         if (next) dispatch({ type: 'SET_ENTITY_STATE', payload: next });
+        return;
+      }
+
+      if (e.type === 'runtime:status') {
+        const runtime = e.payload as { ready?: boolean; state?: string };
+        setIsConnected(backend.isConnected());
+        if (runtime.ready === true) {
+          dispatch({ type: 'UPDATE_VITALS', payload: { modelStatus: 'local' } });
+        } else if (runtime.state === 'loading_model' || runtime.state === 'starting') {
+          dispatch({ type: 'UPDATE_VITALS', payload: { modelStatus: 'loading' } });
+        }
         return;
       }
 
@@ -100,11 +110,17 @@ export function useBackendBridge() {
         appendRef.current(e.payload as ActivityEvent);
       }
     });
+    const unsubConnection = backend.subscribeToConnection((connected) => {
+      setIsConnected(connected);
+    });
 
     // Стартовые vitals
     backend.getSystemVitals().then((v) => dispatch({ type: 'UPDATE_VITALS', payload: v }));
 
-    return () => unsub();
+    return () => {
+      unsub();
+      unsubConnection();
+    };
   }, [dispatch]);
 
   const sendCommand = useCallback(async (text: string, files: AttachedFile[]) => {
@@ -123,5 +139,5 @@ export function useBackendBridge() {
     setPendingConfirmation(null);
   }, [pendingConfirmation]);
 
-  return { sendCommand, interrupt, answerConfirmation, pendingConfirmation, isConnected: true };
+  return { sendCommand, interrupt, answerConfirmation, pendingConfirmation, isConnected };
 }

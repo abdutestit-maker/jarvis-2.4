@@ -26,6 +26,8 @@ type SocketEnvelope = {
   active_window?: unknown;
   url?: unknown;
   confidence?: unknown;
+  ready?: unknown;
+  diagnostics?: unknown;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -84,6 +86,18 @@ export function mapSocketEnvelope(raw: unknown, receivedAt = Date.now()): Transp
 
   if (kind === 'profile') {
     return [{ type: 'profile:status', payload: { hasName: envelope.has_name === true }, timestamp: receivedAt }];
+  }
+
+  if (kind === 'runtime_status') {
+    return [{
+      type: 'runtime:status',
+      payload: {
+        state: asString(envelope.state) ?? 'starting',
+        ready: envelope.ready === true,
+        diagnostics: asRecord(envelope.diagnostics) ?? {},
+      },
+      timestamp: receivedAt,
+    }];
   }
 
   if (kind === 'voice_input') {

@@ -234,6 +234,35 @@ class Orchestrator:
         def _warm() -> None:
             started = time.perf_counter()
             try:
+                # A clean install may have no GGUF yet.  Prepare exactly one
+                # hardware-selected artifact in the background; an existing
+                # configured file remains the safe offline fallback.
+                try:
+                    from core.llm.hardware_profile import apply_profile, recommend_profile
+                    from core.utils.model_manager import ModelManager
+
+                    profile = recommend_profile(models_dir=self._settings.models_dir)
+                    configured = getattr(self._settings.local_model, "resolved_gguf_path", None)
+                    configured_exists = bool(configured is not None and configured.is_file())
+                    if (profile.download_required
+                            and bool(getattr(self._settings, "auto_download_models", True))
+                            and not configured_exists):
+                        self._warmup_diagnostics["state"] = "downloading_model"
+                        manager = ModelManager(self._settings)
+
+                        def _progress(event: Dict[str, Any]) -> None:
+                            self._warmup_diagnostics["download"] = dict(event)
+
+                        manager.ensure_model(profile, progress=_progress)
+                        apply_profile(self._settings, logger=log)
+                    elif profile.download_required:
+                        self._warmup_diagnostics["model_download"] = "skipped_existing_fallback"
+                except Exception as exc:
+                    # A missing network/model is reported in diagnostics; it
+                    # must not prevent the local service from binding its WS.
+                    self._warmup_diagnostics["model_download"] = f"unavailable: {type(exc).__name__}"
+                    log.warning("Local model preparation skipped: %s", exc)
+
                 from core.llm import Tier, get_llm_backend
                 backend = get_llm_backend(self._settings, Tier.FAST)
                 warm_up = getattr(backend, "warm_up", None)
@@ -251,6 +280,7 @@ class Orchestrator:
                     "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
                     "ready_before_first_request": True,
                     "runtime": info,
+                    "state": "ready",
                 })
             except Exception as exc:
                 # Warmup is an optimisation; normal lazy loading remains valid.
@@ -260,12 +290,20 @@ class Orchestrator:
                     "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
                     "error": f"{type(exc).__name__}: {exc}",
                     "ready_before_first_request": True,
+                    "state": "unavailable",
                 })
             finally:
                 self._warmup_ready.set()
 
-        # Startup pays the model load once; the first user request does not.
-        _warm()
+        # Startup must return control to the WS/UI immediately.  The model
+        # load is still paid once, but it runs behind the readiness handshake
+        # instead of blocking the socket from binding for ten seconds.
+        self._warmup_thread = threading.Thread(
+            target=_warm,
+            name="jarvis-local-warmup",
+            daemon=True,
+        )
+        self._warmup_thread.start()
 
     def consume_streamed_mission(self):
         """Sprint 1: task_id миссии, стримленной в текущем потоке (или None)."""
@@ -584,7 +622,11 @@ class Orchestrator:
         # §5 — ACK формируется мгновенно. Если доступна локальная модель —
         # обогащается контекстной фразой (П1 §1.2); при сбое — canned fallback.
         intent = resolve_keyword_tool(goal, goal)
-        ack = pick_acknowledgement(intent, goal=goal, settings=self._settings)
+        # ACK must never pay the model-load/inference cost.  The mission
+        # worker owns all deliberate reasoning after this line.
+        ack = pick_acknowledgement(
+            intent, goal=goal, settings=self._settings, allow_model=False,
+        )
 
         # Подписка ставится ДО запуска, но task_id известен только после
         # submit(). Держим его в изменяемой ячейке и добираем уже

@@ -327,6 +327,27 @@ class JarvisWSServer:
                 self._greeted = True
         try:
             await ws.send(json.dumps({"type": "state", "state": "idle"}))
+            # Readiness is a first-class protocol event.  It follows the
+            # legacy idle envelope so existing clients keep their first-frame
+            # contract while newer clients render a real startup state.
+            try:
+                diagnostics = self._orch.runtime_diagnostics()
+            except Exception:
+                diagnostics = {}
+            warmup = diagnostics.get("warmup") if isinstance(diagnostics, dict) else {}
+            if not isinstance(warmup, dict):
+                warmup = {}
+            runtime_state = (
+                "ready" if diagnostics.get("warmup_ready") else
+                "loading_model" if getattr(self._orch, "_warmup_thread", None) is not None
+                else "starting"
+            )
+            await ws.send(json.dumps({
+                "type": "runtime_status",
+                "state": runtime_state,
+                "ready": bool(diagnostics.get("warmup_ready")),
+                "diagnostics": warmup,
+            }))
             try:
                 from core.memory.profile import load_profile
                 has_name = bool((load_profile(self._settings).get("name") or "").strip())
@@ -1032,6 +1053,11 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     if not _HAS_WS:
         raise RuntimeError("websockets не установлен")
     settings: Settings = load_config()
+    try:
+        from core.llm.hardware_profile import apply_profile
+        apply_profile(settings, logger=log)
+    except Exception as exc:
+        log.warning("Автопрофиль локальной модели пропущен: %s", exc)
     settings.ensure_directories()
     orch = Orchestrator(settings)
     server = JarvisWSServer(orch, host=host, port=port,

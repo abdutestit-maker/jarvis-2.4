@@ -132,7 +132,8 @@ ACK_PHRASES: Dict[str, str] = {
 
 
 def pick_acknowledgement(intent: str, goal: str = "",
-                          settings: Optional["Settings"] = None) -> str:
+                          settings: Optional["Settings"] = None,
+                          *, allow_model: bool = True) -> str:
     """Мгновенное, ЖИВОЕ подтверждение приёма задачи (§5, П1 §1.2).
 
     Базовая фраза выбирается по намерению (как раньше — мгновенно),
@@ -147,8 +148,12 @@ def pick_acknowledgement(intent: str, goal: str = "",
     """
     base = ACK_PHRASES.get(intent, ACK_PHRASES["none"])
 
-    # Без контекста цели или без настроек — мгновенно отдаём базу.
-    if not goal or not goal.strip() or settings is None:
+    # The live mission path passes ``allow_model=False``.  An ACK is a
+    # transport guarantee, not a second inference request: loading a GGUF or
+    # waiting on a provider here is exactly the minute-long pause reported by
+    # the real UI.  The opt-in model enrichment remains for callers that
+    # explicitly want it (and for the existing presentation tests).
+    if not allow_model or not goal or not goal.strip() or settings is None:
         return base
 
     try:
@@ -604,7 +609,9 @@ class Agent:
         except Exception as exc:
             log.debug("Universal task contract skipped: %s", exc)
         if mission is not None:
-            mission.acknowledgement = pick_acknowledgement(intent, goal=goal, settings=self._settings)
+            mission.acknowledgement = pick_acknowledgement(
+                intent, goal=goal, settings=self._settings, allow_model=False,
+            )
             mission.metadata["intent"] = intent
             mission.set_status(MissionStatus.ANALYZING, "определение намерения и риска")
             mission.set_progress(0.1, "анализ намерения")
@@ -971,6 +978,21 @@ class Agent:
                 risk=risk,
                 tool_used=tool,
                 trace=trace,
+            )
+
+        # A risky request can reach the unknown-capability path before a
+        # concrete tool exists.  Confirmation still authorizes only the
+        # bounded research/prepare continuation; it must not be mistaken for
+        # a grant to invent a mutation.  Re-enter that path after approval so
+        # the same policy, capability planner and verifier run again.
+        if pending.get("unknown_capability"):
+            if mission is not None:
+                mission.set_status(MissionStatus.PLANNING, "подтверждено, ищу проверяемый способ")
+            return self._handle_unknown(
+                goal, caps, mission, trace,
+                reason=str(pending.get("reason") or "нет готового способа"),
+                attempted_tool=pending.get("attempted_tool"),
+                skip_confirmation=True,
             )
 
         # Подтверждено — выполняем.
@@ -1717,7 +1739,8 @@ class Agent:
 
     def _handle_unknown(self, goal: str, caps: List[Capability],
                         mission: Optional[Mission], trace: List[str],
-                        reason: str = "", attempted_tool: Optional[str] = None) -> AgentOutcome:
+                        reason: str = "", attempted_tool: Optional[str] = None,
+                        skip_confirmation: bool = False) -> AgentOutcome:
         """Путь неизвестной задачи (§8): не «не умею», а «ещё не научен» (§29).
 
         Здесь мы:
@@ -1726,6 +1749,51 @@ class Agent:
             3. возвращаем честный ответ с планом исследования.
         """
         trace.append(f"unknown task path: {reason}")
+
+        # Do not let capability discovery, Shadow preparation or generated
+        # tools cross a destructive boundary.  There may be no concrete tool
+        # yet, but the user still gets a real confirmation gate rather than a
+        # misleading failed-success message.
+        on_demand_risk = assess_risk(goal)
+        if on_demand_risk.needs_confirmation and not skip_confirmation:
+            conf_id = uuid.uuid4().hex
+            cancel = threading.Event()
+            pending = {
+                "goal": goal,
+                "tool": attempted_tool or "capability_research",
+                "args": {},
+                "risk": on_demand_risk,
+                "caps": caps,
+                "mission": mission,
+                "cancel": cancel,
+                "trace": trace,
+                "unknown_capability": True,
+                "reason": reason or "нет подходящего проверенного инструмента",
+                "attempted_tool": attempted_tool,
+            }
+            with self._lock:
+                self._pending_confirmations[conf_id] = pending
+            if mission is not None:
+                mission.set_status(MissionStatus.PAUSED, "ожидание подтверждения перед исследованием")
+                mission.emit(EVENT_CONFIRMATION_REQUIRED, payload={
+                    "confirmation_id": conf_id,
+                    "tool": attempted_tool or "capability_research",
+                    "arguments": {},
+                    "risk": on_demand_risk.to_dict(),
+                    "prompt": on_demand_risk.confirmation_prompt(),
+                })
+            self._start_confirmation_watchdog(conf_id)
+            return AgentOutcome(
+                text=on_demand_risk.confirmation_prompt(),
+                verified=False,
+                needs_confirmation=True,
+                confirmation_id=conf_id,
+                risk=on_demand_risk,
+                tool_used=attempted_tool,
+                mode="confirmation",
+                trace=trace,
+            )
+
         # Sprint 9: a task class is resolved before generating another Python
         # tool. Existing primitives are composed into a DAG and verified
         # against desired state; only verified trajectories are learned.
@@ -1779,7 +1847,6 @@ class Agent:
         # have a verified local tool ready (or create one with Qwen3-1.7B).
         # The generated-tool sandbox permits only side-effect-free stdlib code;
         # anything risky remains on the ordinary confirmation path below.
-        on_demand_risk = assess_risk(goal)
         if not on_demand_risk.needs_confirmation:
             try:
                 prepared = self._shadow.prepare_on_demand(goal)

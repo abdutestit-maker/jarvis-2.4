@@ -7,18 +7,66 @@ settings.json. Используется и консольными команда
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from config.settings import Settings, load_config
 from core.utils.logger import get_logger
 from core.utils.paths import PROJECT_ROOT, ensure_parent
 from core.security.atomic import atomic_json_write, load_json
 
-__all__ = ["ModelManager"]
+__all__ = ["ModelArtifact", "ModelDownloadError", "ModelManager"]
 
 log = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class ModelArtifact:
+    """Pinned, locally verifiable model download description."""
+
+    key: str
+    filename: str
+    url: str
+    size_bytes: int
+    sha256: str
+    source_filename: str = ""
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "ModelArtifact":
+        filename = str(payload.get("filename") or "").strip()
+        url = str(payload.get("url") or "").strip()
+        digest = str(payload.get("sha256") or "").strip().casefold()
+        if not filename or Path(filename).name != filename:
+            raise ValueError("manifest filename must be a plain file name")
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname not in {
+            "huggingface.co", "www.huggingface.co", "hf.co",
+        }:
+            raise ValueError("model source must be an HTTPS Hugging Face URL")
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError(f"invalid SHA-256 for {filename}")
+        size = int(payload.get("size_bytes") or 0)
+        if size <= 0:
+            raise ValueError(f"invalid size for {filename}")
+        return cls(
+            key=str(payload.get("key") or Path(filename).stem),
+            filename=filename,
+            url=url,
+            size_bytes=size,
+            sha256=digest,
+            source_filename=str(payload.get("source_filename") or ""),
+        )
+
+
+class ModelDownloadError(RuntimeError):
+    """A model could not be downloaded or failed local verification."""
 
 
 class ModelManager:
@@ -31,6 +79,198 @@ class ModelManager:
         """
         self._settings = settings or load_config()
         self._config_path = self._settings.source_path or (PROJECT_ROOT / "config" / "settings.json")
+
+    # ------------------------------------------------------------------ #
+    #  Пинованный GGUF-манифест и безопасная докачка
+    # ------------------------------------------------------------------ #
+
+    @property
+    def manifest_path(self) -> Path:
+        """Path to the repository-owned model manifest."""
+        return PROJECT_ROOT / "config" / "models_manifest.json"
+
+    def load_model_manifest(self, path: Optional[Path | str] = None) -> Dict[str, ModelArtifact]:
+        """Load and validate every model entry before any network access."""
+        manifest_path = Path(path) if path is not None else self.manifest_path
+        try:
+            payload = load_json(manifest_path, default={})
+        except (OSError, ValueError, TypeError) as exc:
+            raise ModelDownloadError(f"Не удалось прочитать манифест моделей: {exc}") from exc
+        rows = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            raise ModelDownloadError("Манифест моделей не содержит списка models")
+        artifacts: Dict[str, ModelArtifact] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ModelDownloadError("Манифест содержит некорректную запись")
+            try:
+                artifact = ModelArtifact.from_dict(row)
+            except (TypeError, ValueError) as exc:
+                raise ModelDownloadError(f"Некорректная запись манифеста: {exc}") from exc
+            if artifact.key in artifacts:
+                raise ModelDownloadError(f"Дубликат ключа модели: {artifact.key}")
+            artifacts[artifact.key] = artifact
+        return artifacts
+
+    def ensure_model(
+        self,
+        profile: Any,
+        *,
+        progress: Optional[Callable[[Dict[str, Any]], None]] = None,
+        cancel: Optional[threading.Event] = None,
+        timeout_sec: float = 30.0,
+    ) -> Dict[str, Path]:
+        """Ensure the core (and optional draft) GGUF for a hardware profile.
+
+        Downloads are resumable and always land in ``*.part`` first.  A file
+        becomes visible as a model only after its exact byte count and
+        SHA-256 match the pinned manifest.  The method is explicit so a
+        startup policy can choose whether to download in the background; it
+        never silently reaches outside the trusted manifest.
+        """
+        manifest = self.load_model_manifest()
+        names = [str(getattr(profile, "core_model", "") or "")]
+        draft = str(getattr(profile, "draft_model", "") or "")
+        if draft and draft not in names:
+            names.append(draft)
+        if not names or not names[0]:
+            raise ModelDownloadError("Профиль не содержит core_model")
+
+        results: Dict[str, Path] = {}
+        for filename in names:
+            artifact = next((item for item in manifest.values() if item.filename == filename), None)
+            if artifact is None:
+                raise ModelDownloadError(f"Модель не закреплена в манифесте: {filename}")
+            target = self._settings.models_dir / artifact.filename
+            self._ensure_artifact(
+                artifact, target, progress=progress, cancel=cancel,
+                timeout_sec=timeout_sec,
+            )
+            results[artifact.key] = target
+        return results
+
+    def _ensure_artifact(
+        self,
+        artifact: ModelArtifact,
+        target: Path,
+        *,
+        progress: Optional[Callable[[Dict[str, Any]], None]],
+        cancel: Optional[threading.Event],
+        timeout_sec: float,
+    ) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if self._verified_file(target, artifact):
+            self._emit_progress(progress, artifact, target.stat().st_size, artifact.size_bytes, "ready")
+            return
+
+        part = target.with_name(target.name + ".part")
+        self._download_artifact(
+            artifact, part, progress=progress, cancel=cancel, timeout_sec=timeout_sec,
+        )
+        if not self._verified_file(part, artifact):
+            try:
+                part.unlink()
+            except OSError:
+                pass
+            raise ModelDownloadError(f"Проверка модели не пройдена: {artifact.filename}")
+        # os.replace is atomic on the same volume and leaves no half-written
+        # GGUF for a concurrent backend to open.
+        part.replace(target)
+        self._emit_progress(progress, artifact, artifact.size_bytes, artifact.size_bytes, "verified")
+
+    @staticmethod
+    def _verified_file(path: Path, artifact: ModelArtifact) -> bool:
+        try:
+            if path.stat().st_size != artifact.size_bytes:
+                return False
+            digest = hashlib.sha256()
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            return digest.hexdigest().casefold() == artifact.sha256
+        except (OSError, ValueError):
+            return False
+
+    def _download_artifact(
+        self,
+        artifact: ModelArtifact,
+        part: Path,
+        *,
+        progress: Optional[Callable[[Dict[str, Any]], None]],
+        cancel: Optional[threading.Event],
+        timeout_sec: float,
+    ) -> None:
+        try:
+            offset = part.stat().st_size if part.exists() else 0
+        except OSError:
+            offset = 0
+        headers = {"User-Agent": "JARVIS-local-model-manager/1", "Accept-Encoding": "identity"}
+        if 0 < offset < artifact.size_bytes:
+            headers["Range"] = f"bytes={offset}-"
+        request = urllib.request.Request(artifact.url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=float(timeout_sec)) as response:
+                final_url = str(getattr(response, "geturl", lambda: artifact.url)() or artifact.url)
+                if urllib.parse.urlparse(final_url).hostname not in {
+                    "huggingface.co", "www.huggingface.co", "hf.co",
+                    "cdn-lfs.huggingface.co", "cdn-lfs-us-1.hf.co",
+                }:
+                    raise ModelDownloadError("редирект модели ушёл за пределы Hugging Face")
+                status = int(getattr(response, "status", 200) or 200)
+                resumed = offset > 0 and status == 206
+                if not resumed:
+                    offset = 0
+                mode = "ab" if resumed else "wb"
+                downloaded = offset
+                with part.open(mode) as handle:
+                    while True:
+                        if cancel is not None and cancel.is_set():
+                            raise ModelDownloadError(f"Загрузка отменена: {artifact.filename}")
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+                        downloaded += len(chunk)
+                        self._emit_progress(
+                            progress, artifact, downloaded, artifact.size_bytes, "downloading",
+                        )
+        except ModelDownloadError:
+            raise
+        except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
+            raise ModelDownloadError(f"Не удалось скачать {artifact.filename}: {exc}") from exc
+
+        try:
+            actual = part.stat().st_size
+        except OSError as exc:
+            raise ModelDownloadError(f"Временный файл модели не создан: {part}") from exc
+        if actual != artifact.size_bytes:
+            raise ModelDownloadError(
+                f"Неполная загрузка {artifact.filename}: {actual} из {artifact.size_bytes} байт"
+            )
+
+    @staticmethod
+    def _emit_progress(
+        callback: Optional[Callable[[Dict[str, Any]], None]],
+        artifact: ModelArtifact,
+        downloaded: int,
+        total: int,
+        state: str,
+    ) -> None:
+        if callback is None:
+            return
+        try:
+            callback({
+                "key": artifact.key,
+                "filename": artifact.filename,
+                "downloaded_bytes": int(downloaded),
+                "total_bytes": int(total),
+                "progress": round(min(1.0, downloaded / total) if total else 0.0, 4),
+                "state": state,
+            })
+        except Exception:
+            # Progress is presentation only; it must never break a verified
+            # download or turn a closed UI callback into a failed model.
+            log.debug("Прогресс загрузки модели недоступен", exc_info=True)
 
     # --------------------------------------------------------------------- #
     #  Локальные модели (GGUF)

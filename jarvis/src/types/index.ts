@@ -202,6 +202,9 @@ export type BackendEventType =
   | 'screen:capture'
   | 'event:wake_word_detected'
   | 'event:voice_input'
+  | 'transport:connected'
+  | 'transport:disconnected'
+  | 'runtime:status'
   | 'model:status'
   | 'workspace:update'
   | 'confirmation:required';

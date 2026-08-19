@@ -174,7 +174,14 @@ class TierProviders(_Section):
 class LocalModelConfig(_Section):
     """Параметры локальной Qwen 4B (llama-cpp-python)."""
 
-    gguf_path: str = "data/models/qwen3-4b-instruct-q4_k_m.gguf"
+    gguf_path: str = "data/models/qwen3-4b-instruct-q5_k_m.gguf"
+    # Автопрофиль выбирает самый сильный локальный GGUF, который уже есть на
+    # диске и подходит текущему железу. Пользовательский путь сохраняется,
+    # если этот флаг выключен.
+    auto_profile: bool = True
+    draft_model_path: str = ""
+    speculative_decoding: bool = False
+    draft_max_tokens: int = 5
     embedding_gguf_path: str = ""
     n_gpu_layers: int = 0           # 0 = CPU, -1 = все слои на GPU
     n_ctx: int = 4096
@@ -186,7 +193,7 @@ class LocalModelConfig(_Section):
     chat_format: Optional[str] = None   # None = взять шаблон из GGUF-метаданных
     verbose: bool = False
 
-    @field_validator("n_ctx", "n_batch", "max_tokens")
+    @field_validator("n_ctx", "n_batch", "max_tokens", "draft_max_tokens")
     @classmethod
     def _positive(cls, value: int) -> int:
         if value <= 0:
@@ -209,6 +216,11 @@ class LocalModelConfig(_Section):
     def resolved_embedding_path(self) -> Optional[Path]:
         """Абсолютный путь к отдельной модели эмбеддингов (если задана)."""
         return resolve_path(self.embedding_gguf_path)
+
+    @property
+    def resolved_draft_model_path(self) -> Optional[Path]:
+        """Абсолютный путь к speculative draft GGUF, если включён."""
+        return resolve_path(self.draft_model_path)
 
     @property
     def effective_threads(self) -> Optional[int]:
@@ -528,7 +540,7 @@ class ShadowConfig(_Section):
     enabled: bool = False
     auto_generate: bool = True
     interval_sec: int = 300
-    code_model_path: str = "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
+    code_model_path: str = "data/models/Qwen3-1.7B-Q6_K.gguf"
 
     @field_validator("interval_sec")
     @classmethod
@@ -612,6 +624,10 @@ class Settings(BaseModel):
     #: Load the local FAST model in a daemon warmup thread at service start.
     #: False for bare Settings() keeps unit tests and library imports cheap.
     warmup_local_on_start: bool = False
+    #: Download a missing, pinned local GGUF in the warmup thread.  The
+    #: manifest is HTTPS-only and SHA-256 verified; an existing user model is
+    #: never replaced just because a newer profile is recommended.
+    auto_download_models: bool = True
 
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
     local_coder_model: LocalCoderModelConfig = Field(default_factory=LocalCoderModelConfig)

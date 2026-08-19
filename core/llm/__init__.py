@@ -32,6 +32,7 @@ from core.llm.factory import (
     warm_up_backends,
 )
 from core.llm.local_qwen import LocalQwenBackend
+from core.llm.llama_server import LlamaServerBackend, find_llama_server
 from core.llm.remote_api import RemoteAPIBackend, RetryableHTTPError
 from core.llm.tiers import (
     ESCALATION_ORDER,
@@ -52,6 +53,8 @@ __all__ = [
     # интерфейс и реализации
     "LLMBackend",
     "LocalQwenBackend",
+    "LlamaServerBackend",
+    "find_llama_server",
     "RemoteAPIBackend",
     # тиры
     "Tier",

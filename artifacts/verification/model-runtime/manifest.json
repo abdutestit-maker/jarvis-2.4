@@ -1,0 +1,86 @@
+{
+  "format": 1,
+  "wave": "model-runtime",
+  "created_at": "2026-08-19T18:56:30+05:00",
+  "baseline": {
+    "commit": "f25d72f7df06b5ada2217f4fe18230bd6a796c96",
+    "tests": {"passed": 500, "skipped": 2, "failed": 0},
+    "note": "Baseline captured before the single-model runtime change."
+  },
+  "selected_model": {
+    "name": "Qwen3-4B-Instruct-2507-Q5_K_M",
+    "format": "GGUF",
+    "local_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+    "size_bytes": 2889514080,
+    "local_sha256": "5BDE5E9D883622ACB02BF77FE7DCBC56A8B9A9AD4BE78A72CA23A532658B4ECB",
+    "source": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF",
+    "pinned_download_url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q5_K_M.gguf",
+    "manifest_sha256": "b46efda5ed59b9f8d9b6e56ccf05e71e6eef2029f0f73b33ccbebd79974ee566",
+    "integrity_status": "existing_local_file_hash_recorded; not replaced automatically"
+  },
+  "runtime": {
+    "package_id": "ggml.llamacpp",
+    "winget_version": "b10488",
+    "binary": "C:/Users/WwW/AppData/Local/Microsoft/WinGet/Packages/ggml.llamacpp_Microsoft.Winget.Source_8wekyb3d8bbwe/llama-server.exe",
+    "binary_sha256": "3E2AC8887FB37FA4312654CF6625E3449A7E87989B0116C4A582FD518D02CF2F",
+    "build": "0.1.2-dev (build 10488, commit 9d77fa172)",
+    "device": "Vulkan0: NVIDIA GeForce RTX 2060 SUPER (8220 MiB)",
+    "endpoint": "http://127.0.0.1:8782",
+    "hidden_process": true,
+    "cloud_api": false
+  },
+  "package": {
+    "command": "python scripts/package_local_runtime.py --dry-run",
+    "dry_run_exit_code": 0,
+    "staged_total_bytes": 2989986752,
+    "bundled_models": ["qwen3-4b-instruct-q5_k_m.gguf"],
+    "bundled_8b_models": [],
+    "installer_build": "npm run tauri:build after staging; not run because the 2.99 GB resource is intentionally ignored by Git"
+  },
+  "settings": {
+    "path": "config/settings.json",
+    "sha256_after": "2034DFA844F00C587BC2635908373F916F0071C8C18B05599D17B0AE7ABE6503",
+    "backup": "data/backups/settings.json.20260819-174809.bak",
+    "backup_sha256": "3429FD8B81163D0F6162043AB6E8E0185A2CCCC2B53DE3DB331EA80D68F80F30",
+    "offline_mode": true,
+    "primary_brain": "fast",
+    "runtime_backend": "auto",
+    "warmup_local_on_start": true,
+    "auto_download_models": false,
+    "all_roles_share_one_model": true
+  },
+  "changed_files": [
+    ".gitignore",
+    "README.md",
+    "config/models_manifest.json",
+    "config/settings.example.json",
+    "config/settings.py",
+    "core/llm/__init__.py",
+    "core/llm/factory.py",
+    "core/llm/hardware_profile.py",
+    "core/llm/llama_server.py",
+    "core/orchestrator.py",
+    "jarvis/src-tauri/resources/jarvis-runtime/.gitkeep",
+    "jarvis/src-tauri/src/main.rs",
+    "jarvis/src-tauri/tauri.conf.json",
+    "scripts/package_local_runtime.py",
+    "scripts/quality_probe.py",
+    "scripts/run-backend.cmd",
+    "tests/test_llama_server_backend.py",
+    "tests/test_quality_probe.py"
+  ],
+  "artifacts": [
+    "manifest.json",
+    "verification.json",
+    "diff.patch",
+    "rollback.ps1"
+  ],
+  "safety": {
+    "eight_b_model_installed": false,
+    "eight_b_model_bundled": false,
+    "existing_1_7b_used_as_default": false,
+    "secrets_packaged": false,
+    "frontend_changed": false,
+    "voice_pipeline_changed": false
+  }
+}

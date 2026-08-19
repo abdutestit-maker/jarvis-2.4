@@ -272,9 +272,14 @@ class Orchestrator:
                 else:
                     log.debug("FAST backend has no warm_up hook: %s", type(backend).__name__)
                 info = dict(getattr(backend, "runtime_info", lambda: {})() or {})
-                configured_layers = int(info.get("n_gpu_layers", 0) or 0)
+                raw_layers = info.get("n_gpu_layers", 0)
+                if isinstance(raw_layers, str):
+                    configured_layers = -1 if raw_layers.casefold() in {"all", "auto", "-1"} else int(raw_layers or 0)
+                else:
+                    configured_layers = int(raw_layers or 0)
+                runtime_backend = str(info.get("runtime_backend", "") or "").casefold()
                 self._warmup_diagnostics.update({
-                    "backend": "cuda" if configured_layers != 0 else "cpu",
+                    "backend": "cuda" if configured_layers != 0 or runtime_backend in {"cuda", "vulkan", "metal"} else "cpu",
                     "model": str(getattr(backend, "model", "local-qwen")),
                     "n_gpu_layers": configured_layers,
                     "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),

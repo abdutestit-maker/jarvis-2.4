@@ -76,7 +76,33 @@ def _build_backend(settings: Settings, provider: str, model_id: str,
             )
         if local_path is None or not local_path.is_file():
             local_cfg = settings.local_model
-        
+
+        runtime_backend = str(getattr(local_cfg, "runtime_backend", "python") or "python").casefold()
+        if runtime_backend in {"auto", "llama-server", "llama_server", "server", "vulkan"}:
+            from core.llm.llama_server import LlamaServerBackend, find_llama_server
+
+            server_path = find_llama_server(getattr(local_cfg, "server_binary_path", ""))
+            if runtime_backend != "auto" or server_path is not None:
+                if local_cfg.resolved_gguf_path is not None and local_cfg.resolved_gguf_path.is_file():
+                    backend = LlamaServerBackend(
+                        gguf_path=local_cfg.resolved_gguf_path,
+                        model_id=model_id,
+                        server_binary=server_path,
+                        host=getattr(local_cfg, "server_host", "127.0.0.1"),
+                        port=int(getattr(local_cfg, "server_port", 8782)),
+                        n_ctx=int(getattr(local_cfg, "n_ctx", 4096)),
+                        n_batch=int(getattr(local_cfg, "n_batch", 768)),
+                        n_threads=getattr(local_cfg, "effective_threads", None),
+                        temperature=float(getattr(local_cfg, "temperature", 0.25)),
+                        max_tokens=int(getattr(local_cfg, "max_tokens", 384)),
+                        gpu_layers=str(getattr(local_cfg, "server_gpu_layers", "all")),
+                        startup_timeout_sec=float(getattr(local_cfg, "server_start_timeout_sec", 30.0)),
+                        request_timeout_sec=float(getattr(local_cfg, "server_request_timeout_sec", 45.0)),
+                        verbose=bool(getattr(local_cfg, "verbose", False)),
+                    )
+                    backend.task_role = role.value
+                    return backend
+
         backend = LocalQwenBackend(
             gguf_path=local_cfg.resolved_gguf_path,
             model_id=model_id,
@@ -215,21 +241,53 @@ def get_offline_backend(settings: Settings) -> LLMBackend:
         cached = _cache.get(key)
         if cached is not None:
             return cached
-        backend = LocalQwenBackend(
-            gguf_path=gguf,
-            model_id=model_id,
-            n_gpu_layers=local_cfg.n_gpu_layers,
-            n_ctx=local_cfg.n_ctx,
-            n_threads=local_cfg.effective_threads,
-            n_batch=local_cfg.n_batch,
-            temperature=local_cfg.temperature,
-            max_tokens=local_cfg.max_tokens,
-            chat_format=local_cfg.chat_format,
-            verbose=local_cfg.verbose,
-            draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
-            speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
-            draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
-        )
+        runtime_backend = str(getattr(local_cfg, "runtime_backend", "python") or "python").casefold()
+        if runtime_backend in {"auto", "llama-server", "llama_server", "server", "vulkan"}:
+            from core.llm.llama_server import LlamaServerBackend, find_llama_server
+            server_path = find_llama_server(getattr(local_cfg, "server_binary_path", ""))
+            if runtime_backend != "auto" or server_path is not None:
+                backend = LlamaServerBackend(
+                    gguf_path=gguf,
+                    model_id=model_id,
+                    server_binary=server_path,
+                    host=getattr(local_cfg, "server_host", "127.0.0.1"),
+                    port=int(getattr(local_cfg, "server_port", 8782)),
+                    n_ctx=int(getattr(local_cfg, "n_ctx", 4096)),
+                    n_batch=int(getattr(local_cfg, "n_batch", 768)),
+                    n_threads=getattr(local_cfg, "effective_threads", None),
+                    temperature=float(getattr(local_cfg, "temperature", 0.25)),
+                    max_tokens=int(getattr(local_cfg, "max_tokens", 384)),
+                    gpu_layers=str(getattr(local_cfg, "server_gpu_layers", "all")),
+                    startup_timeout_sec=float(getattr(local_cfg, "server_start_timeout_sec", 30.0)),
+                    request_timeout_sec=float(getattr(local_cfg, "server_request_timeout_sec", 45.0)),
+                )
+            else:
+                backend = LocalQwenBackend(
+                    gguf_path=gguf, model_id=model_id,
+                    n_gpu_layers=local_cfg.n_gpu_layers, n_ctx=local_cfg.n_ctx,
+                    n_threads=local_cfg.effective_threads, n_batch=local_cfg.n_batch,
+                    temperature=local_cfg.temperature, max_tokens=local_cfg.max_tokens,
+                    chat_format=local_cfg.chat_format, verbose=local_cfg.verbose,
+                    draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
+                    speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
+                    draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
+                )
+        else:
+            backend = LocalQwenBackend(
+                gguf_path=gguf,
+                model_id=model_id,
+                n_gpu_layers=local_cfg.n_gpu_layers,
+                n_ctx=local_cfg.n_ctx,
+                n_threads=local_cfg.effective_threads,
+                n_batch=local_cfg.n_batch,
+                temperature=local_cfg.temperature,
+                max_tokens=local_cfg.max_tokens,
+                chat_format=local_cfg.chat_format,
+                verbose=local_cfg.verbose,
+                draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
+                speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
+                draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
+            )
         _cache[key] = backend
         log.info("Создан офлайн-бэкенд TIER 4: %s", backend.name)
         return backend

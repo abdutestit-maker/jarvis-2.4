@@ -133,12 +133,17 @@ class ApiEndpoints(_Section):
 
 
 class ModelTiers(_Section):
-    """Реальные model-id по тирам. Правятся пользователем вручную."""
+    """Логические роли одной локальной модели.
+
+    В production все роли намеренно указывают на один Qwen GGUF. Это не
+    означает пять загрузок: фабрика разделяет физический backend по пути.
+    """
 
     fast: str = "qwen-4b-local"
     analyst: str = "deepseek-v4-flash"
     coder: str = "kimi-k3"
     architect: str = "claude-opus-5"
+    research: str = "deepseek-v4-flash"
 
     def get(self, tier_key: str) -> Optional[str]:
         raw = getattr(self, tier_key, None)
@@ -160,6 +165,7 @@ class TierProviders(_Section):
     analyst: str = "deepseek"
     coder: str = "kimi"
     architect: str = "claude"
+    research: str = "deepseek"
 
     def get(self, tier_key: str) -> str:
         raw = getattr(self, tier_key, None)
@@ -179,6 +185,15 @@ class LocalModelConfig(_Section):
     # диске и подходит текущему железу. Пользовательский путь сохраняется,
     # если этот флаг выключен.
     auto_profile: bool = True
+    #: ``python`` keeps the embedded llama-cpp path; ``auto`` prefers the
+    #: installed official llama.cpp server and falls back to Python locally.
+    runtime_backend: str = "python"
+    server_binary_path: str = ""
+    server_host: str = "127.0.0.1"
+    server_port: int = 8782
+    server_gpu_layers: str = "all"
+    server_start_timeout_sec: float = 30.0
+    server_request_timeout_sec: float = 45.0
     draft_model_path: str = ""
     speculative_decoding: bool = False
     draft_max_tokens: int = 5
@@ -189,10 +204,10 @@ class LocalModelConfig(_Section):
     n_gpu_layers: int = 0           # 0 = CPU, -1 = все слои на GPU
     n_ctx: int = 4096
     n_threads: int = 0              # 0 = автоопределение по числу ядер
-    n_batch: int = 512
+    n_batch: int = 256
     quantization: str = "Q4_K_M"
-    temperature: float = 0.6
-    max_tokens: int = 512
+    temperature: float = 0.25
+    max_tokens: int = 384
     chat_format: Optional[str] = None   # None = взять шаблон из GGUF-метаданных
     verbose: bool = False
 
@@ -202,6 +217,20 @@ class LocalModelConfig(_Section):
         if value <= 0:
             raise ValueError("значение должно быть больше нуля")
         return value
+
+    @field_validator("server_port")
+    @classmethod
+    def _valid_server_port(cls, value: int) -> int:
+        if not 1 <= int(value) <= 65535:
+            raise ValueError("server_port должен быть в диапазоне 1..65535")
+        return int(value)
+
+    @field_validator("server_start_timeout_sec", "server_request_timeout_sec")
+    @classmethod
+    def _valid_server_timeout(cls, value: float) -> float:
+        if float(value) <= 0:
+            raise ValueError("таймаут llama-server должен быть положительным")
+        return float(value)
 
     @field_validator("temperature")
     @classmethod
@@ -234,23 +263,23 @@ class LocalModelConfig(_Section):
 
 
 class LocalCoderModelConfig(_Section):
-    """DEPRECATED (П1, §1.1) — локальный 7B-coder удалён из эскалации.
+    """Параметры coder-роли той же локальной Qwen 4B.
 
-    Класс оставлен ТОЛЬКО для обратной совместимости загрузки старых
-    settings.json. Поле ``gguf_path`` намеренно всегда пустое: тир CODER
-    теперь обслуживается ТОЛЬКО удалённым провайдером (Kimi/DeepSeek).
-    J.A.R.V.I.S. НЕ грузит тяжёлую локальную модель «просто так» — это
-    было решение владельца (§1.1): никакой 7B-эскалации на локальном железе.
+    Отдельный объект сохраняется ради совместимости старых конфигов, но
+    физическая модель не дублируется и не вызывает платный cloud fallback.
     """
 
-    gguf_path: str = ""  # жёстко отключено (П1 §1.1): локальный coder-бэкенд удалён
-    n_gpu_layers: int = -1           # 0 = CPU, -1 = все слои на GPU
-    n_ctx: int = 8192                # больше контекст для кода
+    # Empty in a bare Settings() object so an explicitly configured
+    # local_model path remains the single physical GGUF. Production
+    # settings.json pins the same Qwen 4B file for this role.
+    gguf_path: str = ""
+    n_gpu_layers: int = 0            # 0 = CPU, -1 = все слои на GPU
+    n_ctx: int = 4096
     n_threads: int = 0               # 0 = автоопределение по числу ядер
-    n_batch: int = 512
+    n_batch: int = 256
     quantization: str = "Q5_K_M"
     temperature: float = 0.2         # ниже для кода — детерминированнее
-    max_tokens: int = 2048           # больше токенов для кода
+    max_tokens: int = 768
     chat_format: Optional[str] = None
     verbose: bool = False
 
@@ -543,7 +572,7 @@ class ShadowConfig(_Section):
     enabled: bool = False
     auto_generate: bool = True
     interval_sec: int = 300
-    code_model_path: str = "data/models/Qwen3-1.7B-Q6_K.gguf"
+    code_model_path: str = "data/models/qwen3-4b-instruct-q5_k_m.gguf"
 
     @field_validator("interval_sec")
     @classmethod
@@ -615,14 +644,11 @@ class Settings(BaseModel):
     model_tiers: ModelTiers = Field(default_factory=ModelTiers)
     tier_providers: TierProviders = Field(default_factory=TierProviders)
 
-    #: ГЛАВНЫЙ «МОЗГ» (ТЗ перестановки приоритетов, авг-2026).
-    #: Тир, который опрашивается ПЕРВЫМ для обычных (не-локальных) запросов.
-    #: Удалённая модель по умолчанию — основной ответчик; локальная Qwen 4B
-    #: остаётся только офлайн-фолбэком. Значение должно быть одним из ключей
-    #: model_tiers (обычно 'analyst'). Пустая строка/None -> 'analyst'.
+    #: Главный логический тир для bare Settings()/library compatibility.
+    #: Production config/settings.json overrides this to the local FAST path.
     primary_brain: str = "analyst"
-    #: Local-only safety switch. Disabled on bare Settings() for test/API
-    #: compatibility; production config enables it explicitly.
+    #: Production config enables local-only mode explicitly. Bare Settings()
+    #: remains backwards-compatible for provider/router tests and integrations.
     offline_mode: bool = False
     #: Load the local FAST model in a daemon warmup thread at service start.
     #: False for bare Settings() keeps unit tests and library imports cheap.

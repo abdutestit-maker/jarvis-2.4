@@ -368,6 +368,20 @@ def apply_profile(settings: object, *, logger: object | None = None) -> ModelPro
     local.n_gpu_layers = gpu_layers
     local.n_ctx = profile.n_ctx
     local.n_batch = profile.n_batch
+    # A CUDA/Vulkan-capable binary may still be unavailable even when
+    # nvidia-smi sees a card. Keep the real 4B file responsive on the CPU
+    # fallback instead of inheriting the GPU-sized context/batch.
+    try:
+        is_large_local_gguf = selected.stat().st_size >= 100 * 1024 * 1024
+    except OSError:
+        is_large_local_gguf = False
+    if gpu_layers == 0 and is_large_local_gguf:
+        if local.n_ctx > 4096:
+            local.n_ctx = 4096
+            profile.reasons.append("GPU-offload недоступен — контекст 4096 для CPU-профиля")
+        if local.n_batch > 256:
+            local.n_batch = 256
+            profile.reasons.append("GPU-offload недоступен — batch 256 для CPU-профиля")
     draft_path = models_dir / profile.draft_model if profile.draft_model else None
     if draft_path is not None and draft_path.is_file() and gpu_layers != 0:
         local.draft_model_path = f"data/models/{profile.draft_model}"

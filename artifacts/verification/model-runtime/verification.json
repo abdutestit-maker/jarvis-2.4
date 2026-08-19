@@ -1,0 +1,85 @@
+{
+  "wave": "model-runtime",
+  "verified": true,
+  "baseline": {"commit": "f25d72f7df06b5ada2217f4fe18230bd6a796c96", "passed": 500, "skipped": 2, "failed": 0},
+  "after": {"passed": 510, "skipped": 2, "failed": 0},
+  "checks": [
+    {
+      "name": "python_regression",
+      "command": "python -m pytest -q -o addopts=''",
+      "exit_code": 0,
+      "literal_result": "510 passed, 2 skipped, 2 warnings in 64.77s"
+    },
+    {
+      "name": "llama_server_unit",
+      "command": "python -m pytest -q -o addopts='' tests/test_llama_server_backend.py tests/test_quality_probe.py",
+      "exit_code": 0,
+      "literal_result": "10 passed"
+    },
+    {
+      "name": "compile",
+      "command": "python -m compileall -q core config scripts",
+      "exit_code": 0,
+      "literal_result": "no output"
+    },
+    {
+      "name": "frontend_protocol",
+      "command": "cd jarvis; npm run test:frontend",
+      "exit_code": 0,
+      "literal_result": "wsProtocol: 5 assertions passed; wsBackend command/response/confirmation/masked settings passed; operatorModel: 13 assertions passed"
+    },
+    {
+      "name": "frontend_build",
+      "command": "cd jarvis; npm run build",
+      "exit_code": 0,
+      "literal_result": "1582 modules transformed; vite build succeeded"
+    },
+    {
+      "name": "tauri_check",
+      "command": "cd jarvis/src-tauri; cargo check",
+      "exit_code": 0,
+      "literal_result": "Finished dev profile; only existing dead_code warnings"
+    },
+    {
+      "name": "real_quality_probe",
+      "command": "python scripts/quality_probe.py --real --samples 2",
+      "exit_code": 0,
+      "literal_result": "verified=true; current_time=true; system_status=true; media policy blocked play_music without reminder; unknown_task acquisition=research with no tool; GTA memory not returned; model quality_verified=true"
+    },
+    {
+      "name": "runtime_diagnostics",
+      "command": "llama-server --version; llama-server --list-devices",
+      "exit_code": 0,
+      "literal_result": "0.1.2-dev build 10488; Vulkan0 NVIDIA GeForce RTX 2060 SUPER (8220 MiB)"
+    },
+    {
+      "name": "model_latency",
+      "command": "quality_probe model section",
+      "exit_code": 0,
+      "literal_result": "warmup_ms=3286.296; startup_seconds=2.477; generation p50=487.802ms, p95=889.285ms; n_gpu_layers=-1; runtime_backend=vulkan"
+    },
+    {
+      "name": "package_dry_run",
+      "command": "python scripts/package_local_runtime.py --dry-run",
+      "exit_code": 0,
+      "literal_result": "total_bytes=2989986752; models=[qwen3-4b-instruct-q5_k_m.gguf]; no 8B model"
+    },
+    {
+      "name": "no_eight_b_install",
+      "command": "Get-ChildItem data/models -File",
+      "exit_code": 0,
+      "literal_result": "Qwen3-1.7B-Q6_K.gguf and qwen3-4b-instruct-q5_k_m.gguf only; no 8B file; llama-server process stopped after probe"
+    }
+  ],
+  "latency_budgets": {
+    "fast": {"p50_ms": 600, "p95_ms": 1000, "hard_max_ms": 1500},
+    "deliberate": {"first_progress_p95_ms": 2500, "final_p50_ms": 8000, "final_p95_ms": 15000},
+    "research": {"first_progress_ms": 3000, "source_timeout_ms": 8000},
+    "background": {"enqueue_p95_ms": 100}
+  },
+  "notes": [
+    "The 4B model already existed locally; the runtime was installed and wired to it.",
+    "The pinned manifest hash is retained as the clean-download expectation; the local existing hash is recorded separately.",
+    "The frontend contract remains unchanged; no frontend or voice source was edited."
+  ]
+}

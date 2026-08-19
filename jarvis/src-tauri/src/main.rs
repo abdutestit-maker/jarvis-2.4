@@ -23,7 +23,7 @@ impl Drop for BackendProcess {
 impl Default for LauncherSettings { fn default() -> Self { Self { autostart: Some(false), hotkey: Some("Ctrl+Space".into()), backend_command: Some(vec!["python".into(), "-m".into(), "core.ws_server".into()]), backend_workdir: Some(String::new()) } } }
 
 fn is_project_root(path: &Path) -> bool {
-    path.join("config").is_dir() && (path.join("core").is_dir() || path.join("resources").is_dir())
+    path.join("config").is_dir() && (path.join("core").is_dir() || path.join("resources").is_dir() || path.join("runtime").is_dir())
 }
 
 fn project_root() -> PathBuf {
@@ -36,6 +36,7 @@ fn project_root() -> PathBuf {
         if let Some(parent) = exe.parent() {
             candidates.push(parent.to_path_buf());
             candidates.push(parent.join("resources"));
+            candidates.push(parent.join("resources/jarvis-runtime"));
             candidates.push(parent.join("resources/project"));
         }
         candidates.extend(exe.ancestors().map(PathBuf::from));

@@ -16,51 +16,60 @@
   },
 
   "model_tiers": {
-    "fast": "qwen-4b-local",
-    "analyst": "qwen-4b-local",
-    "coder": "qwen-4b-local",
-    "architect": "qwen-4b-local"
+    "fast": "Qwen3-4B-Instruct-2507-Q5_K_M",
+    "analyst": "Qwen3-4B-Instruct-2507-Q5_K_M",
+    "coder": "Qwen3-4B-Instruct-2507-Q5_K_M",
+    "architect": "Qwen3-4B-Instruct-2507-Q5_K_M",
+    "research": "Qwen3-4B-Instruct-2507-Q5_K_M"
   },
 
   "tier_providers": {
     "fast": "local",
     "analyst": "local",
     "coder": "local",
-    "architect": "local"
+    "architect": "local",
+    "research": "local"
   },
 
   "primary_brain": "fast",
   "offline_mode": true,
   "warmup_local_on_start": true,
-  "auto_download_models": true,
+  "auto_download_models": false,
 
   "local_model": {
     "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
     "auto_profile": true,
+    "runtime_backend": "auto",
+    "server_binary_path": "",
+    "server_host": "127.0.0.1",
+    "server_port": 8782,
+    "server_gpu_layers": "all",
+    "server_start_timeout_sec": 30,
+    "server_request_timeout_sec": 45,
     "draft_model_path": "",
     "speculative_decoding": false,
     "draft_max_tokens": 5,
     "native_tool_calling": true,
     "embedding_gguf_path": "",
-    "n_gpu_layers": -1,
+    "n_gpu_layers": 0,
     "n_ctx": 4096,
     "n_threads": 0,
-    "n_batch": 1024,
+    "n_batch": 256,
     "quantization": "Q5_K_M",
-    "temperature": 0.6,
-    "max_tokens": 512,
+    "temperature": 0.25,
+    "max_tokens": 384,
     "chat_format": null,
     "verbose": false
   },
   "local_coder_model": {
-    "gguf_path": "",
-    "n_gpu_layers": -1,
-    "n_ctx": 8192,
+    "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+    "n_gpu_layers": 0,
+    "n_ctx": 4096,
     "n_threads": 0,
-    "n_batch": 512,
+    "n_batch": 256,
     "quantization": "Q5_K_M",
     "temperature": 0.2,
-    "max_tokens": 2048,
+    "max_tokens": 768,
     "chat_format": null,
     "verbose": false
   },
@@ -144,10 +153,10 @@
     "sensitivity": 0.5
   },
   "shadow": {
-    "enabled": true,
-    "auto_generate": true,
+    "enabled": false,
+    "auto_generate": false,
     "interval_sec": 300,
-    "code_model_path": "data/models/Qwen3-1.7B-Q6_K.gguf"
+    "code_model_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf"
   },
   "brain_policy": {
     "mode": "BALANCED",

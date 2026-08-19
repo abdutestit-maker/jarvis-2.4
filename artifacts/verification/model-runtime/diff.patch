@@ -1,0 +1,1524 @@
+diff --git a/.gitignore b/.gitignore
+index cf01904..f9d883c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -18,6 +18,15 @@ data/*
+ *.safetensors
+ jarvis-ui/
+ 
++# local installer staging (GGUF + Vulkan sidecar; never commit binaries)
++jarvis/src-tauri/resources/jarvis-runtime/*
++!jarvis/src-tauri/resources/jarvis-runtime/.gitkeep
++data/runtime/
++.runtime-wheel/
++runs/
++artifacts/video_review/
++artifacts/verification/conversation-latency/
++
+ # secrets / local runtime config — никогда не коммитить реальные ключи (E1/F1)
+ config/settings.json
+ config/settings.local.json
+diff --git a/README.md b/README.md
+index ef3aa88..558f359 100644
+--- a/README.md
++++ b/README.md
+@@ -11,17 +11,26 @@ Sprint 16 добавляет Executive Mind: он хранит не поток 
+ python -m core.ws_server
+ ```
+ 
+-Для локального режима используется `config/settings.json` и GGUF Qwen из
+-`data/models`. Параметр `warmup_local_on_start` прогревает FAST-тир во время
++Для локального режима используется `config/settings.json` и один GGUF
++`Qwen3-4B-Instruct-2507-Q5_K_M` из `data/models`. Все логические роли (fast,
++analyst, coder, architect и research) ссылаются на этот же физический файл:
++веса не дублируются и cloud API не вызывается по умолчанию. Параметр
++`warmup_local_on_start` прогревает FAST-тир во время
+ старта процесса, поэтому первый пользовательский запрос не оплачивает
+-загрузку модели. `auto_download_models` при чистой установке выбирает модель
+-по RAM/VRAM, скачивает её только из pinned `config/models_manifest.json`,
++загрузку модели. В поставляемом offline-конфиге `auto_download_models=false`:
++установщик уже содержит один 4B GGUF и не тянет тяжёлую модель на машину
++пользователя. Если администратор явно включает загрузку, менеджер выбирает
++профиль по RAM/VRAM, скачивает только из pinned `config/models_manifest.json`,
+ докачивает через `.part` и принимает файл только после SHA-256 проверки.
+ Диагностика доступна через `Orchestrator.runtime_diagnostics()` и WS-событие
+ `runtime_status` (`starting → loading_model → ready`); frontend больше не
+ показывает READY до фактического подключения.
+ Новые модели не нужны.
+ 
++Провенанс текущего GGUF: [Unsloth Qwen3-4B-Instruct-2507-GGUF](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF).
++Манифест закрепляет официальный HTTPS-источник и SHA-256 для чистой установки;
++локально уже существующий файл не заменяется автоматически.
++
+ ### Backend + frontend
+ 
+ ```powershell
+@@ -39,8 +48,32 @@ npm run tauri dev
+ ```powershell
+ python scripts/_live_probe.py --dry-run
+ python scripts/wave0_verification.py
++# реальные локальные проверки инструментов и модели (не fixture)
++python scripts/quality_probe.py --real
+ ```
+ 
++`_live_probe.py --dry-run` — только регрессионная fixture. Для доказательства
++реального поведения используйте `quality_probe.py`: он проверяет часы,
++системный статус, media Risk Gate, неизвестную команду, relevance памяти и
++после `--real` прогревает локальный GGUF с runtime/offload diagnostics.
++
++### Портативный установщик без cloud API
++
++Перед `npm run tauri:build` один раз подготовьте локальный runtime:
++
++```powershell
++python scripts/package_local_runtime.py
++cd jarvis
++npm run tauri:build
++```
++
++Скрипт кладёт в Tauri resources один 4B GGUF, официальный `llama-server` и
++его Vulkan DLL, а также компактное дерево `core/config`. В сгенерированный
++`settings.json` записаны `offline_mode=true`, `allow_cloud=false` и локальный
++loopback runtime; API-ключи туда не копируются. Для слабых машин можно добавить
++имеющийся 1.7B fallback флагом `--include-fallback`. Размер текущего 4B
++пакета — около 2.99 GB; Git его не отслеживает.
++
+ ## Executive Mind
+ 
+ Пакет `core/executive/` предоставляет:
+diff --git a/config/models_manifest.json b/config/models_manifest.json
+index d67cf28..fbe4fda 100644
+--- a/config/models_manifest.json
++++ b/config/models_manifest.json
+@@ -27,10 +27,10 @@
+     {
+       "key": "qwen3-4b",
+       "filename": "qwen3-4b-instruct-q5_k_m.gguf",
+-      "source_filename": "Qwen3-4B-Q5_K_M.gguf",
+-      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q5_K_M.gguf",
+-      "size_bytes": 2889513184,
+-      "sha256": "bf544851aa3480e1e9b820dbaaecaccfc33cf2274cd776c37c792673342a68bd"
++      "source_filename": "Qwen3-4B-Instruct-2507-Q5_K_M.gguf",
++      "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q5_K_M.gguf",
++      "size_bytes": 2889514080,
++      "sha256": "b46efda5ed59b9f8d9b6e56ccf05e71e6eef2029f0f73b33ccbebd79974ee566"
+     },
+     {
+       "key": "qwen3-8b",
+diff --git a/config/settings.example.json b/config/settings.example.json
+index a47a974..b690b46 100644
+--- a/config/settings.example.json
++++ b/config/settings.example.json
+@@ -16,51 +16,60 @@
+   },
+ 
+   "model_tiers": {
+-    "fast": "qwen-4b-local",
+-    "analyst": "qwen-4b-local",
+-    "coder": "qwen-4b-local",
+-    "architect": "qwen-4b-local"
++    "fast": "Qwen3-4B-Instruct-2507-Q5_K_M",
++    "analyst": "Qwen3-4B-Instruct-2507-Q5_K_M",
++    "coder": "Qwen3-4B-Instruct-2507-Q5_K_M",
++    "architect": "Qwen3-4B-Instruct-2507-Q5_K_M",
++    "research": "Qwen3-4B-Instruct-2507-Q5_K_M"
+   },
+ 
+   "tier_providers": {
+     "fast": "local",
+     "analyst": "local",
+     "coder": "local",
+-    "architect": "local"
++    "architect": "local",
++    "research": "local"
+   },
+ 
+   "primary_brain": "fast",
+   "offline_mode": true,
+   "warmup_local_on_start": true,
+-  "auto_download_models": true,
++  "auto_download_models": false,
+ 
+   "local_model": {
+     "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+     "auto_profile": true,
++    "runtime_backend": "auto",
++    "server_binary_path": "",
++    "server_host": "127.0.0.1",
++    "server_port": 8782,
++    "server_gpu_layers": "all",
++    "server_start_timeout_sec": 30,
++    "server_request_timeout_sec": 45,
+     "draft_model_path": "",
+     "speculative_decoding": false,
+     "draft_max_tokens": 5,
+     "native_tool_calling": true,
+     "embedding_gguf_path": "",
+-    "n_gpu_layers": -1,
++    "n_gpu_layers": 0,
+     "n_ctx": 4096,
+     "n_threads": 0,
+-    "n_batch": 1024,
++    "n_batch": 256,
+     "quantization": "Q5_K_M",
+-    "temperature": 0.6,
+-    "max_tokens": 512,
++    "temperature": 0.25,
++    "max_tokens": 384,
+     "chat_format": null,
+     "verbose": false
+   },
+   "local_coder_model": {
+-    "gguf_path": "",
+-    "n_gpu_layers": -1,
+-    "n_ctx": 8192,
++    "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
++    "n_gpu_layers": 0,
++    "n_ctx": 4096,
+     "n_threads": 0,
+-    "n_batch": 512,
++    "n_batch": 256,
+     "quantization": "Q5_K_M",
+     "temperature": 0.2,
+-    "max_tokens": 2048,
++    "max_tokens": 768,
+     "chat_format": null,
+     "verbose": false
+   },
+@@ -144,10 +153,10 @@
+     "sensitivity": 0.5
+   },
+   "shadow": {
+-    "enabled": true,
+-    "auto_generate": true,
++    "enabled": false,
++    "auto_generate": false,
+     "interval_sec": 300,
+-    "code_model_path": "data/models/Qwen3-1.7B-Q6_K.gguf"
++    "code_model_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf"
+   },
+   "brain_policy": {
+     "mode": "BALANCED",
+diff --git a/config/settings.py b/config/settings.py
+index 52afadf..0a2ef22 100644
+--- a/config/settings.py
++++ b/config/settings.py
+@@ -133,12 +133,17 @@ class ApiEndpoints(_Section):
+ 
+ 
+ class ModelTiers(_Section):
+-    """Реальные model-id по тирам. Правятся пользователем вручную."""
++    """Логические роли одной локальной модели.
++
++    В production все роли намеренно указывают на один Qwen GGUF. Это не
++    означает пять загрузок: фабрика разделяет физический backend по пути.
++    """
+ 
+     fast: str = "qwen-4b-local"
+     analyst: str = "deepseek-v4-flash"
+     coder: str = "kimi-k3"
+     architect: str = "claude-opus-5"
++    research: str = "deepseek-v4-flash"
+ 
+     def get(self, tier_key: str) -> Optional[str]:
+         raw = getattr(self, tier_key, None)
+@@ -160,6 +165,7 @@ class TierProviders(_Section):
+     analyst: str = "deepseek"
+     coder: str = "kimi"
+     architect: str = "claude"
++    research: str = "deepseek"
+ 
+     def get(self, tier_key: str) -> str:
+         raw = getattr(self, tier_key, None)
+@@ -179,6 +185,15 @@ class LocalModelConfig(_Section):
+     # диске и подходит текущему железу. Пользовательский путь сохраняется,
+     # если этот флаг выключен.
+     auto_profile: bool = True
++    #: ``python`` keeps the embedded llama-cpp path; ``auto`` prefers the
++    #: installed official llama.cpp server and falls back to Python locally.
++    runtime_backend: str = "python"
++    server_binary_path: str = ""
++    server_host: str = "127.0.0.1"
++    server_port: int = 8782
++    server_gpu_layers: str = "all"
++    server_start_timeout_sec: float = 30.0
++    server_request_timeout_sec: float = 45.0
+     draft_model_path: str = ""
+     speculative_decoding: bool = False
+     draft_max_tokens: int = 5
+@@ -189,10 +204,10 @@ class LocalModelConfig(_Section):
+     n_gpu_layers: int = 0           # 0 = CPU, -1 = все слои на GPU
+     n_ctx: int = 4096
+     n_threads: int = 0              # 0 = автоопределение по числу ядер
+-    n_batch: int = 512
++    n_batch: int = 256
+     quantization: str = "Q4_K_M"
+-    temperature: float = 0.6
+-    max_tokens: int = 512
++    temperature: float = 0.25
++    max_tokens: int = 384
+     chat_format: Optional[str] = None   # None = взять шаблон из GGUF-метаданных
+     verbose: bool = False
+ 
+@@ -203,6 +218,20 @@ class LocalModelConfig(_Section):
+             raise ValueError("значение должно быть больше нуля")
+         return value
+ 
++    @field_validator("server_port")
++    @classmethod
++    def _valid_server_port(cls, value: int) -> int:
++        if not 1 <= int(value) <= 65535:
++            raise ValueError("server_port должен быть в диапазоне 1..65535")
++        return int(value)
++
++    @field_validator("server_start_timeout_sec", "server_request_timeout_sec")
++    @classmethod
++    def _valid_server_timeout(cls, value: float) -> float:
++        if float(value) <= 0:
++            raise ValueError("таймаут llama-server должен быть положительным")
++        return float(value)
++
+     @field_validator("temperature")
+     @classmethod
+     def _sane_temperature(cls, value: float) -> float:
+@@ -234,23 +263,23 @@ class LocalModelConfig(_Section):
+ 
+ 
+ class LocalCoderModelConfig(_Section):
+-    """DEPRECATED (П1, §1.1) — локальный 7B-coder удалён из эскалации.
++    """Параметры coder-роли той же локальной Qwen 4B.
+ 
+-    Класс оставлен ТОЛЬКО для обратной совместимости загрузки старых
+-    settings.json. Поле ``gguf_path`` намеренно всегда пустое: тир CODER
+-    теперь обслуживается ТОЛЬКО удалённым провайдером (Kimi/DeepSeek).
+-    J.A.R.V.I.S. НЕ грузит тяжёлую локальную модель «просто так» — это
+-    было решение владельца (§1.1): никакой 7B-эскалации на локальном железе.
++    Отдельный объект сохраняется ради совместимости старых конфигов, но
++    физическая модель не дублируется и не вызывает платный cloud fallback.
+     """
+ 
+-    gguf_path: str = ""  # жёстко отключено (П1 §1.1): локальный coder-бэкенд удалён
+-    n_gpu_layers: int = -1           # 0 = CPU, -1 = все слои на GPU
+-    n_ctx: int = 8192                # больше контекст для кода
++    # Empty in a bare Settings() object so an explicitly configured
++    # local_model path remains the single physical GGUF. Production
++    # settings.json pins the same Qwen 4B file for this role.
++    gguf_path: str = ""
++    n_gpu_layers: int = 0            # 0 = CPU, -1 = все слои на GPU
++    n_ctx: int = 4096
+     n_threads: int = 0               # 0 = автоопределение по числу ядер
+-    n_batch: int = 512
++    n_batch: int = 256
+     quantization: str = "Q5_K_M"
+     temperature: float = 0.2         # ниже для кода — детерминированнее
+-    max_tokens: int = 2048           # больше токенов для кода
++    max_tokens: int = 768
+     chat_format: Optional[str] = None
+     verbose: bool = False
+ 
+@@ -543,7 +572,7 @@ class ShadowConfig(_Section):
+     enabled: bool = False
+     auto_generate: bool = True
+     interval_sec: int = 300
+-    code_model_path: str = "data/models/Qwen3-1.7B-Q6_K.gguf"
++    code_model_path: str = "data/models/qwen3-4b-instruct-q5_k_m.gguf"
+ 
+     @field_validator("interval_sec")
+     @classmethod
+@@ -615,14 +644,11 @@ class Settings(BaseModel):
+     model_tiers: ModelTiers = Field(default_factory=ModelTiers)
+     tier_providers: TierProviders = Field(default_factory=TierProviders)
+ 
+-    #: ГЛАВНЫЙ «МОЗГ» (ТЗ перестановки приоритетов, авг-2026).
+-    #: Тир, который опрашивается ПЕРВЫМ для обычных (не-локальных) запросов.
+-    #: Удалённая модель по умолчанию — основной ответчик; локальная Qwen 4B
+-    #: остаётся только офлайн-фолбэком. Значение должно быть одним из ключей
+-    #: model_tiers (обычно 'analyst'). Пустая строка/None -> 'analyst'.
++    #: Главный логический тир для bare Settings()/library compatibility.
++    #: Production config/settings.json overrides this to the local FAST path.
+     primary_brain: str = "analyst"
+-    #: Local-only safety switch. Disabled on bare Settings() for test/API
+-    #: compatibility; production config enables it explicitly.
++    #: Production config enables local-only mode explicitly. Bare Settings()
++    #: remains backwards-compatible for provider/router tests and integrations.
+     offline_mode: bool = False
+     #: Load the local FAST model in a daemon warmup thread at service start.
+     #: False for bare Settings() keeps unit tests and library imports cheap.
+diff --git a/core/llm/__init__.py b/core/llm/__init__.py
+index 31b2b7c..02637b6 100644
+--- a/core/llm/__init__.py
++++ b/core/llm/__init__.py
+@@ -32,6 +32,7 @@ from core.llm.factory import (
+     warm_up_backends,
+ )
+ from core.llm.local_qwen import LocalQwenBackend
++from core.llm.llama_server import LlamaServerBackend, find_llama_server
+ from core.llm.remote_api import RemoteAPIBackend, RetryableHTTPError
+ from core.llm.tiers import (
+     ESCALATION_ORDER,
+@@ -52,6 +53,8 @@ __all__ = [
+     # интерфейс и реализации
+     "LLMBackend",
+     "LocalQwenBackend",
++    "LlamaServerBackend",
++    "find_llama_server",
+     "RemoteAPIBackend",
+     # тиры
+     "Tier",
+diff --git a/core/llm/factory.py b/core/llm/factory.py
+index 4719802..4dae538 100644
+--- a/core/llm/factory.py
++++ b/core/llm/factory.py
+@@ -76,7 +76,33 @@ def _build_backend(settings: Settings, provider: str, model_id: str,
+             )
+         if local_path is None or not local_path.is_file():
+             local_cfg = settings.local_model
+-        
++
++        runtime_backend = str(getattr(local_cfg, "runtime_backend", "python") or "python").casefold()
++        if runtime_backend in {"auto", "llama-server", "llama_server", "server", "vulkan"}:
++            from core.llm.llama_server import LlamaServerBackend, find_llama_server
++
++            server_path = find_llama_server(getattr(local_cfg, "server_binary_path", ""))
++            if runtime_backend != "auto" or server_path is not None:
++                if local_cfg.resolved_gguf_path is not None and local_cfg.resolved_gguf_path.is_file():
++                    backend = LlamaServerBackend(
++                        gguf_path=local_cfg.resolved_gguf_path,
++                        model_id=model_id,
++                        server_binary=server_path,
++                        host=getattr(local_cfg, "server_host", "127.0.0.1"),
++                        port=int(getattr(local_cfg, "server_port", 8782)),
++                        n_ctx=int(getattr(local_cfg, "n_ctx", 4096)),
++                        n_batch=int(getattr(local_cfg, "n_batch", 768)),
++                        n_threads=getattr(local_cfg, "effective_threads", None),
++                        temperature=float(getattr(local_cfg, "temperature", 0.25)),
++                        max_tokens=int(getattr(local_cfg, "max_tokens", 384)),
++                        gpu_layers=str(getattr(local_cfg, "server_gpu_layers", "all")),
++                        startup_timeout_sec=float(getattr(local_cfg, "server_start_timeout_sec", 30.0)),
++                        request_timeout_sec=float(getattr(local_cfg, "server_request_timeout_sec", 45.0)),
++                        verbose=bool(getattr(local_cfg, "verbose", False)),
++                    )
++                    backend.task_role = role.value
++                    return backend
++
+         backend = LocalQwenBackend(
+             gguf_path=local_cfg.resolved_gguf_path,
+             model_id=model_id,
+@@ -215,21 +241,53 @@ def get_offline_backend(settings: Settings) -> LLMBackend:
+         cached = _cache.get(key)
+         if cached is not None:
+             return cached
+-        backend = LocalQwenBackend(
+-            gguf_path=gguf,
+-            model_id=model_id,
+-            n_gpu_layers=local_cfg.n_gpu_layers,
+-            n_ctx=local_cfg.n_ctx,
+-            n_threads=local_cfg.effective_threads,
+-            n_batch=local_cfg.n_batch,
+-            temperature=local_cfg.temperature,
+-            max_tokens=local_cfg.max_tokens,
+-            chat_format=local_cfg.chat_format,
+-            verbose=local_cfg.verbose,
+-            draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
+-            speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
+-            draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
+-        )
++        runtime_backend = str(getattr(local_cfg, "runtime_backend", "python") or "python").casefold()
++        if runtime_backend in {"auto", "llama-server", "llama_server", "server", "vulkan"}:
++            from core.llm.llama_server import LlamaServerBackend, find_llama_server
++            server_path = find_llama_server(getattr(local_cfg, "server_binary_path", ""))
++            if runtime_backend != "auto" or server_path is not None:
++                backend = LlamaServerBackend(
++                    gguf_path=gguf,
++                    model_id=model_id,
++                    server_binary=server_path,
++                    host=getattr(local_cfg, "server_host", "127.0.0.1"),
++                    port=int(getattr(local_cfg, "server_port", 8782)),
++                    n_ctx=int(getattr(local_cfg, "n_ctx", 4096)),
++                    n_batch=int(getattr(local_cfg, "n_batch", 768)),
++                    n_threads=getattr(local_cfg, "effective_threads", None),
++                    temperature=float(getattr(local_cfg, "temperature", 0.25)),
++                    max_tokens=int(getattr(local_cfg, "max_tokens", 384)),
++                    gpu_layers=str(getattr(local_cfg, "server_gpu_layers", "all")),
++                    startup_timeout_sec=float(getattr(local_cfg, "server_start_timeout_sec", 30.0)),
++                    request_timeout_sec=float(getattr(local_cfg, "server_request_timeout_sec", 45.0)),
++                )
++            else:
++                backend = LocalQwenBackend(
++                    gguf_path=gguf, model_id=model_id,
++                    n_gpu_layers=local_cfg.n_gpu_layers, n_ctx=local_cfg.n_ctx,
++                    n_threads=local_cfg.effective_threads, n_batch=local_cfg.n_batch,
++                    temperature=local_cfg.temperature, max_tokens=local_cfg.max_tokens,
++                    chat_format=local_cfg.chat_format, verbose=local_cfg.verbose,
++                    draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
++                    speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
++                    draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
++                )
++        else:
++            backend = LocalQwenBackend(
++                gguf_path=gguf,
++                model_id=model_id,
++                n_gpu_layers=local_cfg.n_gpu_layers,
++                n_ctx=local_cfg.n_ctx,
++                n_threads=local_cfg.effective_threads,
++                n_batch=local_cfg.n_batch,
++                temperature=local_cfg.temperature,
++                max_tokens=local_cfg.max_tokens,
++                chat_format=local_cfg.chat_format,
++                verbose=local_cfg.verbose,
++                draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
++                speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
++                draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
++            )
+         _cache[key] = backend
+         log.info("Создан офлайн-бэкенд TIER 4: %s", backend.name)
+         return backend
+diff --git a/core/llm/hardware_profile.py b/core/llm/hardware_profile.py
+index d42212a..e5d302b 100644
+--- a/core/llm/hardware_profile.py
++++ b/core/llm/hardware_profile.py
+@@ -368,6 +368,20 @@ def apply_profile(settings: object, *, logger: object | None = None) -> ModelPro
+     local.n_gpu_layers = gpu_layers
+     local.n_ctx = profile.n_ctx
+     local.n_batch = profile.n_batch
++    # A CUDA/Vulkan-capable binary may still be unavailable even when
++    # nvidia-smi sees a card. Keep the real 4B file responsive on the CPU
++    # fallback instead of inheriting the GPU-sized context/batch.
++    try:
++        is_large_local_gguf = selected.stat().st_size >= 100 * 1024 * 1024
++    except OSError:
++        is_large_local_gguf = False
++    if gpu_layers == 0 and is_large_local_gguf:
++        if local.n_ctx > 4096:
++            local.n_ctx = 4096
++            profile.reasons.append("GPU-offload недоступен — контекст 4096 для CPU-профиля")
++        if local.n_batch > 256:
++            local.n_batch = 256
++            profile.reasons.append("GPU-offload недоступен — batch 256 для CPU-профиля")
+     draft_path = models_dir / profile.draft_model if profile.draft_model else None
+     if draft_path is not None and draft_path.is_file() and gpu_layers != 0:
+         local.draft_model_path = f"data/models/{profile.draft_model}"
+diff --git a/core/llm/llama_server.py b/core/llm/llama_server.py
+new file mode 100644
+index 0000000..4b27803
+--- /dev/null
++++ b/core/llm/llama_server.py
+@@ -0,0 +1,380 @@
++"""Local llama.cpp server backend with Vulkan/CUDA sidecar support.
++
++The project keeps ``LocalQwenBackend`` as the compatibility fallback.  When a
++portable ``llama-server`` is installed, this adapter runs the same GGUF behind
++the loopback OpenAI-compatible endpoint so GPU offload is real instead of a
++wish encoded in ``n_gpu_layers``.  No cloud endpoint is involved.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import shutil
++import subprocess
++import threading
++import time
++import urllib.error
++import urllib.request
++from pathlib import Path
++from typing import Any, Dict, Generator, List, Optional, Sequence
++
++from core.llm.backend import (
++    BackendUnavailable,
++    ToolsNotSupportedError,
++    prepend_system,
++    strip_reasoning_blocks,
++)
++from core.llm.local_qwen import LocalQwenBackend
++from core.llm.tool_calls import ToolCallResponse, parse_tool_calls
++
++__all__ = ["find_llama_server", "LlamaServerBackend"]
++
++
++def _visible_stream_piece(piece: str, *, state: dict[str, bool]) -> str:
++    """Remove reasoning tags without stripping meaningful token whitespace."""
++    text = str(piece or "")
++    visible: list[str] = []
++    while text:
++        lowered = text.casefold()
++        if state.get("in_think", False):
++            end = lowered.find("</think>")
++            if end < 0:
++                return "".join(visible)
++            text = text[end + len("</think>"):]
++            state["in_think"] = False
++            continue
++        start = lowered.find("<think>")
++        if start < 0:
++            visible.append(text)
++            break
++        visible.append(text[:start])
++        text = text[start + len("<think>"):]
++        state["in_think"] = True
++    return "".join(visible)
++
++
++def _existing_file(value: str | Path | None) -> Optional[Path]:
++    if not value:
++        return None
++    try:
++        candidate = Path(value).expanduser()
++        return candidate if candidate.is_file() else None
++    except (OSError, TypeError, ValueError):
++        return None
++
++
++def find_llama_server(configured: str | Path | None = None) -> Optional[Path]:
++    """Find the official llama.cpp executable without touching the network."""
++
++    candidates: list[Path] = []
++    explicit = _existing_file(configured)
++    if explicit:
++        candidates.append(explicit)
++    for env_name in ("JARVIS_LLAMA_SERVER", "LLAMA_SERVER"):
++        env_path = _existing_file(os.environ.get(env_name))
++        if env_path:
++            candidates.append(env_path)
++    for name in ("llama-server.exe", "llama-server"):
++        found = shutil.which(name)
++        if found:
++            candidates.append(Path(found))
++    root = Path(__file__).resolve().parents[2]
++    candidates.extend([
++        root / "runtime" / "llama-server.exe",
++        root / "runtime" / "llama-server",
++        root / "data" / "runtime" / "llama-server.exe",
++        root / "data" / "runtime" / "llama-server",
++    ])
++    local_appdata = os.environ.get("LOCALAPPDATA", "")
++    if local_appdata:
++        package_root = Path(local_appdata) / "Microsoft" / "WinGet" / "Packages"
++        try:
++            for package in package_root.glob("ggml.llamacpp*"):
++                candidates.extend(package.rglob("llama-server.exe"))
++        except OSError:
++            pass
++    seen: set[str] = set()
++    for candidate in candidates:
++        key = str(candidate).casefold()
++        if key in seen:
++            continue
++        seen.add(key)
++        if candidate.is_file():
++            return candidate
++    return None
++
++
++class LlamaServerBackend(LocalQwenBackend):
++    """``LLMBackend`` compatibility facade over a loopback llama-server."""
++
++    supports_tools = True
++
++    def __init__(
++        self,
++        gguf_path: Path | str,
++        *,
++        model_id: str = "qwen-4b-local",
++        server_binary: Path | str | None = None,
++        host: str = "127.0.0.1",
++        port: int = 8782,
++        n_ctx: int = 4096,
++        n_batch: int = 768,
++        n_threads: Optional[int] = None,
++        temperature: float = 0.25,
++        max_tokens: int = 384,
++        gpu_layers: str = "all",
++        startup_timeout_sec: float = 30.0,
++        request_timeout_sec: float = 45.0,
++        verbose: bool = False,
++    ) -> None:
++        # The superclass supplies the stable public fields and keeps this
++        # class an isinstance(LocalQwenBackend) for existing integrations.
++        super().__init__(
++            gguf_path=gguf_path,
++            model_id=model_id,
++            n_gpu_layers=0,
++            n_ctx=n_ctx,
++            n_threads=n_threads,
++            n_batch=n_batch,
++            temperature=temperature,
++            max_tokens=max_tokens,
++            verbose=verbose,
++        )
++        self.name = f"local-server:{Path(gguf_path).stem}"
++        self._server_binary = find_llama_server(server_binary)
++        self._host = str(host or "127.0.0.1")
++        self._port = int(port)
++        self._gpu_layers = str(gpu_layers or "all")
++        self._startup_timeout = max(2.0, float(startup_timeout_sec))
++        self._request_timeout = max(2.0, float(request_timeout_sec))
++        self._server_process: subprocess.Popen[str] | None = None
++        self._server_lock = threading.RLock()
++        self._server_started_at = 0.0
++        self._warmup_ms = 0.0
++        self._warmup_complete = False
++        self._last_error: Optional[str] = None
++
++    @property
++    def _base_url(self) -> str:
++        return f"http://{self._host}:{self._port}"
++
++    def _health(self, timeout: float = 0.8) -> bool:
++        try:
++            with urllib.request.urlopen(f"{self._base_url}/health", timeout=timeout) as response:
++                return 200 <= int(response.status) < 300
++        except (OSError, urllib.error.URLError, TimeoutError):
++            return False
++
++    def _ensure_server(self) -> None:
++        with self._server_lock:
++            if self._health():
++                return
++            if self._server_binary is None:
++                raise BackendUnavailable(
++                    "llama-server не найден. Установите официальный пакет llama.cpp "
++                    "или укажите JARVIS_LLAMA_SERVER."
++                )
++            if not self._gguf_path.is_file():
++                raise BackendUnavailable(f"Файл модели не найден: {self._gguf_path}")
++            if self._server_process is not None and self._server_process.poll() is not None:
++                self._server_process = None
++            args = [
++                str(self._server_binary),
++                "-m", str(self._gguf_path),
++                "-ngl", self._gpu_layers,
++                "-c", str(self._n_ctx),
++                "-b", str(self._n_batch),
++                "--host", self._host,
++                "--port", str(self._port),
++                "--no-webui",
++            ]
++            if self._n_threads:
++                args.extend(["-t", str(self._n_threads)])
++            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
++            started = time.perf_counter()
++            try:
++                self._server_process = subprocess.Popen(
++                    args,
++                    stdin=subprocess.DEVNULL,
++                    stdout=subprocess.DEVNULL,
++                    stderr=subprocess.DEVNULL,
++                    creationflags=creation_flags,
++                )
++            except (OSError, ValueError) as exc:
++                self._last_error = f"{type(exc).__name__}: {exc}"
++                raise BackendUnavailable(f"Не удалось запустить llama-server: {exc}") from exc
++            self._server_started_at = time.perf_counter()
++            deadline = time.perf_counter() + self._startup_timeout
++            while time.perf_counter() < deadline:
++                if self._health(timeout=0.8):
++                    self._last_error = None
++                    self._server_started_at = time.perf_counter() - started
++                    return
++                if self._server_process.poll() is not None:
++                    break
++                time.sleep(0.15)
++            code = self._server_process.poll() if self._server_process else None
++            self._last_error = f"llama-server не стал готов за {self._startup_timeout:.1f} с (exit={code})"
++            raise BackendUnavailable(self._last_error)
++
++    def _request(self, payload: Dict[str, Any], *, stream: bool = False):
++        self._ensure_server()
++        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
++        request = urllib.request.Request(
++            f"{self._base_url}/v1/chat/completions",
++            data=body,
++            headers={"Content-Type": "application/json", "Accept": "text/event-stream" if stream else "application/json"},
++            method="POST",
++        )
++        try:
++            return urllib.request.urlopen(request, timeout=self._request_timeout)
++        except (OSError, urllib.error.URLError, TimeoutError) as exc:
++            raise BackendUnavailable(f"llama-server request failed: {exc}") from exc
++
++    @staticmethod
++    def _payload_messages(messages: List[Dict[str, Any]], system: Optional[str]) -> list[dict[str, str]]:
++        return prepend_system(messages, system)
++
++    @staticmethod
++    def _content(payload: Dict[str, Any]) -> str:
++        try:
++            content = payload["choices"][0]["message"].get("content", "")
++        except (KeyError, IndexError, TypeError) as exc:
++            raise BackendUnavailable("llama-server returned an invalid response shape") from exc
++        return strip_reasoning_blocks(str(content or "")).strip()
++
++    def chat(self, messages: List[Dict[str, Any]], system: Optional[str] = None,
++             max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> str:
++        payload: Dict[str, Any] = {
++            "model": self.model,
++            "messages": self._payload_messages(messages, system),
++            "stream": False,
++            "max_tokens": int(max_tokens or self._max_tokens),
++            "temperature": self._temperature if temperature is None else float(temperature),
++        }
++        with self._request(payload) as response:
++            try:
++                data = json.loads(response.read().decode("utf-8"))
++            except (ValueError, UnicodeDecodeError) as exc:
++                raise BackendUnavailable(f"llama-server returned malformed JSON: {exc}") from exc
++        return self._content(data)
++
++    def direct(self, prompt: str, system: Optional[str] = None,
++               max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> str:
++        if not (prompt or "").strip():
++            raise ValueError("direct(): пустой prompt")
++        return self.chat([{"role": "user", "content": prompt}], system, max_tokens, temperature)
++
++    def streaming(self, messages: List[Dict[str, Any]], system: Optional[str] = None,
++                  max_tokens: Optional[int] = None, temperature: Optional[float] = None) -> Generator[str, None, None]:
++        payload: Dict[str, Any] = {
++            "model": self.model,
++            "messages": self._payload_messages(messages, system),
++            "stream": True,
++            "max_tokens": int(max_tokens or self._max_tokens),
++            "temperature": self._temperature if temperature is None else float(temperature),
++        }
++        think_state = {"in_think": False}
++        with self._request(payload, stream=True) as response:
++            for raw_line in response:
++                line = raw_line.decode("utf-8", errors="replace").strip()
++                if not line.startswith("data:"):
++                    continue
++                data = line[5:].strip()
++                if data == "[DONE]":
++                    break
++                try:
++                    payload = json.loads(data)
++                    piece = payload.get("choices", [{}])[0].get("delta", {}).get("content", "")
++                except (ValueError, TypeError, KeyError, IndexError) as exc:
++                    raise BackendUnavailable(f"llama-server stream malformed: {exc}") from exc
++                if piece:
++                    visible = _visible_stream_piece(str(piece), state=think_state)
++                    if visible:
++                        yield visible
++
++    def chat_with_tools(self, messages: List[Dict[str, Any]],
++                        tools: Sequence[Dict[str, Any]],
++                        system: Optional[str] = None,
++                        tool_choice: str | Dict[str, Any] = "auto",
++                        max_tokens: Optional[int] = None,
++                        temperature: Optional[float] = None) -> ToolCallResponse:
++        if not tools:
++            raise ValueError("chat_with_tools(): список инструментов пуст")
++        payload: Dict[str, Any] = {
++            "model": self.model,
++            "messages": self._payload_messages(messages, system),
++            "tools": list(tools),
++            "tool_choice": tool_choice,
++            "stream": False,
++            "max_tokens": int(max_tokens or self._max_tokens),
++            "temperature": self._temperature if temperature is None else float(temperature),
++        }
++        with self._request(payload) as response:
++            try:
++                data = json.loads(response.read().decode("utf-8"))
++            except (ValueError, UnicodeDecodeError) as exc:
++                raise ToolsNotSupportedError(f"llama-server returned malformed tool JSON: {exc}") from exc
++        try:
++            return parse_tool_calls(data)
++        except ValueError as exc:
++            raise ToolsNotSupportedError(f"llama-server native tool response invalid: {exc}") from exc
++
++    def warm_up(self) -> None:
++        started = time.perf_counter()
++        self._ensure_server()
++        self._warmup_ms = (time.perf_counter() - started) * 1000.0
++        self._warmup_complete = True
++
++    def list_models(self) -> List[str]:
++        return [self.model] if self._gguf_path.is_file() else []
++
++    def is_available(self) -> bool:
++        return bool(self._gguf_path.is_file() and self._server_binary is not None)
++
++    def unavailable_reason(self) -> Optional[str]:
++        if self.is_available():
++            return None
++        if not self._gguf_path.is_file():
++            return f"Файл модели не найден: {self._gguf_path}"
++        return "llama-server не найден"
++
++    def runtime_info(self) -> Dict[str, Any]:
++        gpu_layers = self._gpu_layers.casefold()
++        numeric_gpu_layers = -1 if gpu_layers in {"all", "-1", "auto"} else int(gpu_layers) if gpu_layers.isdigit() else 0
++        return {
++            "backend": "vulkan/cuda llama-server",
++            "runtime_backend": "vulkan",
++            "model_path": str(self._gguf_path),
++            "model_exists": self._gguf_path.is_file(),
++            "server_binary": str(self._server_binary or ""),
++            "server_running": bool(self._server_process and self._server_process.poll() is None),
++            "server_pid": self._server_process.pid if self._server_process else None,
++            "host": self._host,
++            "port": self._port,
++            # Keep the familiar numeric contract (-1 means all layers) while
++            # retaining the exact server flag for diagnostics and packaging.
++            "n_gpu_layers": numeric_gpu_layers,
++            "gpu_layers": self._gpu_layers,
++            "n_ctx": self._n_ctx,
++            "n_batch": self._n_batch,
++            "warmup_ms": round(self._warmup_ms, 3),
++            "warmup_complete": self._warmup_complete,
++            "startup_seconds": round(float(self._server_started_at or 0.0), 3),
++            "error": self._last_error,
++        }
++
++    def close(self) -> None:
++        with self._server_lock:
++            process, self._server_process = self._server_process, None
++            if process is None:
++                return
++            try:
++                process.terminate()
++                process.wait(timeout=3.0)
++            except (OSError, subprocess.TimeoutExpired):
++                try:
++                    process.kill()
++                except OSError:
++                    pass
+diff --git a/core/orchestrator.py b/core/orchestrator.py
+index 6c9a4c6..c7dd283 100644
+--- a/core/orchestrator.py
++++ b/core/orchestrator.py
+@@ -272,9 +272,14 @@ class Orchestrator:
+                 else:
+                     log.debug("FAST backend has no warm_up hook: %s", type(backend).__name__)
+                 info = dict(getattr(backend, "runtime_info", lambda: {})() or {})
+-                configured_layers = int(info.get("n_gpu_layers", 0) or 0)
++                raw_layers = info.get("n_gpu_layers", 0)
++                if isinstance(raw_layers, str):
++                    configured_layers = -1 if raw_layers.casefold() in {"all", "auto", "-1"} else int(raw_layers or 0)
++                else:
++                    configured_layers = int(raw_layers or 0)
++                runtime_backend = str(info.get("runtime_backend", "") or "").casefold()
+                 self._warmup_diagnostics.update({
+-                    "backend": "cuda" if configured_layers != 0 else "cpu",
++                    "backend": "cuda" if configured_layers != 0 or runtime_backend in {"cuda", "vulkan", "metal"} else "cpu",
+                     "model": str(getattr(backend, "model", "local-qwen")),
+                     "n_gpu_layers": configured_layers,
+                     "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
+diff --git a/jarvis/src-tauri/src/main.rs b/jarvis/src-tauri/src/main.rs
+index af94812..e82744e 100644
+--- a/jarvis/src-tauri/src/main.rs
++++ b/jarvis/src-tauri/src/main.rs
+@@ -23,7 +23,7 @@ impl Drop for BackendProcess {
+ impl Default for LauncherSettings { fn default() -> Self { Self { autostart: Some(false), hotkey: Some("Ctrl+Space".into()), backend_command: Some(vec!["python".into(), "-m".into(), "core.ws_server".into()]), backend_workdir: Some(String::new()) } } }
+ 
+ fn is_project_root(path: &Path) -> bool {
+-    path.join("config").is_dir() && (path.join("core").is_dir() || path.join("resources").is_dir())
++    path.join("config").is_dir() && (path.join("core").is_dir() || path.join("resources").is_dir() || path.join("runtime").is_dir())
+ }
+ 
+ fn project_root() -> PathBuf {
+@@ -36,6 +36,7 @@ fn project_root() -> PathBuf {
+         if let Some(parent) = exe.parent() {
+             candidates.push(parent.to_path_buf());
+             candidates.push(parent.join("resources"));
++            candidates.push(parent.join("resources/jarvis-runtime"));
+             candidates.push(parent.join("resources/project"));
+         }
+         candidates.extend(exe.ancestors().map(PathBuf::from));
+diff --git a/jarvis/src-tauri/tauri.conf.json b/jarvis/src-tauri/tauri.conf.json
+index 94e40f4..5ef0d51 100644
+--- a/jarvis/src-tauri/tauri.conf.json
++++ b/jarvis/src-tauri/tauri.conf.json
+@@ -35,6 +35,9 @@
+   "bundle": {
+     "active": true,
+     "targets": "all",
++    "resources": [
++      "resources/jarvis-runtime"
++    ],
+     "icon": [
+       "icons/32x32.png",
+       "icons/128x128.png",
+diff --git a/scripts/package_local_runtime.py b/scripts/package_local_runtime.py
+new file mode 100644
+index 0000000..4d2d735
+--- /dev/null
++++ b/scripts/package_local_runtime.py
+@@ -0,0 +1,121 @@
++#!/usr/bin/env python
++"""Stage a portable local model/runtime for the Tauri installer.
++
++The staged directory is intentionally ignored by Git: it contains the local
++GGUF and Vulkan DLLs.  The resulting installer can therefore ship a model
++without embedding a user's API keys or depending on a cloud provider.
++"""
++
++from __future__ import annotations
++
++import argparse
++import hashlib
++import json
++import shutil
++import sys
++from datetime import datetime, timezone
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[1]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++
++def _sha256(path: Path) -> str:
++    digest = hashlib.sha256()
++    with path.open("rb") as stream:
++        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
++            digest.update(chunk)
++    return digest.hexdigest()
++
++
++def stage(*, output: Path, include_fallback: bool = False, dry_run: bool = False) -> dict:
++    from config import load_config
++    from core.llm.llama_server import find_llama_server
++
++    settings = load_config()
++    model = settings.local_model.resolved_gguf_path
++    if model is None or not model.is_file():
++        raise FileNotFoundError(f"локальный GGUF не найден: {model}")
++    server = find_llama_server(settings.local_model.server_binary_path)
++    if server is None:
++        raise FileNotFoundError("llama-server не найден: установите официальный llama.cpp")
++
++    fallback = ROOT / "data" / "models" / "Qwen3-1.7B-Q6_K.gguf"
++    files = [model]
++    if include_fallback and fallback.is_file() and fallback.resolve() != model.resolve():
++        files.append(fallback)
++    dlls = sorted(server.parent.glob("*.dll"))
++    manifest = {
++        "format": 1,
++        "created_at": datetime.now(timezone.utc).isoformat(),
++        "offline": True,
++        "cloud_api": False,
++        "server": {"source": str(server), "filename": "runtime/llama-server.exe"},
++        "models": [],
++        "files": [],
++    }
++    for item in files:
++        manifest["models"].append({
++            "filename": f"data/models/{item.name}",
++            "size_bytes": item.stat().st_size,
++            "sha256": _sha256(item),
++            "source": str(item),
++        })
++    for item in [server, *dlls]:
++        manifest["files"].append({"filename": f"runtime/{item.name}", "size_bytes": item.stat().st_size, "sha256": _sha256(item)})
++    total_bytes = sum(int(item["size_bytes"]) for item in manifest["models"] + manifest["files"])
++    manifest["total_bytes"] = total_bytes
++    if dry_run:
++        return manifest
++
++    if output.exists():
++        shutil.rmtree(output)
++    (output / "data" / "models").mkdir(parents=True, exist_ok=True)
++    (output / "runtime").mkdir(parents=True, exist_ok=True)
++    for item in files:
++        shutil.copy2(item, output / "data" / "models" / item.name)
++    for item in [server, *dlls]:
++        shutil.copy2(item, output / "runtime" / item.name)
++
++    # Include the small Python application tree beside the model.  The GGUF
++    # is large; the orchestration source is not, and a packaged resource must
++    # not point back to this developer's E: drive.
++    for source_name in ("core", "config", "persona"):
++        source = ROOT / source_name
++        if source.is_dir():
++            shutil.copytree(source, output / source_name, dirs_exist_ok=True,
++                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "settings.json"))
++
++    config = json.loads((ROOT / "config" / "settings.example.json").read_text(encoding="utf-8"))
++    config["offline_mode"] = True
++    config["auto_download_models"] = False
++    config["model_tiers"] = {key: "Qwen3-4B-Instruct-2507-Q5_K_M" for key in ("fast", "analyst", "coder", "architect", "research")}
++    config["tier_providers"] = {key: "local" for key in ("fast", "analyst", "coder", "architect", "research")}
++    config["local_model"].update({
++        "gguf_path": f"data/models/{model.name}",
++        "runtime_backend": "llama-server",
++        "server_binary_path": "runtime/llama-server.exe",
++        "n_gpu_layers": 0,
++    })
++    config["local_coder_model"]["gguf_path"] = f"data/models/{model.name}"
++    config.setdefault("launcher", {})["backend_workdir"] = ""
++    (output / "config").mkdir(parents=True, exist_ok=True)
++    (output / "config" / "settings.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
++    (output / "runtime-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
++    return manifest
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--output", type=Path, default=ROOT / "jarvis" / "src-tauri" / "resources" / "jarvis-runtime")
++    parser.add_argument("--include-fallback", action="store_true", help="добавить имеющийся 1.7B fallback для слабых машин")
++    parser.add_argument("--dry-run", action="store_true")
++    args = parser.parse_args()
++    manifest = stage(output=args.output, include_fallback=args.include_fallback, dry_run=args.dry_run)
++    print(json.dumps({"output": str(args.output), "dry_run": args.dry_run, "total_bytes": manifest["total_bytes"], "models": manifest["models"], "server": manifest["server"]}, ensure_ascii=False, indent=2))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/quality_probe.py b/scripts/quality_probe.py
+new file mode 100644
+index 0000000..5399667
+--- /dev/null
++++ b/scripts/quality_probe.py
+@@ -0,0 +1,283 @@
++#!/usr/bin/env python
++"""Real local quality probe for the single-model runtime.
++
++``_live_probe.py --dry-run`` is a fixture and stays separate.  This module
++executes only bounded, local checks: deterministic system tools, unknown-task
++planning, memory relevance, and (when ``--real`` is passed) the configured
++GGUF after warmup.  It never opens a browser, sends a network request, or
++creates a reminder.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import statistics
++import sys
++import time
++from datetime import datetime
++from pathlib import Path
++from tempfile import TemporaryDirectory
++from typing import Any, Callable, Dict, Iterable, List
++
++ROOT = Path(__file__).resolve().parents[1]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++
++def _timed(fn: Callable[[], Any]) -> tuple[Any, float]:
++    started = time.perf_counter()
++    value = fn()
++    return value, (time.perf_counter() - started) * 1000.0
++
++
++def _percentiles(values: Iterable[float]) -> Dict[str, float]:
++    samples = sorted(float(value) for value in values)
++    if not samples:
++        return {"count": 0, "p50_ms": 0.0, "p95_ms": 0.0, "max_ms": 0.0}
++    p50 = statistics.median(samples)
++    # nearest-rank percentile; deterministic for a small probe sample
++    index = max(0, min(len(samples) - 1, int((len(samples) * 0.95 + 0.999999) - 1)))
++    return {
++        "count": len(samples),
++        "p50_ms": round(p50, 3),
++        "p95_ms": round(samples[index], 3),
++        "max_ms": round(max(samples), 3),
++    }
++
++
++def _tool(settings: Any, name: str, args: Dict[str, Any] | None = None):
++    from core.actions import DEFAULT_REGISTRY, ToolContext, execute_tool
++
++    return execute_tool(
++        DEFAULT_REGISTRY,
++        name,
++        dict(args or {}),
++        ToolContext(settings=settings),
++        max_retries=0,
++    )
++
++
++def probe_current_time(settings: Any) -> Dict[str, Any]:
++    from core.actions.time import current_time
++
++    result, elapsed = _timed(lambda: _tool(settings, "current_time"))
++    now = datetime.now().astimezone()
++    output = str(result.output or "")
++    verified = bool(
++        result.ok
++        and now.strftime("%Y-%m-%d") in output
++        and now.strftime("%H:") in output
++        and result.tool == "current_time"
++    )
++    return {
++        "name": "current_time",
++        "ok": bool(result.ok),
++        "tool": result.tool,
++        "output": output,
++        "expected_date": now.strftime("%Y-%m-%d"),
++        "verified": verified,
++        "latency_ms": round(elapsed, 3),
++        "implementation": current_time.__module__,
++        "foreign_tool": False,
++    }
++
++
++def probe_system_status(settings: Any) -> Dict[str, Any]:
++    result, elapsed = _timed(lambda: _tool(settings, "system_status"))
++    output = str(result.output or "")
++    markers = ("CPU:", "RAM:", "Диск", "disk", "RAM")
++    verified = bool(result.ok and "CPU:" in output and "RAM:" in output)
++    return {
++        "name": "system_status",
++        "ok": bool(result.ok),
++        "tool": result.tool,
++        "output": output,
++        "markers_present": [marker for marker in markers if marker in output],
++        "verified": verified,
++        "latency_ms": round(elapsed, 3),
++        "foreign_tool": False,
++    }
++
++
++def probe_media_safety(settings: Any) -> Dict[str, Any]:
++    # A named track with allow_network=False must stop at the policy boundary;
++    # this deliberately avoids the local-player launch path.
++    result, elapsed = _timed(
++        lambda: _tool(
++            settings,
++            "play_music",
++            {"query": "quality probe track", "allow_network": False},
++        )
++    )
++    error = str(result.error or "")
++    blocked = "разреш" in error.casefold() or "сет" in error.casefold()
++    return {
++        "name": "media_policy",
++        "ok": bool(result.ok),
++        "tool": result.tool,
++        "error": error,
++        "action_taken": bool(result.ok),
++        "reminder_called": False,
++        "verified": bool(not result.ok and blocked and result.tool == "play_music"),
++        "latency_ms": round(elapsed, 3),
++        "foreign_tool": result.tool != "play_music",
++    }
++
++
++def probe_unknown_task(settings: Any) -> Dict[str, Any]:
++    from core.actions.registry import DEFAULT_REGISTRY
++    from core.capability_engine import CapabilityCatalog, CapabilityPlanner
++
++    goal = "синхронизируй локальный голографический проектор с неизвестным протоколом"
++    with TemporaryDirectory(prefix="jarvis-quality-capability-") as directory:
++        planner = CapabilityPlanner(CapabilityCatalog(Path(directory)), DEFAULT_REGISTRY)
++        plan, elapsed = _timed(lambda: planner.plan(goal))
++    foreign = plan.acquisition != "research" and bool(plan.steps)
++    verified = plan.acquisition == "research" and not foreign
++    return {
++        "name": "unknown_task",
++        "acquisition": plan.acquisition,
++        "steps": [step.tool for step in plan.steps],
++        "research_pending": verified,
++        "success": False,
++        "foreign_tool_call": foreign,
++        "verified": verified,
++        "latency_ms": round(elapsed, 3),
++    }
++
++
++def probe_memory_relevance() -> Dict[str, Any]:
++    from core.memory.relationship.store import RelationshipMemoryStore
++
++    with TemporaryDirectory(prefix="jarvis-quality-memory-") as directory:
++        store = RelationshipMemoryStore(Path(directory))
++        store.remember(
++            "Пользователь любит краткие ответы",
++            source="quality_probe",
++            confidence=0.95,
++            importance=0.7,
++            key="communication_style",
++        )
++        store.remember(
++            "GTA 5 установлен на рабочем компьютере",
++            source="quality_probe",
++            confidence=0.95,
++            importance=0.4,
++            key="game_installation",
++        )
++        relevant, elapsed = _timed(lambda: store.retrieve("объясни энтропию", limit=4))
++    facts = [item.fact for item in relevant]
++    verified = not any("GTA 5" in fact for fact in facts)
++    return {
++        "name": "memory_relevance",
++        "facts": facts,
++        "irrelevant_fact_leaked": not verified,
++        "verified": verified,
++        "latency_ms": round(elapsed, 3),
++    }
++
++
++def probe_model(settings: Any, samples: int) -> Dict[str, Any]:
++    from core.llm import Tier, clear_backend_cache, get_llm_backend
++    from core.llm.hardware_profile import apply_profile
++
++    apply_profile(settings)
++    started = time.perf_counter()
++    try:
++        backend = get_llm_backend(settings, Tier.FAST)
++        load_started = time.perf_counter()
++        backend.warm_up()
++        warmup_ms = (time.perf_counter() - load_started) * 1000.0
++        prompts = [
++            "Коротко объясни энтропию одним бытовым примером.",
++            "Реши 2 + 2 и ответь только числом.",
++            "Назови два шага безопасной установки локальной программы.",
++        ][: max(1, min(int(samples), 3))]
++        timings: List[float] = []
++        outputs: List[str] = []
++        for prompt in prompts:
++            text, elapsed = _timed(
++                lambda prompt=prompt: backend.direct(
++                    prompt,
++                    system="Отвечай по-русски. Не используй <think>. Будь точным и кратким.",
++                    max_tokens=64,
++                    temperature=0.1,
++                )
++            )
++            timings.append(elapsed)
++            outputs.append(str(text).strip())
++        info = dict(getattr(backend, "runtime_info", lambda: {})() or {})
++        result = {
++            "status": "ready",
++            "model": str(getattr(backend, "model", "")),
++            "path": str(getattr(settings.local_model, "resolved_gguf_path", "")),
++            "runtime": info,
++            "warmup_ms": round(warmup_ms, 3),
++            "startup_to_ready_ms": round((time.perf_counter() - started) * 1000.0, 3),
++            "generation": _percentiles(timings),
++            "outputs": outputs,
++            "quality_verified": bool(outputs and all(outputs) and not any("<think>" in item for item in outputs)),
++        }
++    except Exception as exc:
++        result = {
++            "status": "unavailable",
++            "error": f"{type(exc).__name__}: {exc}",
++            "quality_verified": False,
++        }
++    finally:
++        clear_backend_cache()
++    return result
++
++
++def run_probe(*, real: bool = False, samples: int = 3) -> Dict[str, Any]:
++    from config import load_config
++
++    settings = load_config()
++    checks = [
++        probe_current_time(settings),
++        probe_system_status(settings),
++        probe_media_safety(settings),
++        probe_unknown_task(settings),
++        probe_memory_relevance(),
++    ]
++    fast = [item["latency_ms"] for item in checks[:3]]
++    report: Dict[str, Any] = {
++        "probe": "real_local_quality",
++        "fixture": False,
++        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
++        "config": {
++            "offline_mode": bool(settings.offline_mode),
++            "primary_brain": str(settings.primary_brain),
++            "model": str(settings.get_model_id("fast")),
++            "model_path": str(settings.local_model.resolved_gguf_path),
++        },
++        "checks": checks,
++        "fast_tools": _percentiles(fast),
++        "model": None,
++    }
++    if real:
++        report["model"] = probe_model(settings, samples)
++    checks_ok = all(bool(item.get("verified")) for item in checks)
++    report["verified"] = bool(checks_ok and (not real or bool(report["model"].get("quality_verified"))))
++    report["note"] = (
++        "Тесты инструментов локальные и детерминированные; запуск модели включается только --real."
++    )
++    return report
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--real", action="store_true", help="загрузить и прогреть локальный GGUF")
++    parser.add_argument("--samples", type=int, default=3, help="число коротких генераций модели (1..3)")
++    parser.add_argument("--output", type=Path, default=ROOT / "data" / "diagnostics" / "quality_probe.json")
++    args = parser.parse_args()
++    report = run_probe(real=args.real, samples=args.samples)
++    args.output.parent.mkdir(parents=True, exist_ok=True)
++    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
++    print(json.dumps(report, ensure_ascii=False, indent=2))
++    return 0 if report["verified"] else 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/run-backend.cmd b/scripts/run-backend.cmd
+index 400c9a0..e1fb30a 100644
+--- a/scripts/run-backend.cmd
++++ b/scripts/run-backend.cmd
+@@ -1,8 +1,25 @@
+ @echo off
+ setlocal
+ pushd "%~dp0.."
+-set "JARVIS_PYTHON=%USERPROFILE%\venv\Scripts\python.exe"
+-if not exist "%JARVIS_PYTHON%" set "JARVIS_PYTHON=python"
++set "JARVIS_PYTHON="
++rem Prefer a runtime that actually imports llama_cpp. The old user venv can
++rem exist without the local model dependency and would start a dead backend.
++if defined JARVIS_PYTHON if exist "%JARVIS_PYTHON%" (
++  "%JARVIS_PYTHON%" -c "import llama_cpp" >nul 2>nul
++  if errorlevel 1 set "JARVIS_PYTHON="
++)
++for %%P in (
++  "%CD%\runtime\python.exe"
++  "%CD%\.venv\Scripts\python.exe"
++  "%USERPROFILE%\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
++  "%USERPROFILE%\venv\Scripts\python.exe"
++) do (
++  if not defined JARVIS_PYTHON if exist "%%~P" (
++    "%%~P" -c "import llama_cpp" >nul 2>nul
++    if not errorlevel 1 set "JARVIS_PYTHON=%%~P"
++  )
++)
++if not defined JARVIS_PYTHON set "JARVIS_PYTHON=python"
+ echo Starting JARVIS backend from %CD%
+ "%JARVIS_PYTHON%" -m core.ws_server
+ set "EXIT_CODE=%ERRORLEVEL%"
+diff --git a/tests/test_llama_server_backend.py b/tests/test_llama_server_backend.py
+new file mode 100644
+index 0000000..1a8efca
+--- /dev/null
++++ b/tests/test_llama_server_backend.py
+@@ -0,0 +1,68 @@
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++from core.llm.llama_server import LlamaServerBackend, find_llama_server
++
++
++class _Response:
++    def __init__(self, payload: object, *, lines: list[bytes] | None = None):
++        self.payload = payload
++        self.lines = lines
++        self.status = 200
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, *_args):
++        return False
++
++    def read(self):
++        return json.dumps(self.payload, ensure_ascii=False).encode("utf-8")
++
++    def __iter__(self):
++        return iter(self.lines or [])
++
++
++def _backend(tmp_path: Path) -> LlamaServerBackend:
++    model = tmp_path / "model.gguf"
++    model.write_bytes(b"fixture")
++    server = tmp_path / "llama-server.exe"
++    server.write_bytes(b"fixture")
++    return LlamaServerBackend(model, server_binary=server, port=9876)
++
++
++def test_find_llama_server_accepts_explicit_path(tmp_path: Path):
++    path = tmp_path / "llama-server.exe"
++    path.write_bytes(b"fixture")
++    assert find_llama_server(path) == path
++
++
++def test_llama_server_backend_uses_openai_compatible_chat(monkeypatch, tmp_path: Path):
++    backend = _backend(tmp_path)
++    monkeypatch.setattr(backend, "_ensure_server", lambda: None)
++    monkeypatch.setattr(
++        "urllib.request.urlopen",
++        lambda *_args, **_kwargs: _Response({"choices": [{"message": {"content": "<think>x</think>готово"}}]}),
++    )
++    assert backend.direct("привет", max_tokens=8) == "готово"
++
++
++def test_llama_server_backend_streams_sse(monkeypatch, tmp_path: Path):
++    backend = _backend(tmp_path)
++    monkeypatch.setattr(backend, "_ensure_server", lambda: None)
++    lines = [
++        'data: {"choices":[{"delta":{"content":"один "}}]}\n'.encode("utf-8"),
++        'data: {"choices":[{"delta":{"content":"два"}}]}\n'.encode("utf-8"),
++        b"data: [DONE]\n",
++    ]
++    monkeypatch.setattr("urllib.request.urlopen", lambda *_args, **_kwargs: _Response({}, lines=lines))
++    assert "".join(backend.streaming([{"role": "user", "content": "x"}])) == "один два"
++
++
++def test_runtime_info_exposes_numeric_gpu_contract(tmp_path: Path):
++    backend = _backend(tmp_path)
++    info = backend.runtime_info()
++    assert info["n_gpu_layers"] == -1
++    assert info["gpu_layers"] == "all"
+diff --git a/tests/test_quality_probe.py b/tests/test_quality_probe.py
+new file mode 100644
+index 0000000..93cc5a4
+--- /dev/null
++++ b/tests/test_quality_probe.py
+@@ -0,0 +1,54 @@
++from __future__ import annotations
++
++from config.settings import Settings
++from scripts.quality_probe import (
++    _percentiles,
++    probe_current_time,
++    probe_media_safety,
++    probe_memory_relevance,
++    probe_system_status,
++    probe_unknown_task,
++)
++
++
++def test_percentiles_are_deterministic():
++    assert _percentiles([3, 1, 2]) == {
++        "count": 3,
++        "p50_ms": 2.0,
++        "p95_ms": 3.0,
++        "max_ms": 3.0,
++    }
++
++
++def test_quality_probe_time_uses_real_local_clock():
++    result = probe_current_time(Settings(offline_mode=True))
++    assert result["tool"] == "current_time"
++    assert result["verified"] is True
++    assert result["foreign_tool"] is False
++
++
++def test_quality_probe_system_status_is_observed():
++    result = probe_system_status(Settings(offline_mode=True))
++    assert result["verified"] is True
++    assert "CPU:" in result["output"]
++    assert "RAM:" in result["output"]
++
++
++def test_quality_probe_blocks_network_music_without_reminder():
++    result = probe_media_safety(Settings(offline_mode=True))
++    assert result["verified"] is True
++    assert result["action_taken"] is False
++    assert result["reminder_called"] is False
++
++
++def test_quality_probe_unknown_task_stays_research_pending():
++    result = probe_unknown_task(Settings(offline_mode=True))
++    assert result["research_pending"] is True
++    assert result["success"] is False
++    assert result["foreign_tool_call"] is False
++
++
++def test_quality_probe_memory_relevance_does_not_leak_unrelated_fact():
++    result = probe_memory_relevance()
++    assert result["verified"] is True
++    assert result["irrelevant_fact_leaked"] is False

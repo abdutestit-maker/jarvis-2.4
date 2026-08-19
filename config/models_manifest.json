@@ -27,10 +27,10 @@
     {
       "key": "qwen3-4b",
       "filename": "qwen3-4b-instruct-q5_k_m.gguf",
-      "source_filename": "Qwen3-4B-Q5_K_M.gguf",
-      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q5_K_M.gguf",
-      "size_bytes": 2889513184,
-      "sha256": "bf544851aa3480e1e9b820dbaaecaccfc33cf2274cd776c37c792673342a68bd"
+      "source_filename": "Qwen3-4B-Instruct-2507-Q5_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q5_K_M.gguf",
+      "size_bytes": 2889514080,
+      "sha256": "b46efda5ed59b9f8d9b6e56ccf05e71e6eef2029f0f73b33ccbebd79974ee566"
     },
     {
       "key": "qwen3-8b",

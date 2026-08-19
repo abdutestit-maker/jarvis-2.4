@@ -18,9 +18,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Dict, List
 
-__all__ = ["resolve_keyword_tool", "INTENT_NONE", "INTENT_APP", "INTENT_MEDIA",
+__all__ = ["resolve_keyword_tool", "split_compound_commands", "INTENT_NONE", "INTENT_APP", "INTENT_MEDIA",
            "INTENT_BROWSER", "INTENT_SYSTEM", "INTENT_WEB", "INTENT_FILE"]
 
 
@@ -38,12 +39,22 @@ INTENT_NONE = "none"
 #: «открой файл» не попал в ``app``, а «открой сайт» — в ``browser``, а не в ``app``.
 _PRIORITY: List[str] = [
     INTENT_FILE,
-    INTENT_BROWSER,
     INTENT_MEDIA,
     INTENT_SYSTEM,
+    INTENT_BROWSER,
     INTENT_APP,
     INTENT_WEB,
 ]
+
+_MEDIA_ACTION_MARKERS = (
+    "поставь музыку", "поставь трек", "поставь песню", "включи музыку",
+    "включи трек", "включи песню", "проиграй", "play music", "play track",
+)
+_BROWSER_ACTION_MARKERS = (
+    "открой ютуб", "открой youtube", "открой сайт", "открой браузер",
+    "перейди на сайт", "открой вкладку", "open youtube", "open site",
+)
+_COMPOUND_SEPARATOR = re.compile(r"\s+(?:и|and|затем|потом|после этого)\s+", re.IGNORECASE)
 
 #: Ключевые слова (русские + английские) в нижнем регистре. Достаточно
 #: вхождения любого слова из списка, чтобы отнести запрос к категории.
@@ -99,10 +110,37 @@ def resolve_keyword_tool(query: str, raw_query: str | None = None) -> str:
         ``web`` / ``file`` / ``none``. Никогда не бросает исключений.
     """
     text = (raw_query if raw_query else query) or ""
-    lowered = text.lower()
+    lowered = " ".join(text.casefold().split())
+
+    # Action verbs disambiguate overlapping vocabulary: "открой YouTube"
+    # is browser navigation, while "поставь музыку на YouTube" is media.
+    if any(marker in lowered for marker in _MEDIA_ACTION_MARKERS):
+        return INTENT_MEDIA
+    if any(marker in lowered for marker in _BROWSER_ACTION_MARKERS):
+        return INTENT_BROWSER
 
     for category in _PRIORITY:
         for keyword in _CATEGORY_KEYWORDS[category]:
-            if keyword in lowered:
+            if keyword.casefold() in lowered:
                 return category
     return INTENT_NONE
+
+
+def split_compound_commands(query: str) -> List[str]:
+    """Return independent action clauses, or an empty list for normal speech.
+
+    A comma alone is deliberately not a separator: phrases such as
+    ``"поставь музыку, настроения нет"`` are one request.  Only an explicit
+    conjunction plus two recognizable action clauses becomes a batch.
+    """
+    clean = " ".join((query or "").strip().split())
+    if not clean:
+        return []
+    parts = [part.strip(" ,;:") for part in _COMPOUND_SEPARATOR.split(clean) if part.strip(" ,;:")]
+    if len(parts) < 2:
+        return []
+    categories = [resolve_keyword_tool(part, part) for part in parts]
+    actionable = [category for category in categories if category != INTENT_NONE]
+    if len(actionable) < 2:
+        return []
+    return parts

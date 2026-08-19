@@ -32,6 +32,15 @@ def test_bare_music_opens_default_player_without_network():
     opener.assert_called_once()
 
 
+def test_mood_context_does_not_become_an_implicit_network_query():
+    with patch("core.actions.media._open_target", return_value=True) as opener:
+        result = play_music(mood="нет")
+
+    assert result.ok is True
+    assert "музыкальный плеер" in result.output.lower()
+    opener.assert_called_once()
+
+
 def test_planner_cannot_turn_bare_music_into_youtube_search(settings):
     agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
     capability = CAPABILITIES.get("play_music")

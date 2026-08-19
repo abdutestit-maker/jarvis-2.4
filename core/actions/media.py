@@ -57,7 +57,10 @@ def play_music(*, query: str = "", mood: str = "", uri: str = "", path: str = ""
         except (OSError, ValueError) as exc:
             return ActionResult(tool="play_music", args=args, ok=False, error=f"Не удалось открыть медиаточку: {exc}")
 
-    query = " ".join((query or mood or "").split())
+    # A mood is descriptive context for the local player, not an implicit
+    # search query. Only an explicitly network-enabled caller may turn it
+    # into text for a remote provider; bare voice commands stay local.
+    query = " ".join((query or (mood if allow_network else "")).split())
     if not query:
         if _open_default_player():
             return ActionResult(

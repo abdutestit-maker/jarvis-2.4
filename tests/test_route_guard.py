@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+import threading
+from unittest.mock import patch
+
+from core.agent import Agent, AgentConfig
+from core.router.intent_router import resolve_keyword_tool, split_compound_commands
+from core.router.route_guard import validate_tool_selection
+from core.safety import assess_risk
+
+
+def test_media_and_browser_actions_are_disambiguated():
+    assert resolve_keyword_tool("открой YouTube") == "browser"
+    assert resolve_keyword_tool("поставь музыку на YouTube") == "media"
+
+
+def test_compound_parser_only_splits_two_real_actions():
+    assert split_compound_commands("открой блокнот и поставь музыку") == [
+        "открой блокнот", "поставь музыку",
+    ]
+    assert split_compound_commands("поставь музыку, настроения нет") == []
+
+
+def test_route_guard_blocks_media_to_reminder_and_time_to_web():
+    media = validate_tool_selection("поставь музыку", "add_reminder")
+    assert media.allowed is False
+    assert media.expected_tools == ("play_music",)
+
+    clock = validate_tool_selection("который час", "web_search")
+    assert clock.allowed is False
+    assert clock.expected_tools == ("current_time",)
+
+
+def test_direct_verified_execution_has_last_line_route_guard(settings):
+    agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
+    with patch("core.actions.reminders.get_default_manager") as manager:
+        outcome = agent._execute_verified(
+            goal="поставь музыку",
+            tool="add_reminder",
+            args={"text": "случайная подмена"},
+            mission=None,
+            cancel=threading.Event(),
+            trace=[],
+            risk=assess_risk("поставь музыку"),
+            caps=[],
+        )
+    assert outcome.verified is False
+    assert outcome.mode == "route_blocked"
+    manager.assert_not_called()
+
+
+def test_compound_actions_require_every_clause_verified(settings):
+    agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
+    with patch("core.actions.media._open_target", return_value=True):
+        outcome = agent.execute("поставь музыку и который час")
+
+    assert outcome.mode == "batch"
+    assert outcome.tool_used == "command_batch"
+    assert outcome.verified is True
+    assert outcome.verification is not None
+    assert outcome.verification.detail == "подтверждено 2/2 шагов"
+    assert "музыкальный плеер" in outcome.text.lower()
+    assert ":" in outcome.text

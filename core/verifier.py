@@ -113,6 +113,7 @@ def _output_text(result: ActionResult) -> str:
 
 
 _PATH_RE = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|/)[^\s\"'<>|?*]+")
+_PID_RE = re.compile(r"\bpid\s*=\s*(\d+)\b", re.IGNORECASE)
 
 
 def _extract_paths(text: str) -> List[str]:
@@ -213,9 +214,13 @@ def _app_candidate_names(result: ActionResult) -> List[str]:
             from core.actions.app_control import _APP_PROCESS_NAMES, resolve_app
             key = app.strip().lower()
             names.extend(_APP_PROCESS_NAMES.get(key, []))
-            resolved = resolve_app(app)
-            if isinstance(resolved, str) and resolved:
-                names.append(Path(resolved).name)
+            # Built-in aliases already provide the canonical process names.
+            # Avoid a synchronous PATH/``where.exe`` lookup on the verified
+            # fast path; resolve arbitrary names only when no alias exists.
+            if not _APP_PROCESS_NAMES.get(key):
+                resolved = resolve_app(app)
+                if isinstance(resolved, str) and resolved:
+                    names.append(Path(resolved).name)
         except Exception:
             pass
     # Из output вида "Запустил notepad."
@@ -231,6 +236,19 @@ def verify_process_running(result: ActionResult) -> VerificationResult:
     if not result.ok:
         return VerificationResult(False, "process_running", result.error or "ok=False")
 
+    # The launcher returns the concrete PID when it owns the process. A PID
+    # probe is stronger and faster than waiting for a GUI name scan while a
+    # Windows app paints its first frame.
+    pid_match = _PID_RE.search(_output_text(result))
+    if pid_match:
+        try:
+            import psutil
+            pid = int(pid_match.group(1))
+            if psutil.pid_exists(pid):
+                return VerificationResult(True, "process_running", f"процесс запущен: pid={pid}")
+        except (ImportError, ValueError, OSError):
+            pass
+
     names = _app_candidate_names(result)
     if not names:
         return VerificationResult(True, "process_running",
@@ -238,7 +256,7 @@ def verify_process_running(result: ActionResult) -> VerificationResult:
                                   strict=False)
 
     # Приложению нужно время на старт — короткий реальный поллинг (не «лимит мышления»).
-    deadline = time.time() + 6.0
+    deadline = time.time() + 1.5
     while time.time() < deadline:
         running = _process_matches(names)
         if running:

@@ -63,7 +63,8 @@ from core.model_router import ModelRouter, RoutingDecision, classify_conversatio
 from core.personality import PersonalityEngine
 from core.repair import RepairLoop
 from core.research import ResearchEngine, is_research_goal
-from core.router.intent_router import resolve_keyword_tool
+from core.router.intent_router import resolve_keyword_tool, split_compound_commands
+from core.router.route_guard import validate_tool_selection
 from core.safety import RiskAssessment, assess_risk
 from core.redact import redact_args
 from core.skill_forge import SkillForge, SkillManifest, SkillStatus
@@ -649,6 +650,15 @@ class Agent:
         if mission is not None:
             mission.metadata["risk"] = risk.to_dict()
 
+        # Explicit independent clauses become a verified batch.  This keeps
+        # a planner from silently completing only the first half of a request.
+        compound = split_compound_commands(goal)
+        if compound and not risk.needs_confirmation:
+            trace.append(f"compound batch -> {len(compound)} clauses")
+            if mission is not None:
+                mission.metadata["compound_commands"] = list(compound)
+            return self._execute_compound(compound, mission=mission, cancel=cancel, trace=trace)
+
         # ---- 3. CONTEXT: большой ввод -> ingest (§7) ----
         context_tokens = 0
         if len(goal) > self._config.large_input_chars:
@@ -688,6 +698,12 @@ class Agent:
         if fast is not None:
             fast.trace = trace + fast.trace
             return fast
+
+        conversation_fast = self._try_conversation_fast_path(
+            goal, mission=mission, cancel=cancel, trace=trace,
+        )
+        if conversation_fast is not None:
+            return conversation_fast
 
         # ---- 5c. MEMORY: извлечение релевантного контекста (P0-5) ----
         memory_ctx = self._retrieve_context(goal)
@@ -759,6 +775,27 @@ class Agent:
             if mission is not None:
                 mission.set_progress(1.0, "ответ сформирован")
             return AgentOutcome(text=text, verified=True, mode="conversation", trace=trace)
+
+        route_guard = validate_tool_selection(goal, decision.tool, decision.arguments)
+        trace.append(
+            f"route guard -> {'allow' if route_guard.allowed else 'block'}"
+            f" ({route_guard.reason or 'consistent'})"
+        )
+        if not route_guard.allowed:
+            if mission is not None:
+                mission.note_error(route_guard.reason)
+                mission.metadata["route_guard"] = route_guard.to_dict()
+            return AgentOutcome(
+                text=(
+                    f"Запрос не выполнен: выбран «{decision.tool}», "
+                    f"а нужен «{', '.join(route_guard.expected_tools)}». "
+                    "Побочного действия не было."
+                ),
+                verified=False,
+                tool_used=decision.tool,
+                mode="route_blocked",
+                trace=trace,
+            )
 
         # ---- 9. RISK GATE перед выполнением (§21) ----
         exec_risk = assess_risk(goal, decision.tool, decision.arguments)
@@ -1106,6 +1143,92 @@ class Agent:
     #  §3 — FAST PATH: короткий цикл для простых задач
     # ------------------------------------------------------------------ #
 
+    def _try_conversation_fast_path(self, goal: str, *, mission: Optional[Mission],
+                                    cancel: threading.Event,
+                                    trace: List[str]) -> Optional[AgentOutcome]:
+        """Answer routine social handshakes without a model round-trip."""
+        # Keep the library/test contract deterministic while enabling the
+        # production fast lane only for the explicitly loaded local runtime.
+        # Bare ``Settings()`` is intentionally provider-neutral and must still
+        # exercise the conversation/model failure paths used by integrations.
+        if not bool(getattr(self._settings, "offline_mode", False)):
+            return None
+        if getattr(self._settings, "source_path", None) is None:
+            return None
+        if cancel.is_set():
+            return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
+        normalized = re.sub(r"[^\w\sа-яё]", " ", (goal or "").casefold())
+        normalized = " ".join(normalized.split())
+        response = None
+        if normalized in {"привет", "здравствуйте", "доброе утро", "добрый вечер", "добрый день"}:
+            response = "Слышу вас, сэр. Канал связи работает."
+        elif normalized in {"как дела", "как ты", "ты как"}:
+            response = "Всё в порядке, сэр. Готов к следующей задаче."
+        elif normalized in {"ты меня слышишь", "слышишь меня", "канал связи работает"} or (
+            normalized.startswith("привет") and "слыш" in normalized and len(normalized.split()) <= 6
+        ):
+            response = "Слышу вас, сэр. Канал связи работает."
+        elif normalized in {"спасибо", "благодарю", "понятно"}:
+            response = "Пожалуйста, сэр."
+        elif normalized in {"пока", "до свидания", "увидимся"}:
+            response = "До связи, сэр."
+        if response is None:
+            return None
+        trace.append("conversation fast path")
+        if mission is not None:
+            mission.metadata["conversation_fast_path"] = True
+            mission.set_progress(1.0, "короткий ответ сформирован")
+        return AgentOutcome(
+            text=response,
+            verified=True,
+            mode="conversation_fast",
+            trace=trace,
+        )
+
+    def _execute_compound(self, parts: List[str], *, mission: Optional[Mission],
+                          cancel: threading.Event, trace: List[str]) -> AgentOutcome:
+        """Execute explicit independent clauses and require every one verified."""
+        if mission is not None:
+            mission.set_status(MissionStatus.EXECUTING, "выполняю составную задачу")
+            mission.set_progress(0.4, "выполнение составных шагов")
+        outcomes: List[AgentOutcome] = []
+        for index, part in enumerate(parts, start=1):
+            if cancel.is_set():
+                return AgentOutcome(
+                    text="Составная задача отменена до завершения всех шагов.",
+                    verified=False,
+                    mode="cancelled",
+                    trace=trace + [f"compound cancelled before clause {index}"],
+                )
+            outcome = self._execute_core(part, mission=None, cancel=cancel)
+            outcomes.append(outcome)
+            trace.extend(f"compound[{index}] {item}" for item in outcome.trace[-8:])
+
+        verified_count = sum(1 for outcome in outcomes if outcome.verified)
+        verified = verified_count == len(outcomes)
+        details = []
+        for part, outcome in zip(parts, outcomes):
+            status = "проверено" if outcome.verified else "не подтверждено"
+            details.append(f"{part}: {status}. {outcome.text}")
+        verification = VerificationResult(
+            verified=verified,
+            method="command_batch",
+            detail=f"подтверждено {verified_count}/{len(outcomes)} шагов",
+            strict=True,
+        )
+        if mission is not None:
+            mission.set_status(MissionStatus.VERIFYING, "проверяю каждый составной шаг")
+            mission.emit(EVENT_VERIFICATION, payload=verification.to_dict())
+            mission.set_progress(1.0, verification.detail)
+        return AgentOutcome(
+            text="\n".join(details),
+            verified=verified,
+            verification=verification,
+            tool_used="command_batch",
+            mode="batch",
+            trace=trace,
+        )
+
     def _try_fast_path(self, goal: str, intent: str, mission: Optional[Mission],
                        cancel: threading.Event,
                        risk: RiskAssessment) -> Optional[AgentOutcome]:
@@ -1149,7 +1272,9 @@ class Agent:
         if exec_risk.needs_confirmation:
             return None
 
-        log.info("FAST PATH: %s(%s)", cap.name, redact_args(args))
+        # Fast-path telemetry must never serialize the user request on a
+        # synchronous file logger; structured traces retain the evidence.
+        log.debug("FAST PATH: %s(%s)", cap.name, redact_args(args))
         outcome = self._execute_verified(
             goal=goal, tool=cap.name, args=args, mission=mission, cancel=cancel,
             trace=[f"fast path -> {cap.name}"], risk=exec_risk, caps=caps,
@@ -1454,6 +1579,20 @@ class Agent:
 
         «Готово» произносится ТОЛЬКО при ``verification.verified`` (§14).
         """
+        route_guard = validate_tool_selection(goal, tool, args)
+        if not route_guard.allowed:
+            trace.append(f"route guard blocked: {route_guard.reason}")
+            return AgentOutcome(
+                text=(
+                    f"Запрос не выполнен: выбран «{tool}», "
+                    f"а нужен «{', '.join(route_guard.expected_tools)}». "
+                    "Побочного действия не было."
+                ),
+                verified=False,
+                tool_used=tool,
+                mode="route_blocked",
+                trace=trace,
+            )
         # A weak planner must never invent a track and turn a bare media
         # command into a YouTube search.  Network media is accepted only when
         # the user named an online source and the query is present in the goal.

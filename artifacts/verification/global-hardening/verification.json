@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "wave": "global-hardening",
+  "status": "verified_with_latency_note",
+  "baseline": {
+    "commit": "39bbd090e60e4d5102245f602cbe0f4304f02b71",
+    "tests": {"passed": 513, "skipped": 2, "failed": 0}
+  },
+  "after": {
+    "tests": {"passed": 524, "skipped": 2, "failed": 0, "warnings": 2},
+    "command": "python -m pytest -o addopts= --tb=short",
+    "duration_sec": 76.70,
+    "result": "PASS"
+  },
+  "targeted_tests": {
+    "command": "python -m pytest -q tests/test_media_fast_path.py tests/test_audit_fixes.py tests/test_conversation_latency.py tests/test_conversation_fast_path.py tests/test_route_guard.py tests/test_live_probe_harness.py tests/test_sprint11_context.py",
+    "result": "PASS"
+  },
+  "static_checks": {
+    "compileall": {"command": "python -m compileall -q core scripts/_live_probe.py tests/test_audit_fixes.py tests/test_conversation_latency.py tests/test_media_fast_path.py tests/test_conversation_fast_path.py tests/test_live_probe_harness.py tests/test_route_guard.py", "exit_code": 0},
+    "git_diff_check": {"command": "git diff --check", "result": "PASS"}
+  },
+  "behavior_harness": {
+    "dry_run": {"path": "E:/jarvis-project/runs/jarvis-universal-research/dry-live-probe-final.json", "pass": true, "cases": 8, "p50_ms": 250.0, "p95_ms": 739.5, "max_ms": 820.0},
+    "real_run": {
+      "path": "E:/jarvis-project/runs/jarvis-universal-research/global-live-probe-final-green.json",
+      "pass": true,
+      "boot_sec": 3.478,
+      "preflight": {"command": "Открой блокнот", "cold_start": true, "sec": 2.053, "tool": "open_app", "verified": true},
+      "cases": {
+        "greeting": {"mode": "conversation_fast", "verified": true, "sec": 0.02},
+        "offline_search": {"tool": "web_search", "verified": false, "resumable": true, "sec": 1.65},
+        "media": {"tool": "play_music", "verified": true, "browser_opened": false, "reminder_called": false, "sec": 1.33},
+        "time": {"tool": "current_time", "verified": true, "real_local_time": true, "sec": 0.42},
+        "second_run_notepad": {"tool": "open_app", "verified": true, "pid_observed": true, "sec": 0.54},
+        "compound": {"tool": "command_batch", "verified": true, "all_clauses_verified": true, "sec": 0.93},
+        "entropy": {"irrelevant_memory_leak": false, "sec": 0.01},
+        "unknown": {"tool_called": false, "verified": false, "sec": 0.12}
+      },
+      "timed_local_actions_ms": {"count": 3, "p50": 540.0, "p95": 1251.0, "max": 1330.0, "target_p50": 600.0, "target_p95": 1000.0, "hard_max": 1500.0},
+      "latency_gate_note": "Reusable local actions stayed below the 1.5 s hard maximum. The observed p95 was 1.251 s, 251 ms above the 1.0 s target; this remains an explicit follow-up optimization rather than a hidden green claim."
+    }
+  },
+  "warmup": {
+    "backend": "cuda",
+    "runtime_backend": "vulkan",
+    "model": "local:qwen3-4b-instruct-q5_k_m",
+    "model_path": "E:/jarvis-project/data/models/qwen3-4b-instruct-q5_k_m.gguf",
+    "n_gpu_layers": -1,
+    "gpu_layers": "all",
+    "warmup_ms": 3332.398,
+    "ready_before_first_request": true,
+    "server_startup_sec": 2.478
+  },
+  "changes": [
+    "Deterministic final route guard for media/time/reminder/browser intents.",
+    "Verified compound command batches; no silent first-clause completion.",
+    "Production conversation fast lane for routine social turns.",
+    "Startup model warmup/readiness barrier with CUDA/Vulkan diagnostics.",
+    "Reflex action path skips cold executive retrieval and background memory initialization.",
+    "Local media intent no longer turns mood text into an implicit web/YouTube search.",
+    "PID-aware app launch verification and built-in executable resolution without where.exe.",
+    "Behavior harness covers false success, offline resume, stale/unknown, compound and second-run paths."
+  ],
+  "scope_unchanged": ["frontend", "voice/TTS", "Brain Fabric", "Browser Bridge", "Risk Gate", "Sprint 8-15", "existing local Qwen3-4B model files"],
+  "model_policy": {"new_models_added": false, "8b_model_downloaded": false, "runtime": "existing local Qwen3-4B GGUF"}
+}

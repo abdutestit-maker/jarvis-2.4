@@ -27,3 +27,15 @@ def test_media_request_never_routes_to_reminder(monkeypatch):
     assert result.tool != "add_reminder"
     assert result.ok
 
+
+def test_open_app_pid_is_a_strict_observation():
+    from core.actions.base import ActionResult
+    from core.verifier import verify_action_result
+
+    result = ActionResult(
+        tool="open_app", args={"name": "fixture"}, ok=True,
+        output=f"Запустил fixture (pid={__import__('os').getpid()}).",
+    )
+    verification = verify_action_result(result)
+    assert verification.verified is True
+    assert verification.method == "process_running"

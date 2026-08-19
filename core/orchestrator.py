@@ -179,7 +179,7 @@ class Orchestrator:
         if callable(clear):
             clear()
 
-    def _new_state(self, text: str) -> JarvisState:
+    def _new_state(self, text: str, *, include_executive: bool = True) -> JarvisState:
         """Create a state with deterministic intent and bounded executive context."""
         state = new_state(text)
         state["intent"] = resolve_keyword_tool(text, text)
@@ -189,11 +189,12 @@ class Orchestrator:
             log.debug("Universal intake skipped: %s", exc)
             state["task_contract"] = {}
         state["latency_budget"] = self._latency_budget_for(state.get("intent"), text)
-        try:
-            state["executive"] = self._agent.executive.snapshot()
-        except Exception as exc:
-            log.debug("Executive snapshot unavailable: %s", exc)
-            state["executive"] = {}
+        if include_executive:
+            try:
+                state["executive"] = self._agent.executive.snapshot()
+            except Exception as exc:
+                log.debug("Executive snapshot unavailable: %s", exc)
+                state["executive"] = {}
         return state
 
     @staticmethod
@@ -325,6 +326,15 @@ class Orchestrator:
             self._running = True
 
             self._start_local_warmup()
+            if bool(getattr(self._settings, "warmup_local_on_start", False)):
+                # Pay model startup once at process start, never on the first
+                # user request. Fast local actions no longer compete with
+                # llama-server initialisation for CPU/GPU time.
+                timeout = float(
+                    getattr(getattr(self._settings, "local_model", None),
+                            "server_start_timeout_sec", 30.0) or 30.0
+                ) + 5.0
+                self._warmup_ready.wait(timeout=max(5.0, timeout))
 
             # Short-term memory manager
             max_size = getattr(getattr(self._settings, "limits", None), "short_memory_size", 20)
@@ -402,7 +412,25 @@ class Orchestrator:
         if bool(getattr(self._settings, "warmup_local_on_start", False)):
             quick = self._quick_local_reply(text)
             if quick is not None:
-                return self._stamp_latency(self._direct_cognitive_response(text, quick), request_started, "fast")
+                lowered = " ".join((text or "").casefold().split())
+                routine = (
+                    lowered in {
+                        "привет", "здравствуйте", "как дела", "как ты",
+                        "как жизнь", "спасибо", "благодарю",
+                    }
+                    or "ты меня слыш" in lowered
+                    or "слышишь меня" in lowered
+                )
+                return self._stamp_latency(
+                    self._direct_cognitive_response(
+                        text,
+                        quick,
+                        mode="conversation_fast" if routine else "conversation",
+                        verified=routine,
+                    ),
+                    request_started,
+                    "fast",
+                )
 
         # Text arriving through the explicit chat/WS input is implicitly
         # addressed to ATLAS. Voice callers can use ``cognitive`` directly
@@ -425,8 +453,15 @@ class Orchestrator:
             text = cognitive_turn.goal
 
         # Sprint 11: natural queries are answered from evidence-backed local
-        # structured context.  This path does not capture pixels or keystrokes.
-        context_reply = self._living.answer_context(text)
+        # structured context. Action intents skip retrieval entirely: loading
+        # Chroma/RAG/graph on a media or app command is a latency regression,
+        # not intelligence.
+        pre_intent = resolve_keyword_tool(text, text)
+        context_reply = (
+            self._living.answer_context(text)
+            if pre_intent not in {"app", "system", "media", "file", "browser"}
+            else None
+        )
         if context_reply is not None:
             response = str(context_reply["answer"])
             output = AssistantOutput.natural(response, speech_mode="focused")
@@ -488,12 +523,18 @@ class Orchestrator:
         output = assistant_output_from_outcome(outcome)
         response = output.display_text or "(пустой ответ, сэр)."
 
-        state = self._new_state(text)
+        state = self._new_state(
+            text,
+            include_executive=outcome.mode not in {"fast_path", "conversation_fast"},
+        )
         self._session.push("user", text)
         self._session.to_state(state)
 
-        # Memory: remember exchange (не дублируем для confirmation-шагов)
-        if not outcome.needs_confirmation:
+        # Memory: remember substantive exchanges only. Reflex tool calls are
+        # already verified by their own evidence and must not start a cold
+        # Chroma/RAG/graph initialisation thread on the latency-critical path.
+        if (not outcome.needs_confirmation
+                and outcome.mode not in {"fast_path", "conversation_fast"}):
             self._remember_exchange_background(text, response)
 
         # Short-term: push assistant
@@ -887,7 +928,9 @@ class Orchestrator:
             self._tts_queue.add_output(output)
         return rendered.text
 
-    def _direct_cognitive_response(self, user_text: str, response: str) -> JarvisState:
+    def _direct_cognitive_response(self, user_text: str, response: str, *,
+                                   mode: str = "conversation",
+                                   verified: bool = False) -> JarvisState:
         """Render a deterministic cognitive answer through the existing voice path."""
         output = AssistantOutput.natural(response, speech_mode="focused")
         state = self._new_state(user_text)
@@ -901,6 +944,8 @@ class Orchestrator:
         state["tts_text"] = spoken
         state["assistant_output"] = output.to_dict()
         state["cognitive_state"] = self._cognitive.state.to_safe_dict()
+        state["mode"] = mode
+        state["verified"] = verified
         return state
 
     def runtime_diagnostics(self) -> Dict[str, Any]:

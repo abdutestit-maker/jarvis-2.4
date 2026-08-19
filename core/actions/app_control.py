@@ -185,7 +185,13 @@ def resolve_app(name: str, settings: Optional[Settings] = None) -> Optional[str]
 
     # 2. Встроенный словарь
     if key in _BUILTIN_APPS:
-        return _find_executable(_BUILTIN_APPS[key])
+        builtin = _BUILTIN_APPS[key]
+        # Windows resolves canonical system executables through CreateProcess
+        # directly. Avoid a synchronous ``where.exe`` probe on every fast
+        # command; full paths/URI targets still go through validation.
+        if builtin.casefold().endswith(".exe") and not any(token in builtin for token in ("\\", "/", "%")):
+            return builtin
+        return _find_executable(builtin)
 
     # 3. Попытка найти как есть (если пользователь сказал полный путь или имя в PATH)
     return _find_executable(name)
@@ -218,12 +224,13 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
         process_names = _APP_PROCESS_NAMES.get(name.strip().lower(), [])
         resolved_name = Path(cmd).name if cmd and ":" not in cmd else ""
         candidates = [*process_names, resolved_name]
-        if _process_name_matches(candidates):
+        existing_pids = _process_ids_for_names(candidates)
+        if existing_pids:
             return ActionResult(
                 tool="open_app",
                 args={"name": name, "args": args},
                 ok=True,
-                output=f"{name} уже запущен.",
+                output=f"{name} уже запущен (pid={existing_pids[0]}).",
             )
         # URI-схемы (ms-settings:) запускаем через start
         if ":" in cmd and not os.path.isabs(cmd):
@@ -244,13 +251,14 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
             cmd_parts = [cmd]
             if args:
                 cmd_parts.extend(shlex.split(args, posix=False))
-            subprocess.Popen(cmd_parts, shell=False)
-        log.info("Запущено приложение: %s (cmd=%s)", name, cmd)
+            process = subprocess.Popen(cmd_parts, shell=False)
+        log.debug("Запущено приложение: %s (cmd=%s)", name, cmd)
+        pid_suffix = f" (pid={process.pid})" if "process" in locals() else ""
         return ActionResult(
             tool="open_app",
             args={"name": name, "args": args},
             ok=True,
-            output=f"Запустил {name}.",
+            output=f"Запустил {name}{pid_suffix}.",
         )
     except Exception as exc:
         log.error("Ошибка запуска '%s': %s", name, exc)
@@ -264,17 +272,23 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
 
 def _process_name_matches(names: List[str]) -> bool:
     """Cheap process-presence probe used by the idempotent app launcher."""
+    return bool(_process_ids_for_names(names))
+
+
+def _process_ids_for_names(names: List[str]) -> List[int]:
+    """Return matching PIDs in one bounded process snapshot."""
     wanted = {str(item).casefold() for item in names if item}
+    found: List[int] = []
     if not wanted:
-        return False
+        return found
     try:
-        for proc in psutil.process_iter(["name"]):
+        for proc in psutil.process_iter(["pid", "name"]):
             pname = str(proc.info.get("name") or "").casefold()
             if pname and any(pname == name or pname == f"{name}.exe" or name in pname for name in wanted):
-                return True
+                found.append(int(proc.info.get("pid") or proc.pid))
     except Exception:
-        return False
-    return False
+        return found
+    return found
 
 
 def close_app(name: str, settings: Optional[Settings] = None) -> ActionResult:

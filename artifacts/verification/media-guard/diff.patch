@@ -1,0 +1,175 @@
+diff --git a/core/actions/media.py b/core/actions/media.py
+index dd54e44..cf0e937 100644
+--- a/core/actions/media.py
++++ b/core/actions/media.py
+@@ -67,11 +67,16 @@ def play_music(*, query: str = "", mood: str = "", uri: str = "", path: str = ""
+             )
+         return ActionResult(tool="play_music", args=args, ok=False,
+                             error="Локальный музыкальный плеер не найден")
++    source = (source or "auto").casefold()
+     if not allow_network:
+         return ActionResult(tool="play_music", args=args, ok=False,
+                             error="Для поиска трека в сети нужно явно разрешить сетевой источник")
+ 
+-    source = (source or "auto").casefold()
++    if source == "auto":
++        return ActionResult(
++            tool="play_music", args=args, ok=False,
++            error="Для сетевого поиска укажите конкретный источник: youtube или spotify",
++        )
+     if source == "spotify":
+         target = "spotify:search:" + urllib.parse.quote(query)
+     else:
+diff --git a/core/agent.py b/core/agent.py
+index c03aed6..48de72f 100644
+--- a/core/agent.py
++++ b/core/agent.py
+@@ -98,6 +98,23 @@ log = get_logger(__name__)
+ #: и без создания черновика навыка.
+ MODEL_ERROR_PREFIX = "model_error:"
+ 
++_MEDIA_NETWORK_MARKERS = (
++    "youtube", "ютуб", "spotify", "спотифай", "в сети", "онлайн",
++    "в интернете", "internet", "online",
++)
++
++
++def _media_network_is_explicit(goal: str) -> bool:
++    lowered = " ".join((goal or "").casefold().split())
++    return any(marker in lowered for marker in _MEDIA_NETWORK_MARKERS)
++
++
++def _media_query_is_user_text(goal: str, query: str) -> bool:
++    """Accept a network query only when its words occur in the user goal."""
++    goal_words = {word for word in re.findall(r"[\wа-яё]+", (goal or "").casefold()) if len(word) > 2}
++    query_words = {word for word in re.findall(r"[\wа-яё]+", (query or "").casefold()) if len(word) > 2}
++    return bool(query_words) and query_words <= goal_words
++
+ #: Текст для пользователя при сбое модели (голос/чат). Технические детали —
+ #: только в лог. Тон согласован с TTS-санитайзером (core/voice/tts_sanitizer.py).
+ MODEL_UNAVAILABLE_TEXT = "Сэр, сейчас не отвечает. Попробуйте ещё раз."
+@@ -1437,6 +1454,24 @@ class Agent:
+ 
+         «Готово» произносится ТОЛЬКО при ``verification.verified`` (§14).
+         """
++        # A weak planner must never invent a track and turn a bare media
++        # command into a YouTube search.  Network media is accepted only when
++        # the user named an online source and the query is present in the goal.
++        if tool == "play_music":
++            args = dict(args or {})
++            query = str(args.get("query") or "").strip()
++            source = str(args.get("source") or "auto").casefold()
++            explicit_network = _media_network_is_explicit(goal)
++            if query and (not explicit_network or not _media_query_is_user_text(goal, query)):
++                trace.append("media_guard -> local_player (planner query rejected)")
++                args["query"] = ""
++                args["source"] = "local"
++                args["allow_network"] = False
++            elif not explicit_network and source in {"youtube", "spotify"}:
++                trace.append("media_guard -> local_player (implicit network source rejected)")
++                args["source"] = "local"
++                args["allow_network"] = False
++
+         context = ToolContext(user_id="default", settings=self._settings, state=None)
+ 
+         try:
+diff --git a/core/verifier.py b/core/verifier.py
+index 7b9efdc..bbc994a 100644
+--- a/core/verifier.py
++++ b/core/verifier.py
+@@ -354,10 +354,23 @@ def verify_current_time(result: ActionResult) -> VerificationResult:
+ 
+ 
+ def verify_play_music(result: ActionResult) -> VerificationResult:
+-    """play_music: success означает, что launch/open вызов отработал."""
+-    if result.ok and _output_text(result):
+-        return VerificationResult(True, "media_open", "медиаточка открыта локальным launcher-ом")
+-    return VerificationResult(False, "media_open", result.error or "медиаточка не открыта")
++    """play_music: локальная медиаточка открыта, а не просто поиск в сети."""
++    text = _output_text(result)
++    args = result.args or {}
++    source = str(args.get("source") or "auto").casefold()
++    query = str(args.get("query") or "").strip()
++    if result.ok and (
++        "поиск музыки" in text.casefold()
++        or (source in {"youtube", "spotify"} and bool(query))
++    ):
++        return VerificationResult(
++            False,
++            "media_playback",
++            "открыта поисковая страница; воспроизведение не подтверждено",
++        )
++    if result.ok and text:
++        return VerificationResult(True, "media_surface", "локальная медиаточка открыта launcher-ом")
++    return VerificationResult(False, "media_surface", result.error or "медиаточка не открыта")
+ 
+ 
+ def default_verify(result: ActionResult) -> VerificationResult:
+diff --git a/tests/test_media_fast_path.py b/tests/test_media_fast_path.py
+index 3b75c99..7fe9367 100644
+--- a/tests/test_media_fast_path.py
++++ b/tests/test_media_fast_path.py
+@@ -1,9 +1,14 @@
+ from __future__ import annotations
+ 
++import threading
+ from unittest.mock import patch
+ 
+ from core.agent import Agent, AgentConfig
++from core.capabilities import CAPABILITIES
+ from core.actions.media import play_music
++from core.safety import assess_risk
++from core.actions.base import ActionResult
++from core.verifier import verify_action_result
+ 
+ 
+ def test_bare_music_command_uses_media_fast_path(settings, fake_backend):
+@@ -25,3 +30,48 @@ def test_bare_music_opens_default_player_without_network():
+     assert result.ok is True
+     assert "музыкальный плеер" in result.output.lower()
+     opener.assert_called_once()
++
++
++def test_planner_cannot_turn_bare_music_into_youtube_search(settings):
++    agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
++    capability = CAPABILITIES.get("play_music")
++    with patch("core.actions.media._open_target", return_value=True) as opener, \
++         patch("core.actions.media.webbrowser.open") as browser:
++        outcome = agent._execute_verified(
++            goal="поставь музыку",
++            tool="play_music",
++            args={"query": "случайный запрос", "source": "youtube", "allow_network": True},
++            mission=None,
++            cancel=threading.Event(),
++            trace=[],
++            risk=assess_risk("поставь музыку"),
++            caps=[capability] if capability is not None else [],
++        )
++
++    assert outcome.verified is True
++    assert "музыкальный плеер" in outcome.text.lower()
++    opener.assert_called_once()
++    browser.assert_not_called()
++
++
++def test_auto_network_source_never_falls_through_to_youtube():
++    with patch("core.actions.media._open_target") as opener:
++        result = play_music(query="случайный запрос", allow_network=True, source="auto")
++
++    assert result.ok is False
++    assert "конкретный источник" in result.error
++    opener.assert_not_called()
++
++
++def test_search_page_is_not_verified_as_playback():
++    result = ActionResult(
++        tool="play_music",
++        args={"query": "трек", "source": "youtube", "allow_network": True},
++        ok=True,
++        output="Открыл поиск музыки: трек",
++    )
++
++    verification = verify_action_result(result)
++
++    assert verification.verified is False
++    assert verification.method == "media_playback"

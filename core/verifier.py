@@ -354,10 +354,23 @@ def verify_current_time(result: ActionResult) -> VerificationResult:
 
 
 def verify_play_music(result: ActionResult) -> VerificationResult:
-    """play_music: success означает, что launch/open вызов отработал."""
-    if result.ok and _output_text(result):
-        return VerificationResult(True, "media_open", "медиаточка открыта локальным launcher-ом")
-    return VerificationResult(False, "media_open", result.error or "медиаточка не открыта")
+    """play_music: локальная медиаточка открыта, а не просто поиск в сети."""
+    text = _output_text(result)
+    args = result.args or {}
+    source = str(args.get("source") or "auto").casefold()
+    query = str(args.get("query") or "").strip()
+    if result.ok and (
+        "поиск музыки" in text.casefold()
+        or (source in {"youtube", "spotify"} and bool(query))
+    ):
+        return VerificationResult(
+            False,
+            "media_playback",
+            "открыта поисковая страница; воспроизведение не подтверждено",
+        )
+    if result.ok and text:
+        return VerificationResult(True, "media_surface", "локальная медиаточка открыта launcher-ом")
+    return VerificationResult(False, "media_surface", result.error or "медиаточка не открыта")
 
 
 def default_verify(result: ActionResult) -> VerificationResult:

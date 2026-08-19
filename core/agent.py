@@ -98,6 +98,23 @@ log = get_logger(__name__)
 #: и без создания черновика навыка.
 MODEL_ERROR_PREFIX = "model_error:"
 
+_MEDIA_NETWORK_MARKERS = (
+    "youtube", "ютуб", "spotify", "спотифай", "в сети", "онлайн",
+    "в интернете", "internet", "online",
+)
+
+
+def _media_network_is_explicit(goal: str) -> bool:
+    lowered = " ".join((goal or "").casefold().split())
+    return any(marker in lowered for marker in _MEDIA_NETWORK_MARKERS)
+
+
+def _media_query_is_user_text(goal: str, query: str) -> bool:
+    """Accept a network query only when its words occur in the user goal."""
+    goal_words = {word for word in re.findall(r"[\wа-яё]+", (goal or "").casefold()) if len(word) > 2}
+    query_words = {word for word in re.findall(r"[\wа-яё]+", (query or "").casefold()) if len(word) > 2}
+    return bool(query_words) and query_words <= goal_words
+
 #: Текст для пользователя при сбое модели (голос/чат). Технические детали —
 #: только в лог. Тон согласован с TTS-санитайзером (core/voice/tts_sanitizer.py).
 MODEL_UNAVAILABLE_TEXT = "Сэр, сейчас не отвечает. Попробуйте ещё раз."
@@ -1437,6 +1454,24 @@ class Agent:
 
         «Готово» произносится ТОЛЬКО при ``verification.verified`` (§14).
         """
+        # A weak planner must never invent a track and turn a bare media
+        # command into a YouTube search.  Network media is accepted only when
+        # the user named an online source and the query is present in the goal.
+        if tool == "play_music":
+            args = dict(args or {})
+            query = str(args.get("query") or "").strip()
+            source = str(args.get("source") or "auto").casefold()
+            explicit_network = _media_network_is_explicit(goal)
+            if query and (not explicit_network or not _media_query_is_user_text(goal, query)):
+                trace.append("media_guard -> local_player (planner query rejected)")
+                args["query"] = ""
+                args["source"] = "local"
+                args["allow_network"] = False
+            elif not explicit_network and source in {"youtube", "spotify"}:
+                trace.append("media_guard -> local_player (implicit network source rejected)")
+                args["source"] = "local"
+                args["allow_network"] = False
+
         context = ToolContext(user_id="default", settings=self._settings, state=None)
 
         try:

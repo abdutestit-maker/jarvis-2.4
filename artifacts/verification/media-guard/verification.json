@@ -1,0 +1,87 @@
+{
+  "baseline": {
+    "commit": "8a54621",
+    "tests": {
+      "passed": 512,
+      "skipped": 2,
+      "failed": 0
+    }
+  },
+  "after": {
+    "tests": {
+      "passed": 513,
+      "skipped": 2,
+      "failed": 0
+    },
+    "warnings": 2
+  },
+  "commands": [
+    {
+      "command": "python -m pytest -q tests/test_media_fast_path.py tests/test_audit_fixes.py tests/test_quality_probe.py",
+      "exit_status": 0,
+      "result": "13 passed"
+    },
+    {
+      "command": "python -m pytest -q --disable-warnings",
+      "exit_status": 0,
+      "result": "513 passed, 2 skipped, 0 failed"
+    },
+    {
+      "command": "python -m py_compile core/agent.py core/actions/media.py core/verifier.py tests/test_media_fast_path.py",
+      "exit_status": 0,
+      "result": "compiled"
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "result": "clean"
+    }
+  ],
+  "behavior_probes": [
+    {
+      "name": "bare_media_production_config",
+      "goal": "поставь музыку",
+      "mode": "fast_path",
+      "tool": "play_music",
+      "verified": true,
+      "text": "Открыл локальный музыкальный плеер. Назовите трек, если нужен конкретный.",
+      "open_calls": 1,
+      "browser_calls": 0
+    },
+    {
+      "name": "planner_query_rejection",
+      "planner_args": {
+        "query": "случайный запрос",
+        "source": "youtube",
+        "allow_network": true
+      },
+      "normalized_action": {
+        "tool": "play_music",
+        "query": "",
+        "source": "local",
+        "allow_network": false
+      },
+      "browser_calls": 0,
+      "verified": true
+    },
+    {
+      "name": "search_page_not_playback",
+      "action_ok": true,
+      "output": "Открыл поиск музыки: трек",
+      "verified": false,
+      "method": "media_playback",
+      "detail": "открыта поисковая страница; воспроизведение не подтверждено"
+    }
+  ],
+  "decision": "PASS",
+  "latency_probe": {
+    "command": "20 sequential Agent.execute(поставь музыку) calls with local launcher mocked",
+    "path": "fast",
+    "verified_all": true,
+    "p50_ms": 337.95,
+    "p95_ms": 567.57,
+    "hard_max_ms": 600.02,
+    "budget_hard_max_ms": 1500,
+    "result": "PASS"
+  }
+}

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import threading
 from unittest.mock import patch
 
 from core.agent import Agent, AgentConfig
+from core.capabilities import CAPABILITIES
 from core.actions.media import play_music
+from core.safety import assess_risk
+from core.actions.base import ActionResult
+from core.verifier import verify_action_result
 
 
 def test_bare_music_command_uses_media_fast_path(settings, fake_backend):
@@ -25,3 +30,48 @@ def test_bare_music_opens_default_player_without_network():
     assert result.ok is True
     assert "музыкальный плеер" in result.output.lower()
     opener.assert_called_once()
+
+
+def test_planner_cannot_turn_bare_music_into_youtube_search(settings):
+    agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
+    capability = CAPABILITIES.get("play_music")
+    with patch("core.actions.media._open_target", return_value=True) as opener, \
+         patch("core.actions.media.webbrowser.open") as browser:
+        outcome = agent._execute_verified(
+            goal="поставь музыку",
+            tool="play_music",
+            args={"query": "случайный запрос", "source": "youtube", "allow_network": True},
+            mission=None,
+            cancel=threading.Event(),
+            trace=[],
+            risk=assess_risk("поставь музыку"),
+            caps=[capability] if capability is not None else [],
+        )
+
+    assert outcome.verified is True
+    assert "музыкальный плеер" in outcome.text.lower()
+    opener.assert_called_once()
+    browser.assert_not_called()
+
+
+def test_auto_network_source_never_falls_through_to_youtube():
+    with patch("core.actions.media._open_target") as opener:
+        result = play_music(query="случайный запрос", allow_network=True, source="auto")
+
+    assert result.ok is False
+    assert "конкретный источник" in result.error
+    opener.assert_not_called()
+
+
+def test_search_page_is_not_verified_as_playback():
+    result = ActionResult(
+        tool="play_music",
+        args={"query": "трек", "source": "youtube", "allow_network": True},
+        ok=True,
+        output="Открыл поиск музыки: трек",
+    )
+
+    verification = verify_action_result(result)
+
+    assert verification.verified is False
+    assert verification.method == "media_playback"

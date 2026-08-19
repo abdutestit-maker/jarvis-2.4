@@ -1,0 +1,25 @@
+{
+  "wave": "media-guard",
+  "baseline_commit": "8a54621",
+  "purpose": "Prevent planner-invented YouTube searches for bare media commands and reject search-page success as playback.",
+  "changed_files": [
+    "core/agent.py",
+    "core/actions/media.py",
+    "core/verifier.py",
+    "tests/test_media_fast_path.py"
+  ],
+  "artifact_roles": {
+    "modified_artifact": "source changes listed above",
+    "patch": "diff.patch",
+    "verification": "verification.json",
+    "rollback": "rollback.ps1"
+  },
+  "scope_unchanged": [
+    "frontend",
+    "voice/TTS",
+    "model files",
+    "Brain Fabric",
+    "Browser Bridge",
+    "Risk Gate"
+  ]
+}

@@ -67,11 +67,16 @@ def play_music(*, query: str = "", mood: str = "", uri: str = "", path: str = ""
             )
         return ActionResult(tool="play_music", args=args, ok=False,
                             error="Локальный музыкальный плеер не найден")
+    source = (source or "auto").casefold()
     if not allow_network:
         return ActionResult(tool="play_music", args=args, ok=False,
                             error="Для поиска трека в сети нужно явно разрешить сетевой источник")
 
-    source = (source or "auto").casefold()
+    if source == "auto":
+        return ActionResult(
+            tool="play_music", args=args, ok=False,
+            error="Для сетевого поиска укажите конкретный источник: youtube или spotify",
+        )
     if source == "spotify":
         target = "spotify:search:" + urllib.parse.quote(query)
     else:

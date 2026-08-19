@@ -1,0 +1,2243 @@
+diff --git a/README.md b/README.md
+index 13f75e1..ef3aa88 100644
+--- a/README.md
++++ b/README.md
+@@ -14,7 +14,12 @@ python -m core.ws_server
+ Для локального режима используется `config/settings.json` и GGUF Qwen из
+ `data/models`. Параметр `warmup_local_on_start` прогревает FAST-тир во время
+ старта процесса, поэтому первый пользовательский запрос не оплачивает
+-загрузку модели. Диагностика доступна через `Orchestrator.runtime_diagnostics()`.
++загрузку модели. `auto_download_models` при чистой установке выбирает модель
++по RAM/VRAM, скачивает её только из pinned `config/models_manifest.json`,
++докачивает через `.part` и принимает файл только после SHA-256 проверки.
++Диагностика доступна через `Orchestrator.runtime_diagnostics()` и WS-событие
++`runtime_status` (`starting → loading_model → ready`); frontend больше не
++показывает READY до фактического подключения.
+ Новые модели не нужны.
+ 
+ ### Backend + frontend
+@@ -80,4 +85,4 @@ python -m pytest -o addopts="" -rA
+ ```
+ 
+ Верификационный отчёт Sprint 16: `docs/EXECUTIVE_MIND_VERIFICATION.md`.
+-Wave 0 evidence: `artifacts/verification/wave0/`.
++Phase 0 evidence: `artifacts/verification/phase0/`.
+diff --git a/config/models_manifest.json b/config/models_manifest.json
+new file mode 100644
+index 0000000..d67cf28
+--- /dev/null
++++ b/config/models_manifest.json
+@@ -0,0 +1,52 @@
++{
++  "version": 1,
++  "generated_at": "2026-08-19",
++  "policy": {
++    "source": "trusted-huggingface-gguf",
++    "transport": "https",
++    "resume": true,
++    "verify": "sha256"
++  },
++  "models": [
++    {
++      "key": "qwen3-0.6b",
++      "filename": "Qwen3-0.6B-Q6_K.gguf",
++      "source_filename": "Qwen_Qwen3-0.6B-Q6_K.gguf",
++      "url": "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen_Qwen3-0.6B-Q6_K.gguf",
++      "size_bytes": 622733728,
++      "sha256": "3a032860a2bfcb3d53344b6562d37db68e86dd98b50c3fe59e62de3486cb577f"
++    },
++    {
++      "key": "qwen3-1.7b",
++      "filename": "Qwen3-1.7B-Q6_K.gguf",
++      "source_filename": "Qwen_Qwen3-1.7B-Q6_K.gguf",
++      "url": "https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/main/Qwen_Qwen3-1.7B-Q6_K.gguf",
++      "size_bytes": 1673007520,
++      "sha256": "00cdfd05076b6a62aeb4240bf53342618578b34f8356d7080f1dbc75279fc637"
++    },
++    {
++      "key": "qwen3-4b",
++      "filename": "qwen3-4b-instruct-q5_k_m.gguf",
++      "source_filename": "Qwen3-4B-Q5_K_M.gguf",
++      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q5_K_M.gguf",
++      "size_bytes": 2889513184,
++      "sha256": "bf544851aa3480e1e9b820dbaaecaccfc33cf2274cd776c37c792673342a68bd"
++    },
++    {
++      "key": "qwen3-8b",
++      "filename": "Qwen3-8B-Q5_K_M.gguf",
++      "source_filename": "Qwen3-8B-Q5_K_M.gguf",
++      "url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q5_K_M.gguf",
++      "size_bytes": 5851112224,
++      "sha256": "06b0944728a89f0b6395a4c04d434db83a65e75362a9c0d84a8b448936f55809"
++    },
++    {
++      "key": "qwen3-14b",
++      "filename": "Qwen3-14B-Q4_K_M.gguf",
++      "source_filename": "Qwen3-14B-Q4_K_M.gguf",
++      "url": "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf",
++      "size_bytes": 9001752960,
++      "sha256": "b024347c4d6d0a6bd82d8f3b5f052e5c998b0b1206207d15a52a2f75c1253cb2"
++    }
++  ]
++}
+diff --git a/config/settings.example.json b/config/settings.example.json
+index 2f4661b..6433d56 100644
+--- a/config/settings.example.json
++++ b/config/settings.example.json
+@@ -17,9 +17,9 @@
+ 
+   "model_tiers": {
+     "fast": "qwen-4b-local",
+-    "analyst": "qwen-1.7b-local",
+-    "coder": "qwen-1.7b-local",
+-    "architect": "qwen-1.7b-local"
++    "analyst": "qwen-4b-local",
++    "coder": "qwen-4b-local",
++    "architect": "qwen-4b-local"
+   },
+ 
+   "tier_providers": {
+@@ -32,9 +32,14 @@
+   "primary_brain": "fast",
+   "offline_mode": true,
+   "warmup_local_on_start": true,
++  "auto_download_models": true,
+ 
+   "local_model": {
+     "gguf_path": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
++    "auto_profile": true,
++    "draft_model_path": "",
++    "speculative_decoding": false,
++    "draft_max_tokens": 5,
+     "embedding_gguf_path": "",
+     "n_gpu_layers": -1,
+     "n_ctx": 4096,
+@@ -141,7 +146,7 @@
+     "enabled": true,
+     "auto_generate": true,
+     "interval_sec": 300,
+-    "code_model_path": "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
++    "code_model_path": "data/models/Qwen3-1.7B-Q6_K.gguf"
+   },
+   "brain_policy": {
+     "mode": "BALANCED",
+diff --git a/config/settings.py b/config/settings.py
+index 3bc3a53..440b0c7 100644
+--- a/config/settings.py
++++ b/config/settings.py
+@@ -174,7 +174,14 @@ class TierProviders(_Section):
+ class LocalModelConfig(_Section):
+     """Параметры локальной Qwen 4B (llama-cpp-python)."""
+ 
+-    gguf_path: str = "data/models/qwen3-4b-instruct-q4_k_m.gguf"
++    gguf_path: str = "data/models/qwen3-4b-instruct-q5_k_m.gguf"
++    # Автопрофиль выбирает самый сильный локальный GGUF, который уже есть на
++    # диске и подходит текущему железу. Пользовательский путь сохраняется,
++    # если этот флаг выключен.
++    auto_profile: bool = True
++    draft_model_path: str = ""
++    speculative_decoding: bool = False
++    draft_max_tokens: int = 5
+     embedding_gguf_path: str = ""
+     n_gpu_layers: int = 0           # 0 = CPU, -1 = все слои на GPU
+     n_ctx: int = 4096
+@@ -186,7 +193,7 @@ class LocalModelConfig(_Section):
+     chat_format: Optional[str] = None   # None = взять шаблон из GGUF-метаданных
+     verbose: bool = False
+ 
+-    @field_validator("n_ctx", "n_batch", "max_tokens")
++    @field_validator("n_ctx", "n_batch", "max_tokens", "draft_max_tokens")
+     @classmethod
+     def _positive(cls, value: int) -> int:
+         if value <= 0:
+@@ -210,6 +217,11 @@ class LocalModelConfig(_Section):
+         """Абсолютный путь к отдельной модели эмбеддингов (если задана)."""
+         return resolve_path(self.embedding_gguf_path)
+ 
++    @property
++    def resolved_draft_model_path(self) -> Optional[Path]:
++        """Абсолютный путь к speculative draft GGUF, если включён."""
++        return resolve_path(self.draft_model_path)
++
+     @property
+     def effective_threads(self) -> Optional[int]:
+         """Число потоков для llama.cpp (None = решает библиотека)."""
+@@ -528,7 +540,7 @@ class ShadowConfig(_Section):
+     enabled: bool = False
+     auto_generate: bool = True
+     interval_sec: int = 300
+-    code_model_path: str = "data/models/qwen3-1.7b-instruct-q4_k_m.gguf"
++    code_model_path: str = "data/models/Qwen3-1.7B-Q6_K.gguf"
+ 
+     @field_validator("interval_sec")
+     @classmethod
+@@ -612,6 +624,10 @@ class Settings(BaseModel):
+     #: Load the local FAST model in a daemon warmup thread at service start.
+     #: False for bare Settings() keeps unit tests and library imports cheap.
+     warmup_local_on_start: bool = False
++    #: Download a missing, pinned local GGUF in the warmup thread.  The
++    #: manifest is HTTPS-only and SHA-256 verified; an existing user model is
++    #: never replaced just because a newer profile is recommended.
++    auto_download_models: bool = True
+ 
+     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
+     local_coder_model: LocalCoderModelConfig = Field(default_factory=LocalCoderModelConfig)
+diff --git a/core/agent.py b/core/agent.py
+index abc555a..d1feef3 100644
+--- a/core/agent.py
++++ b/core/agent.py
+@@ -132,7 +132,8 @@ ACK_PHRASES: Dict[str, str] = {
+ 
+ 
+ def pick_acknowledgement(intent: str, goal: str = "",
+-                          settings: Optional["Settings"] = None) -> str:
++                          settings: Optional["Settings"] = None,
++                          *, allow_model: bool = True) -> str:
+     """Мгновенное, ЖИВОЕ подтверждение приёма задачи (§5, П1 §1.2).
+ 
+     Базовая фраза выбирается по намерению (как раньше — мгновенно),
+@@ -147,8 +148,12 @@ def pick_acknowledgement(intent: str, goal: str = "",
+     """
+     base = ACK_PHRASES.get(intent, ACK_PHRASES["none"])
+ 
+-    # Без контекста цели или без настроек — мгновенно отдаём базу.
+-    if not goal or not goal.strip() or settings is None:
++    # The live mission path passes ``allow_model=False``.  An ACK is a
++    # transport guarantee, not a second inference request: loading a GGUF or
++    # waiting on a provider here is exactly the minute-long pause reported by
++    # the real UI.  The opt-in model enrichment remains for callers that
++    # explicitly want it (and for the existing presentation tests).
++    if not allow_model or not goal or not goal.strip() or settings is None:
+         return base
+ 
+     try:
+@@ -604,7 +609,9 @@ class Agent:
+         except Exception as exc:
+             log.debug("Universal task contract skipped: %s", exc)
+         if mission is not None:
+-            mission.acknowledgement = pick_acknowledgement(intent, goal=goal, settings=self._settings)
++            mission.acknowledgement = pick_acknowledgement(
++                intent, goal=goal, settings=self._settings, allow_model=False,
++            )
+             mission.metadata["intent"] = intent
+             mission.set_status(MissionStatus.ANALYZING, "определение намерения и риска")
+             mission.set_progress(0.1, "анализ намерения")
+@@ -973,6 +980,21 @@ class Agent:
+                 trace=trace,
+             )
+ 
++        # A risky request can reach the unknown-capability path before a
++        # concrete tool exists.  Confirmation still authorizes only the
++        # bounded research/prepare continuation; it must not be mistaken for
++        # a grant to invent a mutation.  Re-enter that path after approval so
++        # the same policy, capability planner and verifier run again.
++        if pending.get("unknown_capability"):
++            if mission is not None:
++                mission.set_status(MissionStatus.PLANNING, "подтверждено, ищу проверяемый способ")
++            return self._handle_unknown(
++                goal, caps, mission, trace,
++                reason=str(pending.get("reason") or "нет готового способа"),
++                attempted_tool=pending.get("attempted_tool"),
++                skip_confirmation=True,
++            )
++
+         # Подтверждено — выполняем.
+         if mission is not None:
+             mission.set_status(MissionStatus.EXECUTING, "подтверждено, выполняю")
+@@ -1717,7 +1739,8 @@ class Agent:
+ 
+     def _handle_unknown(self, goal: str, caps: List[Capability],
+                         mission: Optional[Mission], trace: List[str],
+-                        reason: str = "", attempted_tool: Optional[str] = None) -> AgentOutcome:
++                        reason: str = "", attempted_tool: Optional[str] = None,
++                        skip_confirmation: bool = False) -> AgentOutcome:
+         """Путь неизвестной задачи (§8): не «не умею», а «ещё не научен» (§29).
+ 
+         Здесь мы:
+@@ -1726,6 +1749,51 @@ class Agent:
+             3. возвращаем честный ответ с планом исследования.
+         """
+         trace.append(f"unknown task path: {reason}")
++
++        # Do not let capability discovery, Shadow preparation or generated
++        # tools cross a destructive boundary.  There may be no concrete tool
++        # yet, but the user still gets a real confirmation gate rather than a
++        # misleading failed-success message.
++        on_demand_risk = assess_risk(goal)
++        if on_demand_risk.needs_confirmation and not skip_confirmation:
++            conf_id = uuid.uuid4().hex
++            cancel = threading.Event()
++            pending = {
++                "goal": goal,
++                "tool": attempted_tool or "capability_research",
++                "args": {},
++                "risk": on_demand_risk,
++                "caps": caps,
++                "mission": mission,
++                "cancel": cancel,
++                "trace": trace,
++                "unknown_capability": True,
++                "reason": reason or "нет подходящего проверенного инструмента",
++                "attempted_tool": attempted_tool,
++            }
++            with self._lock:
++                self._pending_confirmations[conf_id] = pending
++            if mission is not None:
++                mission.set_status(MissionStatus.PAUSED, "ожидание подтверждения перед исследованием")
++                mission.emit(EVENT_CONFIRMATION_REQUIRED, payload={
++                    "confirmation_id": conf_id,
++                    "tool": attempted_tool or "capability_research",
++                    "arguments": {},
++                    "risk": on_demand_risk.to_dict(),
++                    "prompt": on_demand_risk.confirmation_prompt(),
++                })
++            self._start_confirmation_watchdog(conf_id)
++            return AgentOutcome(
++                text=on_demand_risk.confirmation_prompt(),
++                verified=False,
++                needs_confirmation=True,
++                confirmation_id=conf_id,
++                risk=on_demand_risk,
++                tool_used=attempted_tool,
++                mode="confirmation",
++                trace=trace,
++            )
++
+         # Sprint 9: a task class is resolved before generating another Python
+         # tool. Existing primitives are composed into a DAG and verified
+         # against desired state; only verified trajectories are learned.
+@@ -1779,7 +1847,6 @@ class Agent:
+         # have a verified local tool ready (or create one with Qwen3-1.7B).
+         # The generated-tool sandbox permits only side-effect-free stdlib code;
+         # anything risky remains on the ordinary confirmation path below.
+-        on_demand_risk = assess_risk(goal)
+         if not on_demand_risk.needs_confirmation:
+             try:
+                 prepared = self._shadow.prepare_on_demand(goal)
+diff --git a/core/brain/bootstrap.py b/core/brain/bootstrap.py
+index 2b5d151..4a3413c 100644
+--- a/core/brain/bootstrap.py
++++ b/core/brain/bootstrap.py
+@@ -69,9 +69,13 @@ def build_brain_fabric(settings: Any, *, secret_store: SecretStore | None = None
+ 
+     # One physical local backend serves semantic roles. Construction is lazy:
+     # LocalQwenBackend does not load GGUF weights until generation/warm-up.
++    # Resolve it through the public FAST factory instead of bypassing that
++    # boundary with get_offline_backend().  This keeps Brain Fabric and the
++    # legacy router on one cache key, and lets injected/local test backends use
++    # the same path as production.
+     try:
+-        from core.llm import get_offline_backend
+-        local_backend = get_offline_backend(settings)
++        from core.llm import Tier, get_llm_backend
++        local_backend = get_llm_backend(settings, Tier.FAST)
+         local_profile = ModelCapabilityProfile(
+             model=str(local_backend.model),
+             roles=frozenset({
+diff --git a/core/llm/factory.py b/core/llm/factory.py
+index 9131837..4719802 100644
+--- a/core/llm/factory.py
++++ b/core/llm/factory.py
+@@ -88,6 +88,9 @@ def _build_backend(settings: Settings, provider: str, model_id: str,
+             max_tokens=local_cfg.max_tokens,
+             chat_format=local_cfg.chat_format,
+             verbose=local_cfg.verbose,
++            draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
++            speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
++            draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
+             embedding=(mode == _MODE_EMBED),
+         )
+         backend.task_role = role.value
+@@ -223,6 +226,9 @@ def get_offline_backend(settings: Settings) -> LLMBackend:
+             max_tokens=local_cfg.max_tokens,
+             chat_format=local_cfg.chat_format,
+             verbose=local_cfg.verbose,
++            draft_model_path=getattr(local_cfg, "resolved_draft_model_path", None),
++            speculative_decoding=bool(getattr(local_cfg, "speculative_decoding", False)),
++            draft_max_tokens=int(getattr(local_cfg, "draft_max_tokens", 5)),
+         )
+         _cache[key] = backend
+         log.info("Создан офлайн-бэкенд TIER 4: %s", backend.name)
+diff --git a/core/llm/hardware_profile.py b/core/llm/hardware_profile.py
+new file mode 100644
+index 0000000..d42212a
+--- /dev/null
++++ b/core/llm/hardware_profile.py
+@@ -0,0 +1,394 @@
++"""Адаптивный выбор локальной модели под железо пользователя.
++
++Задача продукта: «Джарвис должен запуститься у каждого». Одна и та же
++сборка ставится на слабый ноутбук без дискретной видеокарты и на десктоп
++с RTX 4090. Нельзя зашивать один GGUF и один ``n_gpu_layers`` — на слабой
++машине это либо не влезет в память, либо будет мучительно медленно, а на
++мощной — недогрузит GPU.
++
++Этот модуль — ЧИСТЫЙ, самодостаточный слой профилирования. Он:
++  1. определяет доступную RAM и (если есть) VRAM NVIDIA;
++  2. выбирает подходящий GGUF из ``data/models`` (или помечает, что модель
++     нужно докачать);
++  3. рекомендует безопасные параметры llama.cpp: ``n_gpu_layers``,
++     ``n_ctx``, ``n_batch``;
++  4. решает, включать ли speculative decoding (draft-модель Qwen3-1.7B
++     для основной 4B) — оно окупается только когда draft реально ускоряет.
++
++ВАЖНО: модуль НЕ импортирует ничего из горячего пути (только stdlib +
++опционально ``psutil``). Он ничего не делает сам по себе — его вызывают
++явно из ``config``/``factory`` при старте. Все зонды обёрнуты в try/except:
++отсутствие psutil или nvidia-smi никогда не роняет приложение, а лишь
++понижает точность оценки (safe degradation, как и во всём проекте).
++
++Пример::
++
++    from core.llm.hardware_profile import detect_hardware, recommend_profile
++
++    hw = detect_hardware()
++    profile = recommend_profile(hw, models_dir=settings.models_dir)
++    print(profile.summary())
++"""
++
++from __future__ import annotations
++
++import os
++import shutil
++import subprocess
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import Dict, List, Optional
++
++__all__ = [
++    "HardwareInfo",
++    "ModelProfile",
++    "detect_hardware",
++    "recommend_profile",
++    "apply_profile",
++]
++
++
++# --------------------------------------------------------------------------- #
++#  УНИВЕРСАЛЬНАЯ ЛЕСТНИЦА МОДЕЛЕЙ (от слабого ноутбука до рабочей станции).
++#
++#  Цель продукта: «запустится у каждого». Сборка одна, но при первом запуске
++#  Джарвис определяет железо КОНКРЕТНОГО пользователя и выбирает самый сильный
++#  вариант, который это железо потянет. Файла нет на диске -> download_required
++#  (докачивает model_manager по манифесту — см. docs/CODEX_HANDOFF.md).
++#
++#  Пороги — консервативные оценки с запасом на KV-cache и оверхед ОС:
++#    * min_vram_gb — сколько VRAM нужно, чтобы грузить ВСЕ слои на GPU;
++#    * min_ram_gb  — сколько RAM нужно для комфортного запуска на CPU.
++#  Значения намеренно с запасом: лучше выбрать чуть меньшую модель и быть
++#  отзывчивым, чем упереться в своп/OOM.
++# --------------------------------------------------------------------------- #
++
++@dataclass(frozen=True)
++class _ModelSpec:
++    key: str            # логический id для манифеста/скачивания
++    filename: str       # имя GGUF-файла в data/models
++    role: str           # 'core' | 'router/draft'
++    min_vram_gb: float  # порог для полного GPU-оффлоада
++    min_ram_gb: float   # порог для запуска на CPU
++    n_ctx_gpu: int
++    n_ctx_cpu: int
++
++
++#: Лестница CORE-моделей от лёгкой к тяжёлой. Первый элемент — «пол»
++#: (запустится почти везде), последний — «потолок» (для мощных машин).
++#: Реальные ссылки на скачивание живут в манифесте (Codex), НЕ здесь.
++_MODEL_LADDER: List[_ModelSpec] = [
++    _ModelSpec("qwen3-0.6b", "Qwen3-0.6B-Q6_K.gguf", "core", 1.5, 3.0, 4096, 2048),
++    _ModelSpec("qwen3-1.7b", "Qwen3-1.7B-Q6_K.gguf", "core", 3.0, 5.0, 4096, 2048),
++    _ModelSpec("qwen3-4b", "qwen3-4b-instruct-q5_k_m.gguf", "core", 5.0, 9.0, 8192, 4096),
++    _ModelSpec("qwen3-8b", "Qwen3-8B-Q5_K_M.gguf", "core", 9.0, 20.0, 8192, 4096),
++    _ModelSpec("qwen3-14b", "Qwen3-14B-Q4_K_M.gguf", "core", 14.0, 32.0, 8192, 4096),
++]
++
++#: Черновая (draft) модель для speculative decoding: одно семейство с core,
++#: заметно меньше. Включается только если хватает памяти держать core+draft.
++_DRAFT_SPEC = _ModelSpec("qwen3-1.7b", "Qwen3-1.7B-Q6_K.gguf", "router/draft",
++                         3.0, 5.0, 4096, 2048)
++
++#: Абсолютный «пол» — если не удалось определить железо, берём самый лёгкий core.
++_FLOOR_SPEC = _MODEL_LADDER[0]
++
++
++@dataclass
++class HardwareInfo:
++    """Снимок железа. Все поля best-effort; None = определить не удалось."""
++
++    total_ram_gb: Optional[float] = None
++    available_ram_gb: Optional[float] = None
++    cpu_count: Optional[int] = None
++    has_cuda_gpu: bool = False
++    gpu_name: Optional[str] = None
++    vram_total_gb: Optional[float] = None
++    vram_free_gb: Optional[float] = None
++    notes: List[str] = field(default_factory=list)
++
++    def to_dict(self) -> Dict[str, object]:
++        return {
++            "total_ram_gb": self.total_ram_gb,
++            "available_ram_gb": self.available_ram_gb,
++            "cpu_count": self.cpu_count,
++            "has_cuda_gpu": self.has_cuda_gpu,
++            "gpu_name": self.gpu_name,
++            "vram_total_gb": self.vram_total_gb,
++            "vram_free_gb": self.vram_free_gb,
++            "notes": list(self.notes),
++        }
++
++
++@dataclass
++class ModelProfile:
++    """Рекомендация: какую модель и с какими параметрами грузить."""
++
++    #: Класс железа: 'gpu_high' | 'gpu_mid' | 'gpu_low' | 'cpu_high' | 'cpu_low'.
++    tier: str
++    #: Имя файла основной модели (может отсутствовать на диске → download_required).
++    core_model: str
++    #: Рекомендованные параметры llama.cpp для основной модели.
++    n_gpu_layers: int
++    n_ctx: int
++    n_batch: int
++    #: Speculative decoding: draft-модель (или None, если не окупается).
++    draft_model: Optional[str] = None
++    #: Нужна ли докачка модели (файла нет в models_dir).
++    download_required: bool = False
++    reasons: List[str] = field(default_factory=list)
++
++    def to_dict(self) -> Dict[str, object]:
++        return {
++            "tier": self.tier,
++            "core_model": self.core_model,
++            "n_gpu_layers": self.n_gpu_layers,
++            "n_ctx": self.n_ctx,
++            "n_batch": self.n_batch,
++            "draft_model": self.draft_model,
++            "download_required": self.download_required,
++            "reasons": list(self.reasons),
++        }
++
++    def summary(self) -> str:
++        gpu = "все слои на GPU" if self.n_gpu_layers < 0 else (
++            "CPU" if self.n_gpu_layers == 0 else f"{self.n_gpu_layers} слоёв на GPU"
++        )
++        draft = f", draft={self.draft_model}" if self.draft_model else ""
++        dl = " (ТРЕБУЕТСЯ ДОКАЧКА)" if self.download_required else ""
++        return (
++            f"[{self.tier}] {self.core_model}{dl}: {gpu}, "
++            f"n_ctx={self.n_ctx}, n_batch={self.n_batch}{draft}"
++        )
++
++
++# --------------------------------------------------------------------------- #
++#  Детект железа
++# --------------------------------------------------------------------------- #
++
++def _detect_ram(info: HardwareInfo) -> None:
++    try:
++        import psutil  # type: ignore
++
++        vm = psutil.virtual_memory()
++        info.total_ram_gb = round(vm.total / (1024 ** 3), 2)
++        info.available_ram_gb = round(vm.available / (1024 ** 3), 2)
++        info.cpu_count = psutil.cpu_count(logical=True)
++        return
++    except Exception:  # psutil не установлен или упал — не критично
++        info.notes.append("psutil недоступен, оценка RAM по os.*")
++
++    # Fallback без psutil.
++    try:
++        info.cpu_count = os.cpu_count()
++        if hasattr(os, "sysconf") and "SC_PAGE_SIZE" in os.sysconf_names and \
++                "SC_PHYS_PAGES" in os.sysconf_names:
++            total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
++            info.total_ram_gb = round(total / (1024 ** 3), 2)
++    except Exception:
++        info.notes.append("RAM определить не удалось")
++
++
++def _detect_nvidia(info: HardwareInfo) -> None:
++    """Определяет NVIDIA GPU/VRAM через nvidia-smi. Best-effort, без зависимостей."""
++    smi = shutil.which("nvidia-smi")
++    if not smi:
++        info.notes.append("nvidia-smi не найден — считаем, что дискретной NVIDIA нет")
++        return
++    try:
++        out = subprocess.run(
++            [smi, "--query-gpu=name,memory.total,memory.free",
++             "--format=csv,noheader,nounits"],
++            capture_output=True, text=True, timeout=5, check=False,
++        )
++        line = (out.stdout or "").strip().splitlines()
++        if not line:
++            return
++        # Берём первую (обычно самую мощную) карту.
++        parts = [p.strip() for p in line[0].split(",")]
++        if len(parts) >= 3:
++            info.has_cuda_gpu = True
++            info.gpu_name = parts[0]
++            info.vram_total_gb = round(float(parts[1]) / 1024, 2)
++            info.vram_free_gb = round(float(parts[2]) / 1024, 2)
++    except Exception as exc:  # noqa: BLE001 — любая ошибка зонда не критична
++        info.notes.append(f"nvidia-smi зонд не удался: {type(exc).__name__}")
++
++
++def detect_hardware() -> HardwareInfo:
++    """Собирает best-effort снимок железа. Никогда не бросает исключений."""
++    info = HardwareInfo()
++    _detect_ram(info)
++    _detect_nvidia(info)
++    return info
++
++
++# --------------------------------------------------------------------------- #
++#  Рекомендация профиля
++# --------------------------------------------------------------------------- #
++
++def _model_present(models_dir: Optional[Path], name: str) -> bool:
++    if models_dir is None:
++        return False
++    try:
++        return (Path(models_dir) / name).is_file()
++    except Exception:
++        return False
++
++
++def _pick_from_ladder(vram: float, ram: float) -> tuple[_ModelSpec, bool, str]:
++    """Возвращает (лучшая посильная модель, на_gpu, причина).
++
++    Идём по лестнице СВЕРХУ ВНИЗ и берём самую сильную модель, которую
++    железо реально тянет: сначала пытаемся уместить целиком на GPU (по VRAM),
++    иначе — на CPU (по RAM). Так один и тот же код на RTX 4090 выберет 14B,
++    а на офисном ноутбуке без видеокарты — 1.7B или 0.6B. Всегда что-то
++    вернём: в худшем случае «пол» лестницы.
++    """
++    if vram > 0:
++        for spec in reversed(_MODEL_LADDER):
++            if vram >= spec.min_vram_gb:
++                return spec, True, (
++                    f"VRAM {vram} ГБ ≥ {spec.min_vram_gb} — {spec.key} целиком на GPU"
++                )
++    if ram > 0:
++        for spec in reversed(_MODEL_LADDER):
++            if ram >= spec.min_ram_gb:
++                return spec, False, (
++                    f"RAM {ram} ГБ ≥ {spec.min_ram_gb} — {spec.key} на CPU"
++                )
++    return _FLOOR_SPEC, False, (
++        "железо определить не удалось — берём самый лёгкий core (пол лестницы)"
++    )
++
++
++def recommend_profile(hw: Optional[HardwareInfo] = None,
++                      models_dir: Optional[Path] = None) -> ModelProfile:
++    """Выбирает модель и параметры llama.cpp под железо КОНКРЕТНОГО юзера.
++
++    Универсальность: одна сборка обслуживает и слабый ноутбук, и мощный ПК.
++    При старте у пользователя определяется его железо и выбирается самый
++    сильный вариант из :data:`_MODEL_LADDER`, который эта машина тянет.
++
++    Философия (см. docs/JARVIS_REBUILD_PLAN.md):
++      * на данном железе — ОДИН сильный core, а не связка двух моделей;
++      * маленькие модели (0.6B/1.7B) — это «пол» для слабых машин ИЛИ роль
++        router/draft на сильных, НЕ «умный» тир эскалации;
++      * на GPU грузим все слои; на CPU держим меньший контекст ради памяти;
++      * speculative decoding включаем только при запасе VRAM (нужно держать
++        core + draft одновременно), иначе профита нет.
++
++    Args:
++        hw: снимок железа. Если None — определяется автоматически.
++        models_dir: каталог с GGUF — чтобы проверить наличие файла и выставить
++            ``download_required`` (докачка по манифесту).
++
++    Returns:
++        :class:`ModelProfile` — всегда валидный, даже на «голой» машине.
++    """
++    hw = hw or detect_hardware()
++    vram = hw.vram_total_gb or 0.0
++    ram = hw.total_ram_gb or 0.0
++
++    spec, on_gpu, reason = _pick_from_ladder(vram, ram)
++    reasons: List[str] = [reason]
++
++    if on_gpu:
++        n_gpu_layers = -1
++        n_ctx = spec.n_ctx_gpu
++        n_batch = 1024 if vram >= 12 else 768 if vram >= 8 else 512
++        tier = "gpu_high" if vram >= 12 else "gpu_mid" if vram >= 8 else "gpu_low"
++        # Speculative decoding окупается, когда после core остаётся запас VRAM
++        # на draft (~2 ГБ). Иначе draft вытеснит core и всё станет медленнее.
++        draft = None
++        headroom = vram - spec.min_vram_gb
++        if headroom >= _DRAFT_SPEC.min_vram_gb and spec.key not in {_DRAFT_SPEC.key, "qwen3-0.6b"}:
++            draft = _DRAFT_SPEC.filename
++            reasons.append(
++                f"Запас VRAM {round(headroom, 1)} ГБ — включаем speculative draft {_DRAFT_SPEC.key}"
++            )
++    else:
++        n_gpu_layers = 0
++        n_ctx = spec.n_ctx_cpu
++        n_batch = 512 if ram >= 16 else 256
++        tier = "cpu_high" if ram >= 16 else "cpu_low"
++        draft = None  # на CPU speculative decoding обычно не окупается
++
++    profile = ModelProfile(
++        tier=tier, core_model=spec.filename, n_gpu_layers=n_gpu_layers,
++        n_ctx=n_ctx, n_batch=n_batch, draft_model=draft,
++    )
++    profile.download_required = not _model_present(models_dir, spec.filename)
++    if profile.download_required:
++        reasons.append(f"файла {spec.filename} нет локально — требуется докачка по манифесту")
++    profile.reasons = reasons
++    return profile
++
++
++def apply_profile(settings: object, *, logger: object | None = None) -> ModelProfile:
++    """Apply a safe, present-on-disk hardware profile to runtime settings.
++
++    The function intentionally does not download anything and does not write
++    ``settings.json``.  A missing recommended GGUF leaves the configured file
++    untouched so a first launch cannot turn into a guaranteed missing-model
++    error.  The future model manager can download the profile and call this
++    function again on the next start.
++    """
++    models_dir = Path(getattr(settings, "models_dir", Path("data/models")))
++    profile = recommend_profile(
++        models_dir=models_dir,
++    )
++    local = getattr(settings, "local_model", None)
++    if local is None or not bool(getattr(local, "auto_profile", True)):
++        return profile
++
++    selected = models_dir / profile.core_model
++    if not selected.is_file():
++        profile.reasons.append(
++            f"профиль {profile.core_model} ещё не скачан — текущий GGUF сохранён"
++        )
++        return profile
++
++    # Avoid requesting CUDA layers from a CPU-only llama-cpp build.  The probe
++    # is optional and never prevents the application from starting.
++    gpu_layers = profile.n_gpu_layers
++    if gpu_layers != 0:
++        try:
++            import llama_cpp  # type: ignore
++            probe = getattr(llama_cpp, "llama_supports_gpu_offload", None)
++            if not callable(probe) or not bool(probe()):
++                gpu_layers = 0
++                profile.reasons.append("llama.cpp GPU-offload недоступен — используем CPU")
++        except Exception:
++            gpu_layers = 0
++            profile.reasons.append("llama.cpp не подтвердил GPU-offload — используем CPU")
++
++    # Keep config paths portable and stable across Windows/Linux releases.
++    local.gguf_path = f"data/models/{profile.core_model}"
++    local.n_gpu_layers = gpu_layers
++    local.n_ctx = profile.n_ctx
++    local.n_batch = profile.n_batch
++    draft_path = models_dir / profile.draft_model if profile.draft_model else None
++    if draft_path is not None and draft_path.is_file() and gpu_layers != 0:
++        local.draft_model_path = f"data/models/{profile.draft_model}"
++        local.speculative_decoding = True
++    else:
++        local.draft_model_path = ""
++        local.speculative_decoding = False
++    profile.n_gpu_layers = gpu_layers
++    if logger is not None:
++        try:
++            logger.info("Hardware profile applied: %s", profile.summary())
++        except Exception:
++            pass
++    return profile
++
++
++if __name__ == "__main__":  # ручная проверка: python -m core.llm.hardware_profile
++    _hw = detect_hardware()
++    print("HARDWARE:", _hw.to_dict())
++    _models = Path(__file__).resolve().parents[2] / "data" / "models"
++    _profile = recommend_profile(_hw, models_dir=_models)
++    print("PROFILE :", _profile.summary())
++    for _r in _profile.reasons:
++        print("  -", _r)
+diff --git a/core/llm/local_qwen.py b/core/llm/local_qwen.py
+index e606943..ee2a84a 100644
+--- a/core/llm/local_qwen.py
++++ b/core/llm/local_qwen.py
+@@ -70,6 +70,9 @@ class LocalQwenBackend(LLMBackend):
+         chat_format: Optional[str] = None,
+         verbose: bool = False,
+         embedding: bool = False,
++        draft_model_path: Optional[Path | str] = None,
++        speculative_decoding: bool = False,
++        draft_max_tokens: int = 5,
+     ) -> None:
+         self._gguf_path = Path(gguf_path)
+         self.model = model_id
+@@ -84,6 +87,10 @@ class LocalQwenBackend(LLMBackend):
+         self._verbose = bool(verbose)
+         self._embedding_mode = bool(embedding)
+         self.supports_embeddings = bool(embedding)
++        self._draft_model_path = Path(draft_model_path) if draft_model_path else None
++        self._speculative_decoding = bool(speculative_decoding)
++        self._draft_max_tokens = max(1, int(draft_max_tokens))
++        self._draft_model: Optional[Any] = None
+ 
+         self._llama: Optional[Any] = None
+         self._lock = threading.RLock()
+@@ -112,8 +119,8 @@ class LocalQwenBackend(LLMBackend):
+         if not path.exists():
+             return (
+                 f"Файл модели не найден: {path}\n"
+-                f"Что сделать: скачайте GGUF-модель Qwen 4B (например, "
+-                f"qwen3-4b-instruct-q4_k_m.gguf) в каталог {path.parent} "
++                f"Что сделать: скачайте GGUF-модель Qwen из "
++                f"config/models_manifest.json в каталог {path.parent} "
+                 f"и укажите точный путь в settings.json -> local_model.gguf_path"
+             )
+         if path.is_dir():
+@@ -167,6 +174,22 @@ class LocalQwenBackend(LLMBackend):
+                 "verbose": self._verbose,
+                 "embedding": self._embedding_mode,
+             }
++            # llama.cpp exposes speculative decoding through an optional
++            # LlamaDraftModel object.  Keep it strictly opt-in: older CPU
++            # wheels simply do not expose the class and continue normally.
++            if (self._speculative_decoding and self._draft_model_path
++                    and self._draft_model_path.is_file()):
++                try:
++                    from llama_cpp import LlamaDraftModel  # type: ignore
++                    self._draft_model = LlamaDraftModel(
++                        model_path=str(self._draft_model_path),
++                        n_ctx=self._n_ctx,
++                        n_gpu_layers=self._n_gpu_layers,
++                    )
++                    kwargs["draft_model"] = self._draft_model
++                except (ImportError, TypeError, ValueError, RuntimeError, OSError) as exc:
++                    self._draft_model = None
++                    log.info("Speculative draft отключён: %s", exc)
+             if self._n_threads:
+                 kwargs["n_threads"] = self._n_threads
+             if self._chat_format:
+@@ -392,6 +415,9 @@ class LocalQwenBackend(LLMBackend):
+             "warmup_ms": self._warmup_ms,
+             "warmup_complete": self._warmup_complete,
+             "gpu_offload_supported": self._gpu_offload_supported,
++            "speculative_decoding": bool(self._draft_model is not None),
++            "draft_model_path": str(self._draft_model_path) if self._draft_model_path else "",
++            "draft_max_tokens": self._draft_max_tokens,
+         }
+ 
+     def close(self) -> None:
+@@ -451,4 +477,7 @@ class LocalQwenBackend(LLMBackend):
+             chat_format=local.chat_format,
+             verbose=local.verbose,
+             embedding=embedding,
++            draft_model_path=getattr(local, "resolved_draft_model_path", None),
++            speculative_decoding=bool(getattr(local, "speculative_decoding", False)),
++            draft_max_tokens=int(getattr(local, "draft_max_tokens", 5)),
+         )
+diff --git a/core/metacognition/engine.py b/core/metacognition/engine.py
+index 383ce1d..dc036ec 100644
+--- a/core/metacognition/engine.py
++++ b/core/metacognition/engine.py
+@@ -200,7 +200,9 @@ class MetacognitionEngine:
+         verification = VerificationStatus.VERIFIED if verified else VerificationStatus.NEEDS_VERIFICATION
+         return self.record(
+             key=key, claim=claim, value=result.get("value"), status=status,
+-            evidence=[evidence], freshness=self.freshness_policy.for_key(key, moment),
++            evidence=[evidence], freshness=self.freshness_policy.for_observation(
++                key, moment, source=source.value,
++            ),
+             verification_status=verification, now=moment,
+         )
+ 
+diff --git a/core/metacognition/freshness.py b/core/metacognition/freshness.py
+index 7ac1af6..62d740d 100644
+--- a/core/metacognition/freshness.py
++++ b/core/metacognition/freshness.py
+@@ -13,6 +13,9 @@ class FreshnessPolicy:
+         (("file.exists", "file.state"), 30),
+         (("website", "site.state"), 300),
+         (("system.setting", "setting"), 300),
++        # Generic cached version claims stay strict; concrete local
++        # observations use ``for_observation`` below for the offline-restart
++        # grace period.
+         (("software.version", "app.version", "installed.version"), 86_400),
+         (("preference", "relationship"), 15_552_000),
+     )
+@@ -26,5 +29,23 @@ class FreshnessPolicy:
+                 return Freshness.volatile(observed_at, ttl_seconds=ttl)
+         return Freshness.stable(observed_at)
+ 
++    def for_observation(self, key: str, observed_at: datetime, *, source: str = "") -> Freshness:
++        """Choose freshness for a concrete, provenance-bearing observation.
++
++        The generic policy keeps version claims volatile for one day.  A
++        verified local registry observation is a stronger boundary: it stays
++        usable across a normal offline restart for seven days, while remaining
++        volatile and eligible for re-observation.  This prevents a verified
++        local fact from becoming unusable solely because the laptop was
++        reopened two days later.
++        """
++        freshness = self.for_key(key, observed_at)
++        value = (key or "").casefold()
++        if source == "local_system" and any(
++            marker in value for marker in ("software.version", "app.version", "installed.version")
++        ):
++            return Freshness.volatile(observed_at, ttl_seconds=604_800)
++        return freshness
++
+ 
+ __all__ = ["FreshnessPolicy"]
+diff --git a/core/orchestrator.py b/core/orchestrator.py
+index 372f4b9..6c9a4c6 100644
+--- a/core/orchestrator.py
++++ b/core/orchestrator.py
+@@ -234,6 +234,35 @@ class Orchestrator:
+         def _warm() -> None:
+             started = time.perf_counter()
+             try:
++                # A clean install may have no GGUF yet.  Prepare exactly one
++                # hardware-selected artifact in the background; an existing
++                # configured file remains the safe offline fallback.
++                try:
++                    from core.llm.hardware_profile import apply_profile, recommend_profile
++                    from core.utils.model_manager import ModelManager
++
++                    profile = recommend_profile(models_dir=self._settings.models_dir)
++                    configured = getattr(self._settings.local_model, "resolved_gguf_path", None)
++                    configured_exists = bool(configured is not None and configured.is_file())
++                    if (profile.download_required
++                            and bool(getattr(self._settings, "auto_download_models", True))
++                            and not configured_exists):
++                        self._warmup_diagnostics["state"] = "downloading_model"
++                        manager = ModelManager(self._settings)
++
++                        def _progress(event: Dict[str, Any]) -> None:
++                            self._warmup_diagnostics["download"] = dict(event)
++
++                        manager.ensure_model(profile, progress=_progress)
++                        apply_profile(self._settings, logger=log)
++                    elif profile.download_required:
++                        self._warmup_diagnostics["model_download"] = "skipped_existing_fallback"
++                except Exception as exc:
++                    # A missing network/model is reported in diagnostics; it
++                    # must not prevent the local service from binding its WS.
++                    self._warmup_diagnostics["model_download"] = f"unavailable: {type(exc).__name__}"
++                    log.warning("Local model preparation skipped: %s", exc)
++
+                 from core.llm import Tier, get_llm_backend
+                 backend = get_llm_backend(self._settings, Tier.FAST)
+                 warm_up = getattr(backend, "warm_up", None)
+@@ -251,6 +280,7 @@ class Orchestrator:
+                     "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
+                     "ready_before_first_request": True,
+                     "runtime": info,
++                    "state": "ready",
+                 })
+             except Exception as exc:
+                 # Warmup is an optimisation; normal lazy loading remains valid.
+@@ -260,12 +290,20 @@ class Orchestrator:
+                     "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
+                     "error": f"{type(exc).__name__}: {exc}",
+                     "ready_before_first_request": True,
++                    "state": "unavailable",
+                 })
+             finally:
+                 self._warmup_ready.set()
+ 
+-        # Startup pays the model load once; the first user request does not.
+-        _warm()
++        # Startup must return control to the WS/UI immediately.  The model
++        # load is still paid once, but it runs behind the readiness handshake
++        # instead of blocking the socket from binding for ten seconds.
++        self._warmup_thread = threading.Thread(
++            target=_warm,
++            name="jarvis-local-warmup",
++            daemon=True,
++        )
++        self._warmup_thread.start()
+ 
+     def consume_streamed_mission(self):
+         """Sprint 1: task_id миссии, стримленной в текущем потоке (или None)."""
+@@ -584,7 +622,11 @@ class Orchestrator:
+         # §5 — ACK формируется мгновенно. Если доступна локальная модель —
+         # обогащается контекстной фразой (П1 §1.2); при сбое — canned fallback.
+         intent = resolve_keyword_tool(goal, goal)
+-        ack = pick_acknowledgement(intent, goal=goal, settings=self._settings)
++        # ACK must never pay the model-load/inference cost.  The mission
++        # worker owns all deliberate reasoning after this line.
++        ack = pick_acknowledgement(
++            intent, goal=goal, settings=self._settings, allow_model=False,
++        )
+ 
+         # Подписка ставится ДО запуска, но task_id известен только после
+         # submit(). Держим его в изменяемой ячейке и добираем уже
+diff --git a/core/utils/model_manager.py b/core/utils/model_manager.py
+index 99bb937..ef1a37e 100644
+--- a/core/utils/model_manager.py
++++ b/core/utils/model_manager.py
+@@ -7,20 +7,68 @@ settings.json. Используется и консольными команда
+ from __future__ import annotations
+ 
+ import json
++import hashlib
+ import shutil
++import threading
++import urllib.error
++import urllib.parse
++import urllib.request
++from dataclasses import dataclass
+ from pathlib import Path
+-from typing import Any, Dict, List, Optional
++from typing import Any, Callable, Dict, List, Optional
+ 
+ from config.settings import Settings, load_config
+ from core.utils.logger import get_logger
+ from core.utils.paths import PROJECT_ROOT, ensure_parent
+ from core.security.atomic import atomic_json_write, load_json
+ 
+-__all__ = ["ModelManager"]
++__all__ = ["ModelArtifact", "ModelDownloadError", "ModelManager"]
+ 
+ log = get_logger(__name__)
+ 
+ 
++@dataclass(frozen=True)
++class ModelArtifact:
++    """Pinned, locally verifiable model download description."""
++
++    key: str
++    filename: str
++    url: str
++    size_bytes: int
++    sha256: str
++    source_filename: str = ""
++
++    @classmethod
++    def from_dict(cls, payload: Dict[str, Any]) -> "ModelArtifact":
++        filename = str(payload.get("filename") or "").strip()
++        url = str(payload.get("url") or "").strip()
++        digest = str(payload.get("sha256") or "").strip().casefold()
++        if not filename or Path(filename).name != filename:
++            raise ValueError("manifest filename must be a plain file name")
++        parsed = urllib.parse.urlparse(url)
++        if parsed.scheme != "https" or parsed.hostname not in {
++            "huggingface.co", "www.huggingface.co", "hf.co",
++        }:
++            raise ValueError("model source must be an HTTPS Hugging Face URL")
++        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
++            raise ValueError(f"invalid SHA-256 for {filename}")
++        size = int(payload.get("size_bytes") or 0)
++        if size <= 0:
++            raise ValueError(f"invalid size for {filename}")
++        return cls(
++            key=str(payload.get("key") or Path(filename).stem),
++            filename=filename,
++            url=url,
++            size_bytes=size,
++            sha256=digest,
++            source_filename=str(payload.get("source_filename") or ""),
++        )
++
++
++class ModelDownloadError(RuntimeError):
++    """A model could not be downloaded or failed local verification."""
++
++
+ class ModelManager:
+     """Менеджер регистрации моделей и голосов."""
+ 
+@@ -32,6 +80,198 @@ class ModelManager:
+         self._settings = settings or load_config()
+         self._config_path = self._settings.source_path or (PROJECT_ROOT / "config" / "settings.json")
+ 
++    # ------------------------------------------------------------------ #
++    #  Пинованный GGUF-манифест и безопасная докачка
++    # ------------------------------------------------------------------ #
++
++    @property
++    def manifest_path(self) -> Path:
++        """Path to the repository-owned model manifest."""
++        return PROJECT_ROOT / "config" / "models_manifest.json"
++
++    def load_model_manifest(self, path: Optional[Path | str] = None) -> Dict[str, ModelArtifact]:
++        """Load and validate every model entry before any network access."""
++        manifest_path = Path(path) if path is not None else self.manifest_path
++        try:
++            payload = load_json(manifest_path, default={})
++        except (OSError, ValueError, TypeError) as exc:
++            raise ModelDownloadError(f"Не удалось прочитать манифест моделей: {exc}") from exc
++        rows = payload.get("models") if isinstance(payload, dict) else None
++        if not isinstance(rows, list):
++            raise ModelDownloadError("Манифест моделей не содержит списка models")
++        artifacts: Dict[str, ModelArtifact] = {}
++        for row in rows:
++            if not isinstance(row, dict):
++                raise ModelDownloadError("Манифест содержит некорректную запись")
++            try:
++                artifact = ModelArtifact.from_dict(row)
++            except (TypeError, ValueError) as exc:
++                raise ModelDownloadError(f"Некорректная запись манифеста: {exc}") from exc
++            if artifact.key in artifacts:
++                raise ModelDownloadError(f"Дубликат ключа модели: {artifact.key}")
++            artifacts[artifact.key] = artifact
++        return artifacts
++
++    def ensure_model(
++        self,
++        profile: Any,
++        *,
++        progress: Optional[Callable[[Dict[str, Any]], None]] = None,
++        cancel: Optional[threading.Event] = None,
++        timeout_sec: float = 30.0,
++    ) -> Dict[str, Path]:
++        """Ensure the core (and optional draft) GGUF for a hardware profile.
++
++        Downloads are resumable and always land in ``*.part`` first.  A file
++        becomes visible as a model only after its exact byte count and
++        SHA-256 match the pinned manifest.  The method is explicit so a
++        startup policy can choose whether to download in the background; it
++        never silently reaches outside the trusted manifest.
++        """
++        manifest = self.load_model_manifest()
++        names = [str(getattr(profile, "core_model", "") or "")]
++        draft = str(getattr(profile, "draft_model", "") or "")
++        if draft and draft not in names:
++            names.append(draft)
++        if not names or not names[0]:
++            raise ModelDownloadError("Профиль не содержит core_model")
++
++        results: Dict[str, Path] = {}
++        for filename in names:
++            artifact = next((item for item in manifest.values() if item.filename == filename), None)
++            if artifact is None:
++                raise ModelDownloadError(f"Модель не закреплена в манифесте: {filename}")
++            target = self._settings.models_dir / artifact.filename
++            self._ensure_artifact(
++                artifact, target, progress=progress, cancel=cancel,
++                timeout_sec=timeout_sec,
++            )
++            results[artifact.key] = target
++        return results
++
++    def _ensure_artifact(
++        self,
++        artifact: ModelArtifact,
++        target: Path,
++        *,
++        progress: Optional[Callable[[Dict[str, Any]], None]],
++        cancel: Optional[threading.Event],
++        timeout_sec: float,
++    ) -> None:
++        target.parent.mkdir(parents=True, exist_ok=True)
++        if self._verified_file(target, artifact):
++            self._emit_progress(progress, artifact, target.stat().st_size, artifact.size_bytes, "ready")
++            return
++
++        part = target.with_name(target.name + ".part")
++        self._download_artifact(
++            artifact, part, progress=progress, cancel=cancel, timeout_sec=timeout_sec,
++        )
++        if not self._verified_file(part, artifact):
++            try:
++                part.unlink()
++            except OSError:
++                pass
++            raise ModelDownloadError(f"Проверка модели не пройдена: {artifact.filename}")
++        # os.replace is atomic on the same volume and leaves no half-written
++        # GGUF for a concurrent backend to open.
++        part.replace(target)
++        self._emit_progress(progress, artifact, artifact.size_bytes, artifact.size_bytes, "verified")
++
++    @staticmethod
++    def _verified_file(path: Path, artifact: ModelArtifact) -> bool:
++        try:
++            if path.stat().st_size != artifact.size_bytes:
++                return False
++            digest = hashlib.sha256()
++            with path.open("rb") as handle:
++                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
++                    digest.update(chunk)
++            return digest.hexdigest().casefold() == artifact.sha256
++        except (OSError, ValueError):
++            return False
++
++    def _download_artifact(
++        self,
++        artifact: ModelArtifact,
++        part: Path,
++        *,
++        progress: Optional[Callable[[Dict[str, Any]], None]],
++        cancel: Optional[threading.Event],
++        timeout_sec: float,
++    ) -> None:
++        try:
++            offset = part.stat().st_size if part.exists() else 0
++        except OSError:
++            offset = 0
++        headers = {"User-Agent": "JARVIS-local-model-manager/1", "Accept-Encoding": "identity"}
++        if 0 < offset < artifact.size_bytes:
++            headers["Range"] = f"bytes={offset}-"
++        request = urllib.request.Request(artifact.url, headers=headers, method="GET")
++        try:
++            with urllib.request.urlopen(request, timeout=float(timeout_sec)) as response:
++                final_url = str(getattr(response, "geturl", lambda: artifact.url)() or artifact.url)
++                if urllib.parse.urlparse(final_url).hostname not in {
++                    "huggingface.co", "www.huggingface.co", "hf.co",
++                    "cdn-lfs.huggingface.co", "cdn-lfs-us-1.hf.co",
++                }:
++                    raise ModelDownloadError("редирект модели ушёл за пределы Hugging Face")
++                status = int(getattr(response, "status", 200) or 200)
++                resumed = offset > 0 and status == 206
++                if not resumed:
++                    offset = 0
++                mode = "ab" if resumed else "wb"
++                downloaded = offset
++                with part.open(mode) as handle:
++                    while True:
++                        if cancel is not None and cancel.is_set():
++                            raise ModelDownloadError(f"Загрузка отменена: {artifact.filename}")
++                        chunk = response.read(1024 * 1024)
++                        if not chunk:
++                            break
++                        handle.write(chunk)
++                        downloaded += len(chunk)
++                        self._emit_progress(
++                            progress, artifact, downloaded, artifact.size_bytes, "downloading",
++                        )
++        except ModelDownloadError:
++            raise
++        except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
++            raise ModelDownloadError(f"Не удалось скачать {artifact.filename}: {exc}") from exc
++
++        try:
++            actual = part.stat().st_size
++        except OSError as exc:
++            raise ModelDownloadError(f"Временный файл модели не создан: {part}") from exc
++        if actual != artifact.size_bytes:
++            raise ModelDownloadError(
++                f"Неполная загрузка {artifact.filename}: {actual} из {artifact.size_bytes} байт"
++            )
++
++    @staticmethod
++    def _emit_progress(
++        callback: Optional[Callable[[Dict[str, Any]], None]],
++        artifact: ModelArtifact,
++        downloaded: int,
++        total: int,
++        state: str,
++    ) -> None:
++        if callback is None:
++            return
++        try:
++            callback({
++                "key": artifact.key,
++                "filename": artifact.filename,
++                "downloaded_bytes": int(downloaded),
++                "total_bytes": int(total),
++                "progress": round(min(1.0, downloaded / total) if total else 0.0, 4),
++                "state": state,
++            })
++        except Exception:
++            # Progress is presentation only; it must never break a verified
++            # download or turn a closed UI callback into a failed model.
++            log.debug("Прогресс загрузки модели недоступен", exc_info=True)
++
+     # --------------------------------------------------------------------- #
+     #  Локальные модели (GGUF)
+     # --------------------------------------------------------------------- #
+diff --git a/core/ws_server.py b/core/ws_server.py
+index 7590939..75c5690 100644
+--- a/core/ws_server.py
++++ b/core/ws_server.py
+@@ -327,6 +327,27 @@ class JarvisWSServer:
+                 self._greeted = True
+         try:
+             await ws.send(json.dumps({"type": "state", "state": "idle"}))
++            # Readiness is a first-class protocol event.  It follows the
++            # legacy idle envelope so existing clients keep their first-frame
++            # contract while newer clients render a real startup state.
++            try:
++                diagnostics = self._orch.runtime_diagnostics()
++            except Exception:
++                diagnostics = {}
++            warmup = diagnostics.get("warmup") if isinstance(diagnostics, dict) else {}
++            if not isinstance(warmup, dict):
++                warmup = {}
++            runtime_state = (
++                "ready" if diagnostics.get("warmup_ready") else
++                "loading_model" if getattr(self._orch, "_warmup_thread", None) is not None
++                else "starting"
++            )
++            await ws.send(json.dumps({
++                "type": "runtime_status",
++                "state": runtime_state,
++                "ready": bool(diagnostics.get("warmup_ready")),
++                "diagnostics": warmup,
++            }))
+             try:
+                 from core.memory.profile import load_profile
+                 has_name = bool((load_profile(self._settings).get("name") or "").strip())
+@@ -1032,6 +1053,11 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+     if not _HAS_WS:
+         raise RuntimeError("websockets не установлен")
+     settings: Settings = load_config()
++    try:
++        from core.llm.hardware_profile import apply_profile
++        apply_profile(settings, logger=log)
++    except Exception as exc:
++        log.warning("Автопрофиль локальной модели пропущен: %s", exc)
+     settings.ensure_directories()
+     orch = Orchestrator(settings)
+     server = JarvisWSServer(orch, host=host, port=port,
+diff --git a/docs/CODEX_HANDOFF.md b/docs/CODEX_HANDOFF.md
+new file mode 100644
+index 0000000..fa06538
+--- /dev/null
++++ b/docs/CODEX_HANDOFF.md
+@@ -0,0 +1,90 @@
++# CODEX HANDOFF — J.A.R.V.I.S. модельный слой + продукт «для всех»
++
++> От: агент Postman. Кому: Codex.
++> Контекст и обоснование — в `docs/JARVIS_REBUILD_PLAN.md`. Читай его первым.
++> Цель владельца: (1) Джарвис быстрый и не тупой; (2) запускается у ЛЮБОГО
++> пользователя; (3) **без платных API-ключей — только локальные модели**;
++> (4) витринные сценарии: презентация, установка приложения «по видео»,
++> мгновенный анализ.
++
++---
++
++## ЧТО Я УЖЕ СДЕЛАЛ (не переделывай, продолжай от этого)
++
++1. `config/settings.example.json` + `config/settings.py` — починил битые пути:
++   - Shadow `code_model_path` → `data/models/Qwen3-1.7B-Q6_K.gguf` (был несуществующий `qwen3-1.7b-instruct-q4_k_m.gguf`).
++   - `LocalModelConfig.gguf_path` дефолт → `qwen3-4b-instruct-q5_k_m.gguf` (был `...q4_k_m.gguf`, файла нет).
++2. `core/llm/hardware_profile.py` — НОВЫЙ модуль (никто ещё не импортирует, тесты не трогает). Даёт `detect_hardware()` и `recommend_profile(hw, models_dir)` → `ModelProfile{core_model, n_gpu_layers, n_ctx, n_batch, draft_model, download_required}`. Универсальная лестница 0.6B→14B. Проверен на спектре машин.
++
++**Инвариант на все задачи ниже:** после КАЖДОГО изменения гоняй
++`python -m pytest -o addopts="" -rA`. Система зрелая (Sprint 16), много тестов.
++Не удаляй «мёртвый» код, пока тесты это не подтвердят зелёными.
++
++---
++
++## ЗАДАЧА 0 (СНАЧАЛА) — почини живой `config/settings.json`
++
++Я НЕ могу его читать/править (он в `.gitignore`, заблокирован для ИИ). Именно
++в нём, судя по всему, живёт «связка двух 1.7B, медленно и тупо». Сделай:
++
++1. Открой `config/settings.json`. Убедись, что:
++   - `local_model.gguf_path` = существующий файл (`data/models/qwen3-4b-instruct-q5_k_m.gguf`), `n_gpu_layers` под железо (или `-1` при наличии GPU).
++   - `shadow.code_model_path` = `data/models/Qwen3-1.7B-Q6_K.gguf` (или `shadow.enabled=false`, если фон не нужен).
++   - НЕТ конфигурации, где на каждый запрос гоняются ДВЕ модели (fast + отдельная reasoning). Если есть — убери reasoning из горячего пути.
++   - `model_tiers.analyst/coder/architect` НЕ указывают на модель слабее FAST. Для no-API продукта проще: `offline_mode=true`, все тиры → локальный core.
++2. Приёмка: `который час` / `привет` отвечают ≤2–3 с; в логах один локальный бэкенд, не два.
++
++---
++
++## ЗАДАЧА 1 — Model auto-download (без него «у каждого» не работает)
++
++Файлы: `core/utils/model_manager.py` (есть — расширить), новый `config/models_manifest.json`.
++
++- Манифест: для каждого `key` из лестницы (`qwen3-0.6b`, `qwen3-1.7b`, `qwen3-4b`, `qwen3-8b`, `qwen3-14b`) — прямой URL GGUF (Hugging Face), размер, SHA256.
++- `model_manager.ensure_model(profile)`: если `profile.download_required` — качает `profile.core_model` (и `draft_model`) в `data/models/` с прогрессом и проверкой SHA. Идемпотентно, докачка с резюме.
++- Приёмка: на чистой машине без GGUF первый старт сам скачивает нужную модель под железо; повторный старт — мгновенно.
++
++## ЗАДАЧА 2 — Wire `hardware_profile` в конфиг/фабрику
++
++Файлы: `config/settings.py` (или новый `core/llm/bootstrap.py`), `core/llm/factory.py`.
++
++- При старте (когда `warmup_local_on_start`): вызвать `recommend_profile(detect_hardware(), settings.models_dir)` и, если пользователь НЕ задал значения явно, подставить `local_model.gguf_path/n_gpu_layers/n_ctx/n_batch`.
++- Уважай явный выбор пользователя (не перетирай, если он сам прописал модель).
++- Приёмка: на GPU-машине автоматически `n_gpu_layers=-1` и модель крупнее; на слабом CPU — 1.7B/0.6B и урезанный `n_ctx`. Логируй выбранный `ModelProfile.summary()`.
++
++## ЗАДАЧА 3 — Speculative decoding в `LocalQwenBackend`
++
++Файл: `core/llm/local_qwen.py`.
++
++- Пробросить draft-модель в llama.cpp (`draft_model`, параметры `n_draft`/`draft`), когда `profile.draft_model` задан.
++- Фича-флаг + graceful fallback: если сборка llama-cpp-python не поддерживает — работать без draft, не падать.
++- Приёмка: замерь tok/s на 4B с draft и без на GPU-машине; draft не должен УХУДШАТЬ latency (иначе выключить по умолчанию).
++
++## ЗАДАЧА 4 — Router + reasoning-по-требованию + streaming/ack
++
++Файлы: `core/router/*`, `core/orchestrator.py`, `core/llm/*`.
++
++- Роутер (правила + при желании 0.6B/1.7B) классифицирует: `command|chat|reasoning|tool`. `command` → без LLM; `reasoning` → включать `<think>` только тут.
++- Убедись, что streaming токенов реально доходит до TTS/UI (в оркестраторе есть `install_stream_sink`) и instant-ack срабатывает на ВСЕХ небанальных запросах.
++- Приёмка: простой вопрос — ack ≤100 мс + первый токен быстро; reasoning-режим не включается на «привет».
++
++## ЗАДАЧА 5 — Нативный function-calling
++
++Заменить regex `TOOL_CALL:{...}` на структурированные tool-calls Qwen3
++(`core/actions/executor.py`, `core/llm/local_qwen.py`, `supports_tools`). Приёмка: инструмент вызывается стабильно без текстового маркера.
++
++## ЗАДАЧА 6 — Витринные возможности (по приоритету владельца)
++
++- **STT**: включить `faster-whisper` (`core/voice/stt.py` — сейчас заглушка). Модель STT — тоже через auto-download, размер по железу.
++- **Artifact generation**: `python-pptx`/`python-docx` как инструменты → «сделай презентацию/документ».
++- **Computer-use / браузер**: Playwright + set-of-marks (скриншот → клики по разметке) → «поставь приложение», «сделай в браузере». Тяжёлый VLM-пакет — опционально, только на способном железе.
++- **Frontend transport**: довести `jarvis/` до живого WebSocket-моста к `core.ws_server`; удалить мёртвый `jarvis-ui/`.
++
++---
++
++## ГРАНИЦЫ И ЧЕСТНОСТЬ (обязательно соблюдать)
++
++- **Никаких платных API по умолчанию.** Весь интеллект локальный. Удалённые тиры — опция, выключены без ключа.
++- **Не обещай невозможного.** «1 ГБ ОЗУ и умеет всё» — недостижимо (см. план §3). На floor-железе Джарвис честно сообщает, что задача превышает локальные возможности, а не выдаёт мусор.
++- **Не ломай зрелую систему.** Хирургия по слоям + `pytest` после каждого шага. Мёртвый код удаляй только с зелёными тестами.
++- **Приоритет источников правды:** реальный код > `docs/JARVIS_REBUILD_PLAN.md` > `AUDIT_CURRENT_JARVIS.md` (устарел).
+diff --git a/docs/JARVIS_REBUILD_PLAN.md b/docs/JARVIS_REBUILD_PLAN.md
+new file mode 100644
+index 0000000..e47b932
+--- /dev/null
++++ b/docs/JARVIS_REBUILD_PLAN.md
+@@ -0,0 +1,124 @@
++# J.A.R.V.I.S. — план глобальной переделки (модельный слой + продукт «для всех»)
++
++> Автор ревизии: агент Postman (read-first аудит реального кода, не устаревших
++> документов). Дата: 2026-08-19. Этот документ ЗАМЕНЯЕТ выводы
++> `AUDIT_CURRENT_JARVIS.md` в части модельного слоя — тот аудит устарел
++> (см. §1). Handoff-инструкции для Codex — в `docs/CODEX_HANDOFF.md`.
++
++---
++
++## 0. TL;DR
++
++- **Жалоба «две ИИ в связке (qwen3 1.7b + deepseek-r1 1.7b) — медленно и тупо» верна как боль, но диагноз был не там.** В коммите нет per-turn связки двух моделей: offline-режим гоняет ОДИН core (Qwen3-4B), а 1.7B — это фоновый Shadow. Связка живёт в твоём личном `config/settings.json` (он в `.gitignore`, ИИ его читать не может — фикс передан в handoff).
++- **Корневая ошибка паттерна «fast + reasoning на двух 1.7B»**: двойная латентность + reasoning-налог на простых запросах + эскалация «вверх» в модель, которая НЕ умнее. Это архитектурный тупик, а не вопрос подбора весов.
++- **Правильно: один сильный core под железо пользователя + крошечный router + reasoning строго по требованию + streaming + instant ack + speculative decoding.**
++- **Честно про «1 ГБ ОЗУ и умеет всё, локально, без API»**: так не бывает (§3). Решение — не врать пользователю, а адаптировать модель под железо (см. `core/llm/hardware_profile.py`) и честно разграничить, что работает офлайн, а что требует докачки модели/ресурсов.
++
++---
++
++## 1. Почему старый аудит устарел (сверка с кодом)
++
++`AUDIT_CURRENT_JARVIS.md` утверждал: «две конфликтующие архитектуры, `submit_goal` мёртв, нет instant ack, нет стриминга». **Реальный `core/orchestrator.py` уже ушёл вперёд:**
++
++- `handle_input()` — единый путь: fast-path (синхронно) + тяжёлые задачи → `submit_goal()` в фон с **мгновенным ACK** (`mission.acknowledgement`). То есть `submit_goal` вызывается, ACK в живом пути есть.
++- Появились целые слои: `BrainFabric`, `CognitiveOrchestrator`, `LivingIntelligence`, `UniversalIntake`, `TutorEngine`, `_quick_local_reply`.
++- Проект — зрелая многоспринтовая система (Sprint 10–16+), а не «сырой каркас».
++
++**Вывод:** слепой «переписать всё» здесь опасен — сломается зрелая система с тестами. Переделку делаем хирургически, по слоям, с прогоном `pytest` (это работа для Codex с полным рантаймом).
++
++---
++
++## 2. Что РЕАЛЬНО в модельном слое (проверено по коду)
++
++Файлы: `config/settings.py`, `config/settings.example.json`, `core/llm/factory.py`, `core/llm/tiers.py`, `data/models/`.
++
++- **На диске лежат:** `qwen3-4b-instruct-q5_k_m.gguf` (2.9 ГБ), `Qwen3-1.7B-Q6_K.gguf` (1.7 ГБ), голоса Piper. **DeepSeek-R1 на диске НЕТ** — только как удалённый провайдер (без ключа недоступен).
++- **`offline_mode=true` (шаблон):** `get_provider()` возвращает `local` для ВСЕХ тиров; `factory.py` в offline игнорирует строки `model_tiers` (`qwen-1.7b-local` и т.п.) и берёт файл из `get_local_config(role)`. Для FAST/ANALYST/ARCHITECT это `local_model` (4B), для CODER — `local_coder_model` (пустой → фолбэк на 4B). **Итог: все тиры = один Qwen3-4B.**
++- **Qwen3-1.7B** реально используется только фоновым `core/shadow/generator.py`. Его путь в конфиге указывал на несуществующий `qwen3-1.7b-instruct-q4_k_m.gguf` → **баг, Shadow молча деградировал.** Починено в этой сессии (см. §7).
++- **Опасный анти-паттерн в шаблоне:** `model_tiers.analyst/coder/architect = "qwen-1.7b-local"`. В offline это косметика, но если кто-то выключит `offline_mode`, эскалация формально ведёт в модель МЕНЬШЕ и ТУПЕЕ, чем FAST. Логически перевёрнутая лестница — так делать нельзя.
++
++---
++
++## 3. Честное ограничение: «1 ГБ + умеет всё + локально + без API»
++
++Это физически несовместимые требования. Прямо и без сказок:
++
++- Модель, которая «делает презентацию, ставит приложение по видео на чужом языке, мгновенно рассуждает», — это уровень минимум 4B–8B (а для видео — ещё и мультимодальная VLM). Такой GGUF — **3–9 ГБ на диске и 5–20 ГБ памяти при работе.** В 1 ГБ ОЗУ это не влезет никогда.
++- «Джарвис-проекты в 1 ГБ ОЗУ», которые ты видел, — это одно из двух: (а) тонкий клиент, который ходит в облачный API (значит, кто-то платит за модель), либо (б) парсер команд по ключевым словам, который «умным» только выглядит. Полноценного офлайн-интеллекта в 1 ГБ не существует.
++- Без API-ключей (твоё условие) весь интеллект обязан быть локальным → упирается в железо пользователя.
++
++**Как примиряем (реалистичный продукт):**
++
++1. **Приложение лёгкое, модель — отдельно.** Инсталлятор маленький; модель докачивается под железо при первом запуске (`hardware_profile` уже возвращает `download_required` + имя файла).
++2. **Адаптивная лестница (реализовано):** слабый ноут (4 ГБ, без GPU) → Qwen3-0.6B; офис 8 ГБ → 1.7B; десктоп 16 ГБ / RTX 2060+ → 4B; RTX 3080 → 8B; RTX 4090 → 14B. Один код — каждый получает максимум от своего железа.
++3. **Честная деградация возможностей.** «Мгновенный чат» — везде. «Сделать презентацию/разобрать длинное видео» — только там, где модель и память это тянут; на floor-железе Джарвис прямо говорит, что задача превышает локальные возможности, а не выдаёт мусор.
++4. **Тяжёлую мультимодальщину (видео) — модульно.** Отдельный опциональный VLM-пакет, который ставится только на способное железо.
++
++Это и есть «запустится у каждого»: у каждого — свой потолок, но продукт не падает и не врёт.
++
++---
++
++## 4. Целевая архитектура модельного слоя
++
++```
++Вход (текст/голос)
++   │
++   ▼
++[ Router ]  ← Qwen3-0.6B/1.7B ИЛИ детерминированные правила (~50-100 мс)
++   │  классы: command | chat | reasoning | tool
++   ├── command  → детерминированный tool, БЕЗ LLM        (мгновенно)
++   ├── chat     → CORE (адаптивный: 0.6B..14B), streaming (быстро)
++   ├── reasoning→ CORE в режиме «думать» ИЛИ фон-миссия  (по требованию)
++   └── tool     → CORE + нативный function-calling
++   │
++   ▼
++[ Ответ ] — instant ack (≤100мс) → streaming токенов в TTS/UI
++```
++
++Принципы:
++1. **Один сильный core на данном железе.** Никаких «двух моделей на каждый запрос».
++2. **Маленькая модель = router/draft, НЕ «умный тир».** Эскалация всегда идёт в модель ≥ по силе, никогда «вниз».
++3. **Reasoning — по требованию.** `<think>`-режим включается роутером только для реально многошаговых задач; «который час» его не платит.
++4. **Speculative decoding** (llama.cpp `--model-draft`): draft Qwen3-1.7B ускоряет декод core 4B/8B, когда хватает VRAM держать обе. Управляется `hardware_profile` (`draft_model`).
++5. **Instant ack + streaming** обязательны в живом пути — «ощущение тупняка» лечится восприятием, а не только tok/s.
++6. **Hardware-adaptive** через `core/llm/hardware_profile.py` (реализовано): `detect_hardware()` + `recommend_profile()`.
++
++---
++
++## 5. Мёртвый код / что консолидировать (актуализировано)
++
++| Кандидат | Статус по коду | Рекомендация |
++|---|---|---|
++| Перевёрнутые `model_tiers` (analyst/coder/architect = 1.7b) | косметика в offline, ловушка вне offline | привести к «core = сильная», убрать 1.7b из «умных» тиров |
++| `local_coder_model` | `gguf_path=""`, всегда фолбэк на 4B | оставить как есть ИЛИ честно удалить из эскалации |
++| `ModelTiers` вымышленные id (`deepseek-v4-flash`, `kimi-k3`, `claude-opus-5`) | без ключей недоступны | для no-API продукта убрать из дефолта, оставить пустыми |
++| Shadow code_model_path | указывал на несуществующий файл | **починено** (§7) |
++| `jarvis-ui/` (старый фронт) | заглушки Tauri-команд | удалить, оставить `jarvis/` |
++| Транспорт frontend↔Python | по-прежнему требует проверки (`core/ws_server` есть) | Codex: подтвердить живой WS-мост, добить UI |
++
++> ВАЖНО: перед удалением любого «мёртвого» модуля Codex обязан прогнать `pytest` — система зрелая, у многих модулей есть тесты.
++
++---
++
++## 6. Roadmap возможностей «чтобы продавалось»
++
++Разбито на то, что нужно для витринных сценариев. Детали и порядок — в `docs/CODEX_HANDOFF.md`.
++
++1. **Model auto-download** (`core/utils/model_manager.py` + манифест): качает нужный GGUF по `hardware_profile`, с проверкой SHA и прогресс-баром. Без него «запустится у каждого» неполноценно.
++2. **Speculative decoding в `LocalQwenBackend`**: поддержка draft-модели.
++3. **Wire `hardware_profile` в конфиг/фабрику**: при старте — авто-подстановка `gguf_path/n_gpu_layers/n_ctx`.
++4. **Нативный function-calling** вместо regex `TOOL_CALL:` (надёжность действий).
++5. **STT (голосовой ввод)**: `faster-whisper` (в конфиге уже заложен) — сейчас заглушка.
++6. **Artifact generation**: `python-pptx`/`python-docx` — сценарий «сделай презентацию».
++7. **Computer-use / браузер**: Playwright + set-of-marks — «поставь приложение по видео», «сделай за меня в браузере».
++8. **Frontend transport**: довести `jarvis/` до живого WS-моста к `core.ws_server`.
++
++---
++
++## 7. Что уже сделано в этой сессии (агент Postman)
++
++- **Починен путь Shadow-модели** в `config/settings.example.json` и дефолте `config/settings.py`: `qwen3-1.7b-instruct-q4_k_m.gguf` (не существует) → `Qwen3-1.7B-Q6_K.gguf` (реальный файл).
++- **Починен дефолт core-модели** в `config/settings.py`: `qwen3-4b-instruct-q4_k_m.gguf` → `...q5_k_m.gguf` (реальный файл).
++- **Создан `core/llm/hardware_profile.py`** — универсальная лестница моделей (0.6B→14B) + детект RAM/VRAM + рекомендация `n_gpu_layers/n_ctx/n_batch` + speculative draft. Самодостаточный, ничего не ломает (никто ещё не импортирует). Проверен на спектре машин от 4 ГБ CPU до RTX 4090.
++
++Всё остальное (§6, а также правка личного `settings.json`) — в handoff для Codex.
+diff --git a/docs/PHASE0_IMPLEMENTED.md b/docs/PHASE0_IMPLEMENTED.md
+new file mode 100644
+index 0000000..6bc05b5
+--- /dev/null
++++ b/docs/PHASE0_IMPLEMENTED.md
+@@ -0,0 +1,53 @@
++# Phase 0 — runtime reality fixes
++
++Дата: 2026-08-19. Ветка: `codex/universal-kernel`.
++
++## Что закрыто
++
++- `current_time` и `play_music` остаются отдельными deterministic tools;
++  media-запрос не может превратиться в reminder.
++- неизвестная рискованная цель получает Risk Gate до capability research;
++  после подтверждения путь запускается повторно, а не маскирует mutation.
++- один локальный backend создаётся через публичный FAST factory, поэтому
++  Brain Fabric и legacy router делят одну модель и один cache key.
++- warmup модели выполняется в daemon-потоке; WS/UI получает readiness сразу.
++- `runtime_status` передаёт `starting/loading_model/ready/unavailable` и
++  diagnostics (`backend`, модель, offload layers, warmup time).
++- frontend использует настоящий WS connection state, exponential reconnect и
++  не рисует READY при отсутствующем backend.
++- ACK больше не запускает вторую inference: live mission получает canned ACK,
++  а deliberate work продолжается после него.
++- `hardware_profile` выбирает безопасный local tier 0.6B→14B; `ModelManager`
++  использует pinned HTTPS manifest, resumable `.part` downloads, размер и
++  SHA-256 перед atomic replace.
++- speculative draft подключён как opt-in с graceful fallback для старых
++  `llama-cpp-python` wheels; CPU runtime не притворяется CUDA.
++
++## Доказательства
++
++До патча на текущем дереве: `482 passed, 2 skipped, 4 failed`.
++После патча: `492 passed, 2 skipped, 0 failed`.
++Frontend: `5` protocol assertions, backend transport suite and `13` operator
++assertions; `npm run build` и `cargo check` проходят.
++
++Наблюдаемые исправленные регрессии:
++
++1. high-risk unknown command теперь требует confirmation;
++2. persisted software-version belief не становится ложным `stale` после
++   обычного двухдневного offline restart, сохраняя строгую generic policy;
++3. WS mission streaming использует тот же injectable FAST backend;
++4. ACK не оплачивает загрузку/инференс модели.
++
++## Что ещё не закрыто этой фазой
++
++- release installer пока не содержит sidecar Python/llama/Piper и GGUF;
++- реальный packaged Windows E2E, STT и Playwright live run требуют отдельного
++  acceptance pass;
++- текущая установленная `llama-cpp-python` сборка сообщает CPU-only, поэтому
++  `n_gpu_layers=0` фиксируется честно.
++
++## Rollback
++
++Исполняемый откат: `artifacts/verification/phase0/rollback.ps1`.
++Он восстанавливает только файлы этой фазы к baseline commit и не трогает
++пользовательские модели, `config/settings.json` или другие workspace artifacts.
+diff --git a/jarvis/scripts/wsProtocol.test.ts b/jarvis/scripts/wsProtocol.test.ts
+index ed43eea..7cdd35b 100644
+--- a/jarvis/scripts/wsProtocol.test.ts
++++ b/jarvis/scripts/wsProtocol.test.ts
+@@ -25,6 +25,11 @@ assert.deepEqual(
+   }],
+ );
+ 
++assert.deepEqual(
++  mapSocketEnvelope({ type: 'runtime_status', state: 'loading_model', ready: false, diagnostics: { backend: 'cpu' } }, now),
++  [{ type: 'runtime:status', payload: { state: 'loading_model', ready: false, diagnostics: { backend: 'cpu' } }, timestamp: now }],
++);
++
+ assert.deepEqual(
+   mapSocketEnvelope({
+     type: 'confirmation_required',
+@@ -47,4 +52,4 @@ assert.deepEqual(
+ 
+ assert.deepEqual(mapSocketEnvelope({ type: 'unknown' }, now), []);
+ 
+-console.log('wsProtocol: 4 assertions passed');
++console.log('wsProtocol: 5 assertions passed');
+diff --git a/jarvis/src-tauri/src/main.rs b/jarvis/src-tauri/src/main.rs
+index 826a385..af94812 100644
+--- a/jarvis/src-tauri/src/main.rs
++++ b/jarvis/src-tauri/src/main.rs
+@@ -1,27 +1,59 @@
+ mod window_effects;
+ 
+-use std::{fs, net::TcpStream, path::PathBuf, process::{Child, Command}, sync::Mutex, thread, time::Duration};
++use std::{fs, net::TcpStream, path::{Path, PathBuf}, process::{Child, Command}, sync::Mutex, thread, time::Duration};
+ use serde::Deserialize;
+ use tauri::{Emitter, Manager, WebviewWindowBuilder, WebviewUrl, menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}};
+ use tauri_plugin_global_shortcut::GlobalShortcutExt;
+ 
+ struct BackendProcess(Mutex<Option<Child>>);
++
++impl Drop for BackendProcess {
++    fn drop(&mut self) {
++        if let Ok(mut child) = self.0.lock() {
++            if let Some(process) = child.as_mut() {
++                let _ = process.kill();
++                let _ = process.wait();
++            }
++            *child = None;
++        }
++    }
++}
+ #[derive(Clone, Deserialize)] struct SettingsFile { launcher: Option<LauncherSettings> }
+ #[derive(Clone, Deserialize)] struct LauncherSettings { autostart: Option<bool>, hotkey: Option<String>, backend_command: Option<Vec<String>>, backend_workdir: Option<String> }
+ impl Default for LauncherSettings { fn default() -> Self { Self { autostart: Some(false), hotkey: Some("Ctrl+Space".into()), backend_command: Some(vec!["python".into(), "-m".into(), "core.ws_server".into()]), backend_workdir: Some(String::new()) } } }
+ 
++fn is_project_root(path: &Path) -> bool {
++    path.join("config").is_dir() && (path.join("core").is_dir() || path.join("resources").is_dir())
++}
++
+ fn project_root() -> PathBuf {
+     let compiled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+-    let mut candidates = vec![compiled, std::env::current_dir().unwrap_or_default()];
++    let mut candidates: Vec<PathBuf> = Vec::new();
++    if let Ok(home) = std::env::var("JARVIS_HOME") {
++        candidates.push(PathBuf::from(home));
++    }
+     if let Ok(exe) = std::env::current_exe() {
++        if let Some(parent) = exe.parent() {
++            candidates.push(parent.to_path_buf());
++            candidates.push(parent.join("resources"));
++            candidates.push(parent.join("resources/project"));
++        }
+         candidates.extend(exe.ancestors().map(PathBuf::from));
+     }
++    candidates.push(std::env::current_dir().unwrap_or_default());
++    candidates.push(compiled.clone());
+     candidates.into_iter()
+-        .find(|path| path.join("config/settings.json").is_file() || path.join("config").is_dir())
++        .find(|path| is_project_root(path))
+         .and_then(|path| path.canonicalize().ok())
+-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
++        .unwrap_or(compiled)
++}
++fn launcher_settings() -> LauncherSettings {
++    fs::read_to_string(project_root().join("config/settings.json"))
++        .ok()
++        .and_then(|raw| serde_json::from_str::<SettingsFile>(&raw).ok())
++        .and_then(|config| config.launcher)
++        .unwrap_or_default()
+ }
+-fn launcher_settings() -> LauncherSettings { fs::read_to_string(project_root().join("config/settings.json")).ok().and_then(|raw| serde_json::from_str::<SettingsFile>(&raw).ok()).and_then(|config| config.launcher).unwrap_or_default() }
+ fn backend_is_listening() -> bool { TcpStream::connect_timeout(&"127.0.0.1:8771".parse().expect("socket"), Duration::from_millis(150)).is_ok() }
+ fn resolve_backend_program(program: &str) -> String {
+     if !program.eq_ignore_ascii_case("python") && !program.eq_ignore_ascii_case("pythonw") {
+@@ -29,6 +61,11 @@ fn resolve_backend_program(program: &str) -> String {
+     }
+     let mut candidates = Vec::new();
+     if let Ok(value) = std::env::var("JARVIS_PYTHON") { candidates.push(PathBuf::from(value)); }
++    let root = project_root();
++    candidates.push(root.join("runtime/pythonw.exe"));
++    candidates.push(root.join("runtime/python.exe"));
++    candidates.push(root.join(".venv/Scripts/pythonw.exe"));
++    candidates.push(root.join(".venv/Scripts/python.exe"));
+     if let Ok(home) = std::env::var("USERPROFILE") {
+         let root = PathBuf::from(home);
+         candidates.push(root.join("AppData/Local/hermes/hermes-agent/venv/Scripts/pythonw.exe"));
+@@ -45,20 +82,32 @@ fn spawn_backend(settings: &LauncherSettings) -> Option<Child> {
+     let command = settings.backend_command.clone().unwrap_or_default();
+     let (program, args) = command.split_first()?;
+     let program = resolve_backend_program(program);
++    let root = project_root();
+     let dir = settings.backend_workdir.as_deref()
+         .filter(|value| !value.is_empty())
+         .map(PathBuf::from)
+         .filter(|value| value.is_dir())
+-        .unwrap_or_else(project_root);
++        .unwrap_or_else(|| root.clone());
+     let mut builder = Command::new(program);
+-    builder.args(args).current_dir(&dir);
++    builder.args(args).current_dir(&dir)
++        .env("JARVIS_HOME", &root)
++        .env("PYTHONUTF8", "1")
++        .env("PYTHONIOENCODING", "utf-8")
++        .env("PYTHONUNBUFFERED", "1");
+     #[cfg(windows)] {
+         use std::os::windows::process::CommandExt;
+         builder.creation_flags(0x08000000);
+     }
+     match builder.spawn() {
+         Ok(child) => Some(child),
+-        Err(error) => { eprintln!("JARVIS backend launch failed in {}: {}", dir.display(), error); None }
++        Err(error) => {
++            let _ = fs::create_dir_all(root.join("logs"));
++            let _ = fs::write(
++                root.join("logs/backend-launch-error.txt"),
++                format!("backend launch failed in {}: {}\n", dir.display(), error),
++            );
++            None
++        }
+     }
+ }
+ fn manage_backend(app: tauri::AppHandle, settings: LauncherSettings) { thread::spawn(move || loop { let state = app.state::<BackendProcess>(); let mut child = match state.0.lock() { Ok(guard) => guard, Err(_) => break }; let restart = child.as_mut().map(|process| process.try_wait().ok().flatten().is_some()).unwrap_or(!backend_is_listening()); if restart { *child = spawn_backend(&settings); } drop(child); thread::sleep(Duration::from_secs(5)); }); }
+diff --git a/jarvis/src/App.tsx b/jarvis/src/App.tsx
+index eadacdf..7d05824 100644
+--- a/jarvis/src/App.tsx
++++ b/jarvis/src/App.tsx
+@@ -66,6 +66,8 @@ function App() {
+   const [mode, setMode] = useState<UiMode>(() => initialMode(fixture));
+   const [mission, setMission] = useState<OperatorMission | null>(() => fixture ? fixtureMission(fixture === 'verified' ? 'verified' : fixture === 'verify' ? 'verify' : 'download') : null);
+   const [confirmation, setConfirmation] = useState<PendingConfirmation | null>(() => fixture === 'verify' ? { id: 'fixture-confirmation', prompt: 'Разрешить установку приложения?', tool: 'software.install', risk: { level: 'low' } } : null);
++  const [connected, setConnected] = useState(() => Boolean(fixture) || backend.isConnected());
++  const [runtimeState, setRuntimeState] = useState(() => fixture ? 'ready' : 'starting');
+   const streaming = useRef<string | null>(null);
+   const overlay = isOverlayWindow();
+ 
+@@ -86,6 +88,12 @@ function App() {
+         setFirstLaunch(!(event.payload as { hasName: boolean }).hasName);
+         return;
+       }
++      if (event.type === 'runtime:status') {
++        const payload = event.payload as { state?: string; ready?: boolean };
++        setRuntimeState(payload.ready ? 'ready' : (payload.state ?? 'starting'));
++        setConnected(backend.isConnected());
++        return;
++      }
+       if (event.type === 'confirmation:required') {
+         setConfirmation(confirmationFromEvent(event));
+         setMission((current) => current ? reduceMission(current, event) : current);
+@@ -125,6 +133,11 @@ function App() {
+     });
+   }, [append, backend, fixture, transition, tts]);
+ 
++  useEffect(() => {
++    if (fixture) return;
++    return backend.subscribeToConnection((value) => setConnected(value));
++  }, [backend, fixture]);
++
+   useEffect(() => {
+     if (fixture) return;
+     let off: (() => void) | undefined;
+@@ -207,6 +220,8 @@ function App() {
+       onVoiceListen={voiceListen}
+       onConfirm={answerConfirmation}
+       onNewSession={newSession}
++      connected={connected}
++      runtimeState={runtimeState}
+     />
+   </>;
+ }
+diff --git a/jarvis/src/hooks/useBackendBridge.ts b/jarvis/src/hooks/useBackendBridge.ts
+index 5ee6a95..150e15b 100644
+--- a/jarvis/src/hooks/useBackendBridge.ts
++++ b/jarvis/src/hooks/useBackendBridge.ts
+@@ -2,10 +2,8 @@
+  * J.A.R.V.I.S. v3.0 — Backend Bridge Hook
+  *
+  * Точка интеграции frontend ↔ backend.
+- * Сейчас использует MOCK-адаптер (src/integrations/backend.ts) для визуального
+- * preview. Чтобы подключить реальный backend — замените `createMockBackend()`
+- * на `createRealBackend()` и реализуйте транспорт внутри него
+- * (Tauri events / WebSocket / IPC). UI-логика не меняется.
++ * Подключает реальный локальный WebSocket-транспорт. UI больше не объявляет
++ * backend готовым заранее: readiness и reconnect приходят из транспорта.
+  */
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
+@@ -41,6 +39,7 @@ export function useBackendBridge() {
+ 
+   const streamingId = useRef<string | null>(null);
+   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
++  const [isConnected, setIsConnected] = useState(() => backend.isConnected());
+ 
+   useEffect(() => {
+     const unsub = backend.subscribeToEvents((e) => {
+@@ -51,6 +50,17 @@ export function useBackendBridge() {
+         return;
+       }
+ 
++      if (e.type === 'runtime:status') {
++        const runtime = e.payload as { ready?: boolean; state?: string };
++        setIsConnected(backend.isConnected());
++        if (runtime.ready === true) {
++          dispatch({ type: 'UPDATE_VITALS', payload: { modelStatus: 'local' } });
++        } else if (runtime.state === 'loading_model' || runtime.state === 'starting') {
++          dispatch({ type: 'UPDATE_VITALS', payload: { modelStatus: 'loading' } });
++        }
++        return;
++      }
++
+       // Vitals — kept in UI state only (no permanent CPU/RAM dashboard rendered)
+       if (e.type === 'vitals:update') {
+         dispatch({ type: 'UPDATE_VITALS', payload: e.payload as Partial<VitalsData> });
+@@ -100,11 +110,17 @@ export function useBackendBridge() {
+         appendRef.current(e.payload as ActivityEvent);
+       }
+     });
++    const unsubConnection = backend.subscribeToConnection((connected) => {
++      setIsConnected(connected);
++    });
+ 
+     // Стартовые vitals
+     backend.getSystemVitals().then((v) => dispatch({ type: 'UPDATE_VITALS', payload: v }));
+ 
+-    return () => unsub();
++    return () => {
++      unsub();
++      unsubConnection();
++    };
+   }, [dispatch]);
+ 
+   const sendCommand = useCallback(async (text: string, files: AttachedFile[]) => {
+@@ -123,5 +139,5 @@ export function useBackendBridge() {
+     setPendingConfirmation(null);
+   }, [pendingConfirmation]);
+ 
+-  return { sendCommand, interrupt, answerConfirmation, pendingConfirmation, isConnected: true };
++  return { sendCommand, interrupt, answerConfirmation, pendingConfirmation, isConnected };
+ }
+diff --git a/jarvis/src/integrations/wsBackend.ts b/jarvis/src/integrations/wsBackend.ts
+index 693f363..5baaf23 100644
+--- a/jarvis/src/integrations/wsBackend.ts
++++ b/jarvis/src/integrations/wsBackend.ts
+@@ -85,11 +85,15 @@ function socketError(message: string): Error {
+ /** Реальный локальный транспорт для command/settings/confirmation protocol. */
+ export class WebSocketBackend implements BackendAdapter {
+   private readonly listeners = new Set<Listener>();
++  private readonly connectionListeners = new Set<(connected: boolean) => void>();
+   private readonly settingsRequests: SettingsRequest[] = [];
+   private socket: WebSocket | null = null;
+   private connectPromise: Promise<WebSocket> | null = null;
+   private resolveConnection: ((socket: WebSocket) => void) | null = null;
+   private rejectConnection: ((error: Error) => void) | null = null;
++  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
++  private reconnectAttempt = 0;
++  private connected = false;
+   private vitals: VitalsData = STANDBY_VITALS;
+   private sequence = 0;
+ 
+@@ -104,12 +108,28 @@ export class WebSocketBackend implements BackendAdapter {
+     this.socketFactory = socketFactory;
+   }
+ 
++  isConnected(): boolean {
++    return this.connected && this.socket?.readyState === WebSocket.OPEN;
++  }
++
++  subscribeToConnection(listener: (connected: boolean) => void): () => void {
++    this.connectionListeners.add(listener);
++    listener(this.isConnected());
++    return () => this.connectionListeners.delete(listener);
++  }
++
+   subscribeToEvents(listener: Listener): () => void {
+     this.listeners.add(listener);
+     void this.connect().catch(() => {
+       // Ошибка уже отправлена в подписчиков; нельзя логировать payload settings.
+     });
+-    return () => this.listeners.delete(listener);
++    return () => {
++      this.listeners.delete(listener);
++      if (this.listeners.size === 0 && this.reconnectTimer !== null) {
++        clearTimeout(this.reconnectTimer);
++        this.reconnectTimer = null;
++      }
++    };
+   }
+ 
+   async sendCommand(text: string, files: AttachedFile[]): Promise<void> {
+@@ -199,6 +219,9 @@ export class WebSocketBackend implements BackendAdapter {
+ 
+   private connect(): Promise<WebSocket> {
+     if (this.socket?.readyState === WebSocket.OPEN) return Promise.resolve(this.socket);
++    if (this.socket?.readyState === WebSocket.CONNECTING && this.connectPromise) {
++      return this.connectPromise;
++    }
+     if (this.connectPromise) return this.connectPromise;
+ 
+     const socket = this.socketFactory(this.url);
+@@ -209,8 +232,11 @@ export class WebSocketBackend implements BackendAdapter {
+     });
+ 
+     socket.onopen = () => {
++      this.connected = true;
++      this.reconnectAttempt = 0;
+       this.resolveConnection?.(socket);
+       this.clearConnectionPromise();
++      for (const listener of this.connectionListeners) listener(true);
+     };
+     socket.onmessage = (event) => this.handleMessage(event.data);
+     socket.onerror = () => this.failConnection('не удалось подключиться к локальному backend');
+@@ -226,10 +252,15 @@ export class WebSocketBackend implements BackendAdapter {
+   }
+ 
+   private failConnection(message: string): void {
++    if (!this.socket && !this.connectPromise && !this.connected) {
++      return;
++    }
+     const error = socketError(message);
+     this.rejectConnection?.(error);
+     this.clearConnectionPromise();
+     this.socket = null;
++    const wasConnected = this.connected;
++    this.connected = false;
+     this.emit({
+       type: 'event:system',
+       payload: {
+@@ -242,6 +273,21 @@ export class WebSocketBackend implements BackendAdapter {
+       timestamp: Date.now(),
+     });
+     this.emit({ type: 'state:error', payload: null, timestamp: Date.now() });
++    if (wasConnected || this.listeners.size > 0) {
++      for (const listener of this.connectionListeners) listener(false);
++      this.scheduleReconnect();
++    }
++  }
++
++  private scheduleReconnect(): void {
++    if (this.listeners.size === 0 || this.reconnectTimer !== null) return;
++    const attempt = this.reconnectAttempt++;
++    const base = Math.min(5000, 250 * (2 ** Math.min(attempt, 5)));
++    const jitter = Math.floor(Math.random() * 120);
++    this.reconnectTimer = setTimeout(() => {
++      this.reconnectTimer = null;
++      void this.connect().catch(() => this.scheduleReconnect());
++    }, base + jitter);
+   }
+ 
+   private handleMessage(data: unknown): void {
+diff --git a/jarvis/src/integrations/wsProtocol.ts b/jarvis/src/integrations/wsProtocol.ts
+index 37d966a..b08fbf9 100644
+--- a/jarvis/src/integrations/wsProtocol.ts
++++ b/jarvis/src/integrations/wsProtocol.ts
+@@ -26,6 +26,8 @@ type SocketEnvelope = {
+   active_window?: unknown;
+   url?: unknown;
+   confidence?: unknown;
++  ready?: unknown;
++  diagnostics?: unknown;
+ };
+ 
+ function asRecord(value: unknown): Record<string, unknown> | null {
+@@ -86,6 +88,18 @@ export function mapSocketEnvelope(raw: unknown, receivedAt = Date.now()): Transp
+     return [{ type: 'profile:status', payload: { hasName: envelope.has_name === true }, timestamp: receivedAt }];
+   }
+ 
++  if (kind === 'runtime_status') {
++    return [{
++      type: 'runtime:status',
++      payload: {
++        state: asString(envelope.state) ?? 'starting',
++        ready: envelope.ready === true,
++        diagnostics: asRecord(envelope.diagnostics) ?? {},
++      },
++      timestamp: receivedAt,
++    }];
++  }
++
+   if (kind === 'voice_input') {
+     return [{ type: 'event:voice_input', payload: { text: asString(envelope.text) ?? '', confidence: typeof envelope.confidence === 'number' ? envelope.confidence : 1 }, timestamp: receivedAt }];
+   }
+diff --git a/jarvis/src/operator/OperatorShell.tsx b/jarvis/src/operator/OperatorShell.tsx
+index 9a383ce..61be73d 100644
+--- a/jarvis/src/operator/OperatorShell.tsx
++++ b/jarvis/src/operator/OperatorShell.tsx
+@@ -24,6 +24,8 @@ interface Props {
+   onVoiceListen: () => void;
+   onConfirm: (approved: boolean) => void;
+   onNewSession: () => void;
++  connected: boolean;
++  runtimeState: string;
+ }
+ 
+ const CLOCK = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
+@@ -57,7 +59,10 @@ export function syncWindowMode(mode: UiMode): void {
+   } catch { /* browser fixture */ }
+ }
+ 
+-function statusLabel(state: PresenceState, mission: OperatorMission | null, confirmation: PendingConfirmation | null): string {
++function statusLabel(state: PresenceState, mission: OperatorMission | null, confirmation: PendingConfirmation | null, connected: boolean, runtimeState: string): string {
++  if (!connected) return 'CONNECTING';
++  if (runtimeState === 'loading_model' || runtimeState === 'starting') return 'STARTING';
++  if (runtimeState === 'unavailable') return 'OFFLINE';
+   if (confirmation) return 'CONFIRMATION';
+   if (mission?.verified) return 'VERIFIED';
+   if (mission?.phase === 'verify' || mission?.phase === 'observe') return 'VERIFYING';
+@@ -67,6 +72,15 @@ function statusLabel(state: PresenceState, mission: OperatorMission | null, conf
+   return 'READY';
+ }
+ 
++function shellTone(props: Props): string {
++  if (!props.connected || props.runtimeState === 'unavailable') return 'error';
++  if (props.runtimeState === 'loading_model' || props.runtimeState === 'starting') return 'amber';
++  if (props.confirmation) return 'amber';
++  if (props.mission?.verified) return 'lime';
++  if (props.state === 'error') return 'error';
++  return 'cyan';
++}
++
+ function SignalCore({ tone, compact = false }: { tone: string; compact?: boolean }) {
+   return (
+     <div className={`signalCore ${compact ? 'compact' : ''}`} data-tone={tone} aria-hidden="true">
+@@ -126,8 +140,8 @@ function MessageTimeline({ messages, compact = false }: { messages: PresenceMess
+ 
+ function CompactPresence(props: Props) {
+   const clock = useClock();
+-  const tone = props.confirmation ? 'amber' : props.mission?.verified ? 'lime' : props.state === 'error' ? 'error' : 'cyan';
+-  const label = statusLabel(props.state, props.mission, props.confirmation);
++  const tone = shellTone(props);
++  const label = statusLabel(props.state, props.mission, props.confirmation, props.connected, props.runtimeState);
+   return (
+     <main className="compactShell">
+       <header className="compactTitlebar" data-tauri-drag-region>
+@@ -256,8 +270,8 @@ function Sidebar({ messages, mission, onNewSession }: { messages: PresenceMessag
+ 
+ function CommandCenter(props: Props) {
+   const clock = useClock();
+-  const tone = props.confirmation ? 'amber' : props.mission?.verified ? 'lime' : props.state === 'error' ? 'error' : 'cyan';
+-  const label = statusLabel(props.state, props.mission, props.confirmation);
++  const tone = shellTone(props);
++  const label = statusLabel(props.state, props.mission, props.confirmation, props.connected, props.runtimeState);
+   return (
+     <main className="commandShell">
+       <Sidebar messages={props.messages} mission={props.mission} onNewSession={props.onNewSession} />
+diff --git a/jarvis/src/types/index.ts b/jarvis/src/types/index.ts
+index 78792fa..f20cb51 100644
+--- a/jarvis/src/types/index.ts
++++ b/jarvis/src/types/index.ts
+@@ -202,6 +202,9 @@ export type BackendEventType =
+   | 'screen:capture'
+   | 'event:wake_word_detected'
+   | 'event:voice_input'
++  | 'transport:connected'
++  | 'transport:disconnected'
++  | 'runtime:status'
+   | 'model:status'
+   | 'workspace:update'
+   | 'confirmation:required';
+diff --git a/main.py b/main.py
+index 505cdd3..e47bf8b 100644
+--- a/main.py
++++ b/main.py
+@@ -144,6 +144,11 @@ def main() -> int:
+ 
+     # Загрузка конфигурации
+     settings = load_config()
++    try:
++        from core.llm.hardware_profile import apply_profile
++        apply_profile(settings, logger=log)
++    except Exception as exc:
++        log.warning("Автопрофиль локальной модели пропущен: %s", exc)
+     settings.ensure_directories()
+ 
+     # Создание оркестратора
+@@ -256,4 +261,4 @@ def main() -> int:
+ 
+ 
+ if __name__ == "__main__":
+-    sys.exit(main())
+\ No newline at end of file
++    sys.exit(main())
+diff --git a/tests/test_conversation_latency.py b/tests/test_conversation_latency.py
+index b4ef377..5c00786 100644
+--- a/tests/test_conversation_latency.py
++++ b/tests/test_conversation_latency.py
+@@ -10,3 +10,15 @@ def test_common_smalltalk_is_deterministic_and_local():
+ 
+ def test_conversation_budget_is_bounded(settings):
+     assert 16 <= settings.limits.conversation_max_tokens <= 96
++
++
++def test_live_ack_never_invokes_model(monkeypatch, settings):
++    from core.agent import pick_acknowledgement
++
++    def fail_if_called(*_args, **_kwargs):
++        raise AssertionError("ACK path attempted model inference")
++
++    monkeypatch.setattr("core.llm.get_llm_backend", fail_if_called)
++    assert pick_acknowledgement(
++        "web", goal="найди книгу", settings=settings, allow_model=False,
++    ) == "Разбираюсь."
+diff --git a/tests/test_hardware_profile.py b/tests/test_hardware_profile.py
+new file mode 100644
+index 0000000..5805c88
+--- /dev/null
++++ b/tests/test_hardware_profile.py
+@@ -0,0 +1,72 @@
++from __future__ import annotations
++
++from pathlib import Path
++from types import SimpleNamespace
++
++from core.llm import hardware_profile
++
++
++def test_recommend_profile_uses_strongest_safe_gpu_tier(tmp_path: Path):
++    hw = hardware_profile.HardwareInfo(
++        total_ram_gb=32,
++        has_cuda_gpu=True,
++        gpu_name="fixture-gpu",
++        vram_total_gb=10,
++    )
++    profile = hardware_profile.recommend_profile(hw, models_dir=tmp_path)
++
++    assert profile.core_model == "Qwen3-8B-Q5_K_M.gguf"
++    assert profile.n_gpu_layers == -1
++    assert profile.n_ctx == 8192
++    assert profile.download_required is True
++
++
++def test_apply_profile_only_switches_to_a_present_model(tmp_path: Path, monkeypatch):
++    model = tmp_path / "qwen3-4b-instruct-q5_k_m.gguf"
++    model.write_bytes(b"fixture")
++    monkeypatch.setattr(
++        hardware_profile,
++        "detect_hardware",
++        lambda: hardware_profile.HardwareInfo(total_ram_gb=16, vram_total_gb=8),
++    )
++
++    class Local:
++        gguf_path = "data/models/Qwen3-1.7B-Q6_K.gguf"
++        auto_profile = True
++        n_gpu_layers = 0
++        n_ctx = 4096
++        n_batch = 512
++
++        @property
++        def resolved_gguf_path(self):
++            return Path(self.gguf_path)
++
++    settings = SimpleNamespace(models_dir=tmp_path, local_model=Local())
++    profile = hardware_profile.apply_profile(settings)
++
++    assert profile.core_model == "qwen3-4b-instruct-q5_k_m.gguf"
++    assert settings.local_model.gguf_path == "data/models/qwen3-4b-instruct-q5_k_m.gguf"
++    assert settings.local_model.n_ctx == 8192
++
++
++def test_apply_profile_keeps_existing_path_when_target_is_missing(tmp_path: Path, monkeypatch):
++    monkeypatch.setattr(
++        hardware_profile,
++        "detect_hardware",
++        lambda: hardware_profile.HardwareInfo(total_ram_gb=32, vram_total_gb=24),
++    )
++
++    class Local:
++        gguf_path = "data/models/existing.gguf"
++        auto_profile = True
++
++        @property
++        def resolved_gguf_path(self):
++            return Path(self.gguf_path)
++
++    settings = SimpleNamespace(models_dir=tmp_path, local_model=Local())
++    profile = hardware_profile.apply_profile(settings)
++
++    assert profile.core_model == "Qwen3-14B-Q4_K_M.gguf"
++    assert settings.local_model.gguf_path == "data/models/existing.gguf"
++    assert any("текущий GGUF сохранён" in reason for reason in profile.reasons)
+diff --git a/tests/test_model_manager.py b/tests/test_model_manager.py
+new file mode 100644
+index 0000000..53daf7a
+--- /dev/null
++++ b/tests/test_model_manager.py
+@@ -0,0 +1,65 @@
++from __future__ import annotations
++
++import hashlib
++from pathlib import Path
++from types import SimpleNamespace
++
++from core.utils.model_manager import ModelArtifact, ModelDownloadError, ModelManager
++
++
++def _settings(tmp_path: Path):
++    return SimpleNamespace(models_dir=tmp_path / "models", source_path=None)
++
++
++def test_repository_manifest_is_pinned_and_valid():
++    manager = ModelManager(_settings(Path(".")))
++    manifest = manager.load_model_manifest()
++
++    assert {"qwen3-0.6b", "qwen3-1.7b", "qwen3-4b", "qwen3-8b", "qwen3-14b"} <= set(manifest)
++    assert all(item.url.startswith("https://huggingface.co/") for item in manifest.values())
++    assert all(len(item.sha256) == 64 and item.size_bytes > 0 for item in manifest.values())
++
++
++def test_existing_artifact_is_verified_without_network(tmp_path: Path):
++    payload = b"fixture-gguf"
++    digest = hashlib.sha256(payload).hexdigest()
++    artifact = ModelArtifact("fixture", "fixture.gguf", "https://huggingface.co/fixture", len(payload), digest)
++    target = tmp_path / "models" / artifact.filename
++    target.parent.mkdir()
++    target.write_bytes(payload)
++    manager = ModelManager(_settings(tmp_path))
++    manager._ensure_artifact(artifact, target, progress=None, cancel=None, timeout_sec=1)
++    assert target.read_bytes() == payload
++
++
++def test_invalid_download_is_removed_after_hash_mismatch(tmp_path: Path, monkeypatch):
++    payload = b"fixture-gguf"
++    artifact = ModelArtifact(
++        "fixture", "fixture.gguf", "https://huggingface.co/fixture", len(payload), "0" * 64,
++    )
++    target = tmp_path / "models" / artifact.filename
++    manager = ModelManager(_settings(tmp_path))
++
++    class Response:
++        status = 200
++
++        def __enter__(self):
++            return self
++
++        def __exit__(self, *_):
++            return False
++
++        def read(self, _size: int):
++            nonlocal payload
++            value, payload = payload, b""
++            return value
++
++    monkeypatch.setattr("urllib.request.urlopen", lambda *_args, **_kwargs: Response())
++    try:
++        manager._ensure_artifact(artifact, target, progress=None, cancel=None, timeout_sec=1)
++    except ModelDownloadError:
++        pass
++    else:
++        raise AssertionError("hash mismatch must fail the model install")
++    assert not target.exists()
++    assert not target.with_name(target.name + ".part").exists()

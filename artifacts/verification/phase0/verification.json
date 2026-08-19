@@ -1,0 +1,65 @@
+{
+  "phase": "phase0",
+  "baseline": {
+    "command": "python -m pytest -o addopts=\"\" -q --maxfail=1",
+    "exit_status": 1,
+    "observed": "482 passed, 2 skipped, 4 failed",
+    "failures": [
+      "test_e2e_selfchecks.py::test_e2e_high_risk_cancel",
+      "test_sprint14_integration.py::test_natural_certainty_and_provenance_questions_use_active_belief",
+      "test_sprint14_integration.py::test_epistemic_summary_persists_across_cognitive_restart",
+      "test_ws_streaming.py::test_mission_streaming_via_task_events"
+    ]
+  },
+  "after": {
+    "command": "python -m pytest -o addopts=\"\" -q --maxfail=1",
+    "exit_status": 0,
+    "observed": "493 passed, 2 skipped, 0 failed, 2 warnings"
+  },
+  "frontend": {
+    "command": "npm run test:frontend",
+    "exit_status": 0,
+    "observed": [
+      "wsProtocol: 5 assertions passed",
+      "wsBackend: command, response, confirmation and masked settings passed",
+      "operatorModel: 13 assertions passed"
+    ]
+  },
+  "frontend_build": {
+    "command": "npm run build",
+    "exit_status": 0
+  },
+  "tauri_compile": {
+    "command": "cargo check",
+    "exit_status": 0,
+    "warnings": "existing unused window effect helpers"
+  },
+  "syntax": {
+    "command": "python -m compileall -q core config main.py scripts/_live_probe.py",
+    "exit_status": 0
+  },
+  "behavior_harness": {
+    "command": "python scripts/_live_probe.py --dry-run",
+    "exit_status": 0,
+    "observed": "pass=true; fast p95=517.5ms; max=590ms"
+  },
+  "hardware": {
+    "recommendation": "gpu_mid; qwen3-4b-instruct-q5_k_m.gguf; n_ctx=8192; n_batch=768; draft=Qwen3-1.7B-Q6_K.gguf",
+    "runtime": "CPU fallback; n_gpu_layers=0; llama.cpp GPU offload unavailable",
+    "warmup_policy": "async daemon warmup; runtime_status readiness event"
+  },
+  "success_contract": "execute + observe + verify; installer exit code and ActionResult.ok are not mission success",
+  "rollback": {
+    "path": "artifacts/verification/phase0/rollback.ps1",
+    "base_commit": "d6b467473f25c5ccc26877417f90d7836457bc0c"
+  },
+  "known_limitations": [
+    "release installer still needs a bundled Python/llama/Piper sidecar and model bootstrap acceptance run",
+    "STT and packaged Windows live E2E are next phase"
+  ],
+  "rollback_test": {
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File artifacts/verification/phase0/rollback.ps1 -Repo <temporary worktree>",
+    "exit_status": 0,
+    "observed": "temporary worktree restored to baseline paths; current workspace untouched"
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "phase": "phase0",
+  "baseline_commit": "d6b467473f25c5ccc26877417f90d7836457bc0c",
+  "implementation_commit": "1de76b32e931369e0f171e3a209c6bdd3bad36db",
+  "branch": "codex/universal-kernel",
+  "captured_at": "2026-08-19T12:00:22.430987+00:00",
+  "changed_file_count": 29,
+  "changed_files": [
+    {
+      "path": "README.md",
+      "sha256": "ba77b8f5b266da72cee109c57a942b3853e2bbef6844b9f460418367c4f28d65",
+      "bytes": 4845
+    },
+    {
+      "path": "config/models_manifest.json",
+      "sha256": "043f40a6f6458f69438ff1c7a8423d0bf91f7ea6c0ecc68b9656b55e66a37052",
+      "bytes": 1940
+    },
+    {
+      "path": "config/settings.example.json",
+      "sha256": "b2552983ee37ec3ace07e7a8296bed40ea67a92bd315541916592db14ca16b1f",
+      "bytes": 4215
+    },
+    {
+      "path": "config/settings.py",
+      "sha256": "5ffe950586414bf3e78fca4ef77e25daa763da78258c3a1f495a4efb287b8723",
+      "bytes": 38603
+    },
+    {
+      "path": "core/agent.py",
+      "sha256": "76095a758cb974e9d9ca2f834ebe7aa90916562490bf33462da642daf6f33fd2",
+      "bytes": 106384
+    },
+    {
+      "path": "core/brain/bootstrap.py",
+      "sha256": "a13c881c6b677cbb32fbd0081c08f96f735aab6638cae87f4e86ee23d8c93b3e",
+      "bytes": 6395
+    },
+    {
+      "path": "core/llm/factory.py",
+      "sha256": "9ad2eeabe30b42b45cb917c2bf3558fa173cc8e9df1297c9144404600a1273e9",
+      "bytes": 16540
+    },
+    {
+      "path": "core/llm/hardware_profile.py",
+      "sha256": "a70149873efca23be7b18357ae528cb09ad0bf9820a6e17efde2461652208767",
+      "bytes": 19665
+    },
+    {
+      "path": "core/llm/local_qwen.py",
+      "sha256": "03858231058ad79230350c6ebb758dd71dbdf8e973d9f317bd9ce9dbac00df59",
+      "bytes": 22837
+    },
+    {
+      "path": "core/metacognition/engine.py",
+      "sha256": "2278710d5439304ca34ad25bec88b54e44d06e6a16634d8fd7f1e42bf95ae1c8",
+      "bytes": 16736
+    },
+    {
+      "path": "core/metacognition/freshness.py",
+      "sha256": "f2d4931087cda3bb22861b55568c2fef55f681fdf45083121369a8a358898e8c",
+      "bytes": 2158
+    },
+    {
+      "path": "core/orchestrator.py",
+      "sha256": "e01a69ee887c4e8853464e665ea6738050a49cb5869a5c54525ec7fe68b5a854",
+      "bytes": 45991
+    },
+    {
+      "path": "core/utils/model_manager.py",
+      "sha256": "aa7fb63b55c39e55be7941f854195cb204787fe46df56786acafb37d645090ca",
+      "bytes": 24946
+    },
+    {
+      "path": "core/ws_server.py",
+      "sha256": "73df3b9c6604e960dd960d8e442fbef9abc11bbec6e0a48898b00a89cccb6885",
+      "bytes": 52227
+    },
+    {
+      "path": "docs/CODEX_HANDOFF.md",
+      "sha256": "05af225ffef14e2dcadaaeedf463bf919cffa717291468d226441e49db497640",
+      "bytes": 8736
+    },
+    {
+      "path": "docs/JARVIS_REBUILD_PLAN.md",
+      "sha256": "e01e4c957247fea0b9d7568c7f5a3dad3c9de93ab89106fa867c0051af3c60a5",
+      "bytes": 14076
+    },
+    {
+      "path": "docs/PHASE0_IMPLEMENTED.md",
+      "sha256": "fd10d7c5dc18fedd242b13dbec4f1e29cca90f915811e3af12c90d09c5de0854",
+      "bytes": 3331
+    },
+    {
+      "path": "jarvis/scripts/wsProtocol.test.ts",
+      "sha256": "92a3871fd2f1d38e6c862a2389d83b22effa4259a4a8a30a226a91c01519a00a",
+      "bytes": 1560
+    },
+    {
+      "path": "jarvis/src-tauri/src/main.rs",
+      "sha256": "77603146fe960016f6442a9db10cc5fa1a3491fe05f80fce865cb91f478eb60e",
+      "bytes": 9493
+    },
+    {
+      "path": "jarvis/src/App.tsx",
+      "sha256": "f9cbce3f8e396634e3debd0caa934038f856bb9a662476ad81cc6dc03046889a",
+      "bytes": 11418
+    },
+    {
+      "path": "jarvis/src/hooks/useBackendBridge.ts",
+      "sha256": "aeb6ad17a6bd5236a6d31e02c33ddb65574542cfca8ab8c414f349ba1cab1176",
+      "bytes": 5840
+    },
+    {
+      "path": "jarvis/src/integrations/wsBackend.ts",
+      "sha256": "dbffa0eb7a14db37c45346e38efe803d0aba0c69275be2b9ca003c48207d751e",
+      "bytes": 12516
+    },
+    {
+      "path": "jarvis/src/integrations/wsProtocol.ts",
+      "sha256": "cd7f8d8783c8dd746da60e4110eb1002f68e91f7f8674c4040b48cec63a5f02a",
+      "bytes": 4034
+    },
+    {
+      "path": "jarvis/src/operator/OperatorShell.tsx",
+      "sha256": "96324a2b3c4fe5709a062311976dde2dfddba180a239b13111e1d5c37724e250",
+      "bytes": 16405
+    },
+    {
+      "path": "jarvis/src/types/index.ts",
+      "sha256": "adcd8687cb8401f738e2d12bc4d8990fe73f9bfa2c694c486ce996dcd3eb0098",
+      "bytes": 5935
+    },
+    {
+      "path": "main.py",
+      "sha256": "52d67471b41d483ffdff513a060463c9a5aa224550d8410c4afa35f00cda0399",
+      "bytes": 12915
+    },
+    {
+      "path": "tests/test_conversation_latency.py",
+      "sha256": "259c669140969df02f93354a5fefa134a42dc324491a8ad012b5993f1707cf9d",
+      "bytes": 941
+    },
+    {
+      "path": "tests/test_hardware_profile.py",
+      "sha256": "8b0c0c2885d4ca863a4b7a94b0e5fe28d2667319f6eae05d18648a80eb5870c1",
+      "bytes": 2360
+    },
+    {
+      "path": "tests/test_model_manager.py",
+      "sha256": "81d69f447202f04fe3ae643f0fc9862b76cbcbd0a58e4c3456e00b827a96d80f",
+      "bytes": 2342
+    }
+  ],
+  "artifacts": [
+    "manifest.json",
+    "verification.json",
+    "diff.patch",
+    "rollback.ps1"
+  ],
+  "untracked_workspace_preserved": [
+    "artifacts/video_review/",
+    "artifacts/verification/conversation-latency/",
+    "runs/"
+  ]
+}

@@ -60,8 +60,8 @@ export function syncWindowMode(mode: UiMode): void {
 }
 
 function statusLabel(state: PresenceState, mission: OperatorMission | null, confirmation: PendingConfirmation | null, connected: boolean, runtimeState: string): string {
-  if (!connected) return 'CONNECTING';
   if (runtimeState === 'loading_model' || runtimeState === 'starting') return 'STARTING';
+  if (!connected) return 'CONNECTING';
   if (runtimeState === 'unavailable') return 'OFFLINE';
   if (confirmation) return 'CONFIRMATION';
   if (mission?.verified) return 'VERIFIED';
@@ -73,8 +73,8 @@ function statusLabel(state: PresenceState, mission: OperatorMission | null, conf
 }
 
 function shellTone(props: Props): string {
-  if (!props.connected || props.runtimeState === 'unavailable') return 'error';
   if (props.runtimeState === 'loading_model' || props.runtimeState === 'starting') return 'amber';
+  if (!props.connected || props.runtimeState === 'unavailable') return 'error';
   if (props.confirmation) return 'amber';
   if (props.mission?.verified) return 'lime';
   if (props.state === 'error') return 'error';

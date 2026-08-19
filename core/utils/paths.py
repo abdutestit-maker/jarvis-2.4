@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Optional, Union
 
@@ -28,8 +29,26 @@ __all__ = [
 
 PathLike = Union[str, os.PathLike[str], Path]
 
-#: Корень проекта: core/utils/paths.py -> core/utils -> core -> <корень>
-PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
+def _runtime_project_root() -> Path:
+    """Resolve the install root for source and frozen runtimes.
+
+    The desktop bundle launches the backend from a Tauri resource directory,
+    while PyInstaller extracts Python modules into a temporary folder.  A
+    process-owned ``JARVIS_HOME`` is therefore the only stable anchor in the
+    packaged path; source runs keep the historical module-relative fallback.
+    """
+    configured = os.environ.get("JARVIS_HOME", "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_dir():
+            return candidate.resolve()
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+#: Корень проекта: env anchor for packaged runtime, module path in source.
+PROJECT_ROOT: Path = _runtime_project_root()
 
 #: Каталог данных по умолчанию (может быть переопределён в settings.paths)
 DEFAULT_DATA_DIR: Path = PROJECT_ROOT / "data"

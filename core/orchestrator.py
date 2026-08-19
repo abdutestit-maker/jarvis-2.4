@@ -295,7 +295,7 @@ class Orchestrator:
                     "backend": "unavailable",
                     "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
                     "error": f"{type(exc).__name__}: {exc}",
-                    "ready_before_first_request": True,
+                    "ready_before_first_request": False,
                     "state": "unavailable",
                 })
             finally:
@@ -326,15 +326,9 @@ class Orchestrator:
             self._running = True
 
             self._start_local_warmup()
-            if bool(getattr(self._settings, "warmup_local_on_start", False)):
-                # Pay model startup once at process start, never on the first
-                # user request. Fast local actions no longer compete with
-                # llama-server initialisation for CPU/GPU time.
-                timeout = float(
-                    getattr(getattr(self._settings, "local_model", None),
-                            "server_start_timeout_sec", 30.0) or 30.0
-                ) + 5.0
-                self._warmup_ready.wait(timeout=max(5.0, timeout))
+            # Never hold the WS/UI socket on model loading.  The readiness
+            # event is reported through the runtime_status handshake; reflex
+            # actions and TTS can start while the deliberate model warms.
 
             # Short-term memory manager
             max_size = getattr(getattr(self._settings, "limits", None), "short_memory_size", 20)
@@ -960,6 +954,26 @@ class Orchestrator:
                 "background": {"enqueue_p95_ms": 100.0},
             },
         }
+
+    def wait_for_runtime_ready(self, timeout: float | None = None) -> str:
+        """Wait for the one-time local model warmup without blocking the WS loop.
+
+        The UI socket is intentionally opened before the model is ready.  A
+        command arriving during that small window must wait for the same
+        readiness event instead of falling through to the misleading
+        ``сейчас не отвечает`` response.  Callers run this method from their
+        worker thread, never from the asyncio event loop.
+        """
+        if not bool(getattr(self._settings, "warmup_local_on_start", False)):
+            return str(self._warmup_diagnostics.get("state", "ready"))
+        if not self._warmup_ready.is_set():
+            configured = timeout
+            if configured is None:
+                configured = float(
+                    getattr(self._settings, "server_start_timeout_sec", 90.0) or 90.0
+                )
+            self._warmup_ready.wait(timeout=max(0.0, float(configured)))
+        return str(self._warmup_diagnostics.get("state", "starting"))
 
     @property
     def intake(self) -> UniversalIntake:

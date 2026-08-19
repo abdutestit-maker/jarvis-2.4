@@ -98,13 +98,27 @@ class PiperTTS:
         voice = getattr(self._settings, "voice", None)
         if voice and getattr(voice, "piper_binary_path", None):
             p = Path(voice.piper_binary_path).expanduser()
+            if not p.is_absolute():
+                home = os.environ.get("JARVIS_HOME", "").strip()
+                p = (Path(home) if home else Path.cwd()) / p
             if p.exists():
                 return p.resolve()
 
         models_dir = Path(getattr(self._settings, "models_dir", Path("data/models")))
-        bundled = models_dir.parent / "runtime" / "piper" / "piper.exe"
-        if bundled.exists():
-            return bundled.resolve()
+        # Source layout keeps Piper under data/runtime.  The portable
+        # installer places it beside llama-server under runtime/piper, so the
+        # backend still resolves the exact validated binary after Tauri moves
+        # the resource tree to another machine.
+        bundled_candidates = [
+            models_dir.parent / "runtime" / "piper" / "piper.exe",
+            models_dir.parent.parent / "runtime" / "piper" / "piper.exe",
+        ]
+        home = os.environ.get("JARVIS_HOME", "").strip()
+        if home:
+            bundled_candidates.append(Path(home) / "runtime" / "piper" / "piper.exe")
+        for bundled in bundled_candidates:
+            if bundled.exists():
+                return bundled.resolve()
 
         # Стандартные места установки
         candidates = [

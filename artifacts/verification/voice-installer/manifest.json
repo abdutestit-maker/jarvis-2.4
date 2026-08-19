@@ -1,0 +1,34 @@
+{
+  "wave": "voice-installer",
+  "baseline_commit": "ceb3447854c6de46e178a77d38212b7edd978d30",
+  "changed_files": [
+    "core/orchestrator.py",
+    "core/utils/paths.py",
+    "core/voice/tts.py",
+    "core/ws_server.py",
+    "scripts/package_local_runtime.py",
+    "scripts/packaged_backend.py",
+    "scripts/build_portable_installer.py",
+    "tests/test_runtime_readiness_and_packaging.py",
+    "README.md"
+  ],
+  "modified_artifact": {
+    "installer": "E:/jarvis-project/jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._3.0.0_x64-setup.exe",
+    "installer_type": "7zip_sfx",
+    "size_bytes": 3307781977,
+    "sha256": "cd87eda267821b826f8661e9f4d475ccdd0da2e3a6792fb6b242d8a7bc3394f5",
+    "resource_root": "E:/jarvis-project/jarvis/src-tauri/resources/jarvis-runtime",
+    "model": "data/models/qwen3-4b-instruct-q5_k_m.gguf",
+    "voice_model": "data/models/piper/ru_RU-dmitri-medium.onnx",
+    "voice_runtime": "runtime/piper/piper.exe",
+    "backend": "runtime/jarvis-backend.exe"
+  },
+  "protected_scopes": [
+    "frontend source architecture",
+    "voice provider contract",
+    "Browser Bridge",
+    "Risk Gate",
+    "Brain Fabric",
+    "cloud API keys"
+  ]
+}

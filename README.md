@@ -74,6 +74,19 @@ loopback runtime; API-ключи туда не копируются. Для сл
 имеющийся 1.7B fallback флагом `--include-fallback`. Размер текущего 4B
 пакета — около 2.99 GB; Git его не отслеживает.
 
+На Windows с GGUF больше 2 GB штатный NSIS может упереться в 32-битный mmap.
+Финальный установщик поэтому собирается отдельным 64-битным 7-Zip SFX-контейнером:
+
+```powershell
+python scripts/build_portable_installer.py
+```
+
+Он кладёт `jarvis-frontend.exe`, `runtime/jarvis-backend.exe`, Vulkan/llama-server,
+русский Piper и GGUF в `%LOCALAPPDATA%\JARVIS`, создаёт ярлык и запускает GUI.
+Backend собран PyInstaller `--noconsole`, а Tauri запускает его с
+`CREATE_NO_WINDOW`: при старте приложения консольные окна не появляются.
+Проверка архива: `7z t jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._3.0.0_x64-setup.exe`.
+
 ## Executive Mind
 
 Пакет `core/executive/` предоставляет:

@@ -1,0 +1,62 @@
+{
+  "baseline": {
+    "commit": "ceb3447854c6de46e178a77d38212b7edd978d30",
+    "recorded_tests": "524 passed, 2 skipped, 0 failed"
+  },
+  "checks": [
+    {
+      "name": "python_compile",
+      "command": "hermes\\Scripts\\python.exe -m py_compile core/orchestrator.py core/utils/paths.py core/voice/tts.py core/ws_server.py scripts/package_local_runtime.py scripts/packaged_backend.py scripts/build_portable_installer.py tests/test_runtime_readiness_and_packaging.py",
+      "exit_status": 0,
+      "literal_output": "PY_COMPILE_EXIT=0"
+    },
+    {
+      "name": "python_regression",
+      "command": "hermes\\Scripts\\python.exe -m pytest -q -o addopts= --tb=short",
+      "exit_status": 0,
+      "literal_output": "528 passed, 2 skipped, 2 warnings in 75.16s (0:01:15)"
+    },
+    {
+      "name": "frontend_regression",
+      "command": "npm run test:frontend",
+      "exit_status": 0,
+      "literal_output": "wsProtocol: 5 assertions passed; wsBackend: command, response, confirmation and masked settings passed; operatorModel: 13 assertions passed"
+    },
+    {
+      "name": "voice_source_smoke",
+      "command": "hermes\\Scripts\\python.exe scripts/voice_runtime_smoke.py runs/voice-runtime-smoke-final-0819.wav",
+      "exit_status": 0,
+      "literal_output": "success=true; runtime=data/runtime/piper/piper.exe; channels=1; sample_rate=22050; sample_width=2; duration_seconds=3.105"
+    },
+    {
+      "name": "packaged_voice_smoke",
+      "command": "PiperTTS.synthesize_to_file('Проверка голоса JARVIS. Готово.', runs/packaged-tts-smoke.wav)",
+      "exit_status": 0,
+      "literal_output": "available=true; binary=runtime/piper/piper.exe; channels=1; rate=22050; width=2; duration_s=2.316; result=true"
+    },
+    {
+      "name": "installer_archive_integrity",
+      "command": "7z t jarvis/src-tauri/target/release/bundle/nsis/J.A.R.V.I.S._3.0.0_x64-setup.exe",
+      "exit_status": 0,
+      "literal_output": "Everything is Ok; Folders: 70; Files: 596; Size: 3307558836; Compressed: 3307781977"
+    },
+    {
+      "name": "installed_tree_backend_ws",
+      "command": "Extract installer payload; launch resources/jarvis-runtime/runtime/jarvis-backend.exe hidden; connect ws://127.0.0.1:8771; send command",
+      "exit_status": 0,
+      "literal_output": "runtime_state=loading_model; response=Сэр, всё готово. Готов к работе.; elapsed_s=7.984; false_not_responding=false"
+    },
+    {
+      "name": "installed_tree_voice",
+      "command": "Inspect extracted data/logs/jarvis.log after the WS command",
+      "exit_status": 0,
+      "literal_output": "PiperTTS initialized; TTS queue started; Local FAST backend warmed before first request; Piper WAV generated: provider=piper voice=ru_RU-dmitri-medium language=ru rate=1.0"
+    }
+  ],
+  "readiness_contract": {
+    "socket": "binds before model warmup",
+    "first_command": "waits on the warmup event in a worker thread",
+    "startup_voice": "silent until a user command",
+    "runtime_state": "loading_model -> ready"
+  }
+}

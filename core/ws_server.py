@@ -337,8 +337,10 @@ class JarvisWSServer:
             warmup = diagnostics.get("warmup") if isinstance(diagnostics, dict) else {}
             if not isinstance(warmup, dict):
                 warmup = {}
+            warmup_state = str(warmup.get("state", "") or "").casefold()
             runtime_state = (
-                "ready" if diagnostics.get("warmup_ready") else
+                "ready" if diagnostics.get("warmup_ready") and warmup_state == "ready" else
+                "unavailable" if warmup_state == "unavailable" else
                 "loading_model" if getattr(self._orch, "_warmup_thread", None) is not None
                 else "starting"
             )
@@ -691,6 +693,16 @@ class JarvisWSServer:
 
                 install = getattr(self._orch, "install_stream_sink", None)
                 try:
+                    # The socket is deliberately available before the local
+                    # model finishes warming.  Hold the command in this
+                    # executor worker until that one-time readiness event is
+                    # complete; otherwise the first real request is reported
+                    # as a false "not responding" result while llama-server
+                    # is still loading the bundled GGUF.
+                    wait_ready = getattr(self._orch, "wait_for_runtime_ready", None)
+                    if callable(wait_ready):
+                        self._emit({"type": "state", "state": "loading_model"})
+                        wait_ready()
                     if callable(install):
                         install(_sink)
                     if channel == "voice" and hasattr(self._orch, "cognitive"):

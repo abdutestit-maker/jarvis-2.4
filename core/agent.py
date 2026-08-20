@@ -1290,6 +1290,7 @@ class Agent:
         outcome = self._execute_verified(
             goal=goal, tool=cap.name, args=args, mission=mission, cancel=cancel,
             trace=[f"fast path -> {cap.name}"], risk=exec_risk, caps=caps,
+            fast_path=True,
         )
         outcome.mode = "fast_path"
         return outcome
@@ -1586,7 +1587,7 @@ class Agent:
     def _execute_verified(self, goal: str, tool: str, args: Dict[str, Any],
                           mission: Optional[Mission], cancel: threading.Event,
                           trace: List[str], risk: RiskAssessment,
-                          caps: List[Capability]) -> AgentOutcome:
+                          caps: List[Capability], fast_path: bool = False) -> AgentOutcome:
         """EXECUTE -> VERIFY -> (REPAIR) -> RESULT.
 
         «Готово» произносится ТОЛЬКО при ``verification.verified`` (§14).
@@ -1625,18 +1626,21 @@ class Agent:
 
         context = ToolContext(user_id="default", settings=self._settings, state=None)
 
-        try:
-            execution_plan = self._executive.compile(
-                goal, tool=tool, args=args, intent="action",
-                risk=getattr(risk.level, "value", str(risk.level)),
-            )
-            rehearsal = self._executive.rehearse(execution_plan)
-            trace.append(f"shadow_rehearsal={'ready' if rehearsal.ready else 'blocked'}")
-            if mission is not None:
-                mission.metadata["command_os"] = execution_plan.to_dict()
-                mission.metadata["rehearsal"] = rehearsal.to_dict()
-        except Exception as exc:
-            log.debug("Shadow rehearsal skipped: %s", exc)
+        if not fast_path:
+            try:
+                execution_plan = self._executive.compile(
+                    goal, tool=tool, args=args, intent="action",
+                    risk=getattr(risk.level, "value", str(risk.level)),
+                )
+                rehearsal = self._executive.rehearse(execution_plan)
+                trace.append(f"shadow_rehearsal={'ready' if rehearsal.ready else 'blocked'}")
+                if mission is not None:
+                    mission.metadata["command_os"] = execution_plan.to_dict()
+                    mission.metadata["rehearsal"] = rehearsal.to_dict()
+            except Exception as exc:
+                log.debug("Shadow rehearsal skipped: %s", exc)
+        else:
+            trace.append("shadow_rehearsal=reflex-safe")
 
         if mission is not None:
             mission.set_status(MissionStatus.EXECUTING, f"выполняю {tool}")

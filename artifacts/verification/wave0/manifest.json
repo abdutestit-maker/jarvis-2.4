@@ -1,6 +1,14 @@
 {
   "wave": 0,
-  "pass": true,
+  "pass": false,
+  "provenance": {
+    "source_commit": "f56a9032b7e97b6cc61866866b2bc61ffacde3ea",
+    "source_short": "f56a903",
+    "source_branch": "codex/universal-kernel",
+    "dirty": false,
+    "dirty_files": []
+  },
+  "generated_at": "2026-08-20T14:25:47+0500",
   "roles": [
     "manifest.json",
     "verification.json",

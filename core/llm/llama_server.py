@@ -80,12 +80,28 @@ def find_llama_server(configured: str | Path | None = None) -> Optional[Path]:
         if found:
             candidates.append(Path(found))
     root = Path(__file__).resolve().parents[2]
-    candidates.extend([
-        root / "runtime" / "llama-server.exe",
-        root / "runtime" / "llama-server",
-        root / "data" / "runtime" / "llama-server.exe",
-        root / "data" / "runtime" / "llama-server",
-    ])
+    # Source runs use the repository root.  The portable Tauri build stages
+    # the same runtime below jarvis/src-tauri/resources, while an installed
+    # bundle anchors it at JARVIS_HOME.  Search all three layouts so the
+    # first request never falls back to an unavailable Python backend.
+    home = os.environ.get("JARVIS_HOME", "").strip()
+    if home:
+        home_root = Path(home).expanduser()
+        candidates.extend([
+            home_root / "runtime" / "llama-server.exe",
+            home_root / "runtime" / "llama-server",
+            home_root / "resources" / "jarvis-runtime" / "runtime" / "llama-server.exe",
+            home_root / "resources" / "jarvis-runtime" / "runtime" / "llama-server",
+        ])
+    runtime_roots = (
+        root / "runtime",
+        root / "data" / "runtime",
+        root / "jarvis" / "src-tauri" / "resources" / "jarvis-runtime" / "runtime",
+        root / "jarvis" / "src-tauri" / "target" / "release" / "resources" / "jarvis-runtime" / "runtime",
+        root / "jarvis" / "src-tauri" / "target" / "debug" / "resources" / "jarvis-runtime" / "runtime",
+    )
+    for runtime_root in runtime_roots:
+        candidates.extend([runtime_root / "llama-server.exe", runtime_root / "llama-server"])
     local_appdata = os.environ.get("LOCALAPPDATA", "")
     if local_appdata:
         package_root = Path(local_appdata) / "Microsoft" / "WinGet" / "Packages"

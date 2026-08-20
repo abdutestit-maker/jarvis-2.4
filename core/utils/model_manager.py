@@ -89,8 +89,18 @@ class ModelManager:
         """Path to the repository-owned model manifest."""
         return PROJECT_ROOT / "config" / "models_manifest.json"
 
-    def load_model_manifest(self, path: Optional[Path | str] = None) -> Dict[str, ModelArtifact]:
-        """Load and validate every model entry before any network access."""
+    def load_model_manifest(
+        self,
+        path: Optional[Path | str] = None,
+        *,
+        include_legacy: bool = True,
+    ) -> Dict[str, ModelArtifact]:
+        """Load the pinned production manifest and optional legacy entries.
+
+        ``models`` is the production set.  ``legacy_models`` remains readable
+        for rollback and compatibility callers, but packaging never consumes
+        it unless explicitly requested.
+        """
         manifest_path = Path(path) if path is not None else self.manifest_path
         try:
             payload = load_json(manifest_path, default={})
@@ -99,6 +109,12 @@ class ModelManager:
         rows = payload.get("models") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             raise ModelDownloadError("Манифест моделей не содержит списка models")
+        rows = list(rows)
+        if include_legacy:
+            legacy = payload.get("legacy_models", [])
+            if not isinstance(legacy, list):
+                raise ModelDownloadError("Манифест legacy_models имеет некорректный формат")
+            rows.extend(legacy)
         artifacts: Dict[str, ModelArtifact] = {}
         for row in rows:
             if not isinstance(row, dict):

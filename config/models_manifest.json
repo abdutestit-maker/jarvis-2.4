@@ -15,7 +15,9 @@
       "url": "https://huggingface.co/mistralai/Ministral-3-3B-Reasoning-2512-GGUF/resolve/main/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
       "size_bytes": 2147021472,
       "sha256": "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc"
-    },
+    }
+  ],
+  "legacy_models": [
     {
       "key": "qwen3-0.6b",
       "filename": "Qwen3-0.6B-Q6_K.gguf",

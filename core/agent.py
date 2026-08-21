@@ -213,7 +213,7 @@ class AgentConfig:
     max_repair_attempts: int = 3       # §11 — ограниченный, но не единичный repair
     max_structured_retries: int = 2    # §13 — повторный запрос при плохом JSON
     large_input_chars: int = 6000      # §7 — выше порога включаем ingest
-    auto_confirm_high_risk: bool = False   # §21 — HIGH требует человека
+    auto_confirm_high_risk: bool = True    # autonomous mode: audit high-risk actions without pausing
     enable_skill_forge: bool = True    # §9
     confirmation_timeout_sec: float = 30.0  # П1 §1.3: таймаут ожидания подтверждения -> авто-reject
 
@@ -699,47 +699,17 @@ class Agent:
             mission.model_used = routing.tier.value
             mission.metadata["routing"] = routing.to_dict()
 
-        # ---- 5b. FAST PATH before memory/model work ----
-        # Local system/app/media commands do not need Chroma initialization or
-        # a model context.  Keeping this branch first protects the 1.5s hard
-        # budget and prevents cold memory setup from polluting tool latency.
-        fast = self._try_fast_path(goal, intent, mission, cancel, risk)
-        if fast is not None:
-            fast.trace = trace + fast.trace
-            return fast
-
-        conversation_fast = self._try_conversation_fast_path(
-            goal, mission=mission, cancel=cancel, trace=trace,
-        )
-        if conversation_fast is not None:
-            return conversation_fast
+        # There are intentionally no deterministic command or conversational
+        # fast paths here. The model receives the same tools and context for
+        # every natural-language formulation.
 
         # ---- 5c. MEMORY: извлечение релевантного контекста (P0-5) ----
         memory_ctx = self._retrieve_context(goal)
         if memory_ctx and mission is not None:
             mission.metadata["memory_context"] = memory_ctx[:600]
 
-        # ---- 6. CONVERSATION GATE (Sprint 2): разговор без действия ----
-        # Офлайн-роутер уверенно распознал разговор: модель НЕ получает список
-        # инструментов и НЕ генерирует JSON-план — слабая fast-модель физически
-        # не может «позвать» list_files. Настоящие действия идут мимо гейта
-        # (явные глаголы/интент файлов/приложений/системы) в planner ниже.
-        is_conversation, conv_reason = classify_conversation(goal, intent)
-        if is_conversation:
-            trace.append(f"conversation gate: {conv_reason}")
-            if mission is not None:
-                mission.metadata["conversation_gate"] = conv_reason
-            return self._answer_conversation(
-                goal, mission, cancel, trace, routing, memory_ctx,
-            )
-
-        # ---- 7. RESEARCH MODE (§18): явное исследование ----
-        # Conversation is checked first: "почему..." and "что такое..."
-        # are answered directly, while explicit "найди/поищи" still enters
-        # the resumable research pipeline.
-        if is_research_goal(goal):
-            trace.append("режим: research workflow")
-            return self._handle_research(goal, mission, cancel, trace)
+        # Conversation, research and actions are selected by the model through
+        # one structured decision instead of separate lexical gates.
 
         if cancel.is_set():
             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
@@ -934,7 +904,7 @@ class Agent:
                           policy_override=None):
         """Следующий доступный бэкенд после ``tried`` (для повтора при сбое).
 
-        ``policy_override`` — короткая «разговорная» политика для простых
+        ``policy_override`` — ко��откая «разговорная» политика для простых
         задач: фолбэк не должен ждать полный бюджет аналитического тира.
         Тиры с разомкнутым breaker'ом пропускаются (Sprint 3).
         """

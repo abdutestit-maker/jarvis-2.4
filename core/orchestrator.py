@@ -55,13 +55,6 @@ __all__ = ["Orchestrator"]
 
 log = get_logger(__name__)
 
-# Регулярка для извлечения tool_call из ответа модели
-_TOOL_CALL_PATTERN = re.compile(
-    r"TOOL_CALL:\s*(\{.*?\})",
-    re.DOTALL
-)
-
-
 class Orchestrator:
     """Единый оркестратор витка обработки запроса."""
 
@@ -457,49 +450,14 @@ class Orchestrator:
         self._proactor.mark_user_activity()
         self._agent.set_user_context(self._living.context.current)
 
-        # Production config opts into tiny deterministic replies for high-
-        # frequency local probes.  Test/library Settings() stays untouched,
-        # while the live path avoids a 40-second model round trip and prompt
-        # contamination for greetings and elementary definitions.
-        if bool(getattr(self._settings, "warmup_local_on_start", False)):
-            quick = self._quick_local_reply(text)
-            if quick is not None:
-                lowered = " ".join((text or "").casefold().split())
-                routine = (
-                    lowered in {
-                        "привет", "здравствуйте", "как дела", "как ты",
-                        "как жизнь", "спасибо", "благодарю",
-                    }
-                    or "ты меня слыш" in lowered
-                    or "слышишь меня" in lowered
-                )
-                return self._stamp_latency(
-                    self._direct_cognitive_response(
-                        text,
-                        quick,
-                        mode="conversation_fast" if routine else "conversation",
-                        verified=routine,
-                    ),
-                    request_started,
-                    "fast",
-                )
-
-        # Reflex actions must reach the deterministic tool path before the
-        # continuity coordinator tries to interpret them as a follow-up to a
-        # stale mission (for example, "Системный статус" after "Открой
-        # блокнот"). Conversation and voice addressing still use the
-        # cognitive layer; explicit actions never pay that ambiguity tax.
-        pre_intent = resolve_keyword_tool(text, text)
-        cognitive_turn = None
-        if pre_intent not in {"app", "system", "media", "file", "browser"}:
-            # Text arriving through the explicit chat/WS input is implicitly
-            # addressed to JARVIS. Voice callers can use ``cognitive``
-            # directly with ``implicit_address=False`` before forwarding.
-            if implicit_address is None:
-                implicit_address = channel != "voice"
-            cognitive_turn = self._cognitive.begin_interaction(
-                text, channel=channel, implicit_address=implicit_address,
-            )
+        # Every utterance enters the same model-led interaction.  No keyword,
+        # regex or UI-side classifier is allowed to choose the execution path.
+        pre_intent = "model"
+        if implicit_address is None:
+            implicit_address = channel != "voice"
+        cognitive_turn = self._cognitive.begin_interaction(
+            text, channel=channel, implicit_address=implicit_address,
+        )
         if cognitive_turn is not None and cognitive_turn.action == "wait":
             state = self._new_state(text)
             state["response"] = ""

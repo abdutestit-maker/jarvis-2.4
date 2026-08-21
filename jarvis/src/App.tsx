@@ -33,21 +33,6 @@ function fixtureMessages(fixture: string | null): PresenceMessage[] {
   ];
 }
 
-// The command centre is for real operator work, not every conversational
-// exchange. A greeting or "как дела?" must stay a calm dialogue without an
-// artificial RESEARCH card; the backend still receives every command.
-function needsMission(command: string): boolean {
-  const text = command.trim().toLocaleLowerCase('ru-RU');
-  if (!text) return false;
-  // Short reversible controls stay in the compact presence view.  They are
-  // executed by the backend fast path and do not need a fake RESEARCH card.
-  if (/^(?:поставь|включи)\s+(?:мне\s+)?(?:музык\w*|трек\w*|песн\w*)[.!?]?$/u.test(text)
-    || /^(?:который\s+час|сколько\s+времени|текущее\s+время|громкость\s+(?:тише|громче)|(?:сделай\s+)?(?:тише|громче))[.!?]?$/u.test(text)) {
-    return false;
-  }
-  return /\b(установ|настрой|настро|открой|запусти|закрой|скачай|найди|создай|сделай|удали|скопируй|перемести|поставь|включи|выключи|громк|музык|файл|папк|браузер|программ|приложен|проверь|настрой)\w*/u.test(text)
-    || /\b(install|configure|open|launch|download|find|create|delete|copy|move|setup|check)\b/i.test(text);
-}
 
 function initialMode(fixture: string | null): UiMode {
   if (fixture && fixture !== 'compact') return 'command_center';
@@ -99,16 +84,15 @@ function App() {
         setMission((current) => current ? reduceMission(current, event) : current);
         return;
       }
-      if (event.type === 'event:voice_input') {
-        const payload = event.payload as { text: string; confidence: number };
-        if (payload.confidence >= 0.7 && payload.text.trim()) {
-          append({ id: `voice-${Date.now()}`, role: 'user', text: payload.text, timestamp: Date.now() });
-          if (needsMission(payload.text)) setMission(createMission(payload.text));
-          transition('thinking');
-          void backend.sendCommand(payload.text, []).catch(() => transition('error'));
-        }
-        return;
-      }
+  if (event.type === 'event:voice_input') {
+  const payload = event.payload as { text: string; confidence: number };
+  if (payload.confidence >= 0.7 && payload.text.trim()) {
+  append({ id: `voice-${Date.now()}`, role: 'user', text: payload.text, timestamp: Date.now() });
+  transition('thinking');
+  }
+  return;
+  }
+
       if (event.type === 'event:jarvis:start') {
         const payload = event.payload as { id: string };
         streaming.current = payload.id;
@@ -151,25 +135,14 @@ function App() {
     return () => window.removeEventListener('jarvis:command-sent', close);
   }, [closeOverlay, overlay]);
 
-  useEffect(() => {
-    if (!firstLaunch || overlay || fixture) return;
-    const timer = window.setTimeout(() => append({ id: 'ritual-hello', role: 'jarvis', text: 'Привет.\n\nЯ JARVIS.\n\nА ты кто?', timestamp: Date.now() }), 1000);
-    return () => window.clearTimeout(timer);
-  }, [append, firstLaunch, fixture, overlay]);
 
   const send = useCallback((text: string) => {
     if (overlay) closeOverlay();
     tts.interrupt();
     if (!fixture) void backend.interrupt().catch(() => undefined);
     append({ id: `user-${Date.now()}`, role: 'user', text, timestamp: Date.now() });
-    if (firstLaunch) {
-      if (!fixture) void backend.saveFirstLaunchName(text).catch(() => transition('error'));
-      setFirstLaunch(false);
-      transition('thinking');
-      window.setTimeout(() => { append({ id: 'ritual-known', role: 'jarvis', text: `${text}.\n\nЗапомнил.\n\nДавай знакомиться.`, timestamp: Date.now() }); transition('idle'); }, 600);
-      return;
-    }
-    if (needsMission(text)) setMission(createMission(text));
+  if (firstLaunch) setFirstLaunch(false);
+
     setConfirmation(null);
     transition('thinking');
     if (!fixture) void backend.sendCommand(text, []).catch(() => transition('error'));

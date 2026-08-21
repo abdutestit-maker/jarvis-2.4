@@ -711,6 +711,14 @@ class JarvisWSServer:
                         )
                     else:
                         state = self._orch.handle_input(t)
+                    if isinstance(state, dict) and state.get("mission_id"):
+                        # Фронт привязывает будущие события миссии (progress,
+                        # steps, result) к запросу по mission_id. Раньше ACK
+                        # уходил без него — привязка была невозможна (дыра D2).
+                        self._emit({
+                            "type": "mission:ack",
+                            "mission_id": state["mission_id"],
+                        })
                     if isinstance(state, dict) and state.get("assistant_output"):
                         # Typed diagnostics channel for Developer Mode. The
                         # frontend has no speech synthesis path for this event.

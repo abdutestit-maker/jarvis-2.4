@@ -286,6 +286,51 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
         success_check="получен непустой прогноз",
         tags=["weather", "погода", "температура", "прогноз"],
     ),
+    # ------------------------------------------------------------------ #
+    #  Инструменты полного контроля над ПК (§21): мышь/клавиатура и
+    #  браузерная автоматизация могут выполнить ЛЮБОЕ действие от имени
+    #  пользователя (включая деструктивное через UI), поэтому всегда HIGH
+    #  и проходят единый Risk Gate. Без паспорта они падали бы в дефолтный
+    #  MEDIUM и работали без подтверждения — это была дыра B2.
+    # ------------------------------------------------------------------ #
+    "computer_mouse": dict(
+        description="Управляет мышью: клики, перемещение, скролл по экрану.",
+        examples=["кликни по кнопке", "нажми на ссылку"],
+        risk_level=RiskLevel.HIGH,
+        permissions=["ui_control"],
+        speed=Speed.FAST,
+        success_check="состояние экрана после клика соответствует цели",
+        tags=["computer", "mouse", "клик", "курсор", "ui", "экран"],
+    ),
+    "computer_keyboard": dict(
+        description="Вводит текст и нажимает клавиши в активном окне.",
+        examples=["напечатай привет", "нажми enter"],
+        risk_level=RiskLevel.HIGH,
+        permissions=["ui_control"],
+        speed=Speed.FAST,
+        success_check="текст реально появился в целевом окне",
+        tags=["computer", "keyboard", "набери", "введи", "клавиши", "ui"],
+    ),
+    "computer_screenshot": dict(
+        description="Делает скриншот экрана для анализа состояния.",
+        examples=["покажи что на экране", "сделай скриншот"],
+        risk_level=RiskLevel.MEDIUM,
+        permissions=["screen_read"],
+        speed=Speed.FAST,
+        success_check="скриншот получен и непустой",
+        tags=["computer", "screenshot", "экран", "скриншот", "vision"],
+    ),
+    "browser_automation": dict(
+        description="Автоматизирует браузер: навигация, клики, заполнение форм (Playwright).",
+        examples=["открой сайт и заполни форму", "залогинься на сайте"],
+        risk_level=RiskLevel.HIGH,
+        permissions=["browser_control"],
+        speed=Speed.SLOW,
+        internet_required=True,
+        success_check="конечная страница соответствует цели (URL/контент)",
+        fallbacks=["web_fetch"],
+        tags=["browser", "automation", "сайт", "форма", "playwright", "клик"],
+    ),
 }
 
 

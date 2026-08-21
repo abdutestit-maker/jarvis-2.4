@@ -212,6 +212,11 @@ class AgentConfig:
     max_plan_steps: int = 8            # разумный потолок шагов плана
     max_repair_attempts: int = 3       # §11 — ограниченный, но не единичный repair
     max_structured_retries: int = 2    # §13 — повторный запрос при плохом JSON
+    # Жёсткий потолок вызовов инструментов за ОДИН пользовательский запрос
+    # (составные команды и repair итого). Раньше settings.limits.
+    # max_action_iterations существовал в конфиге, но нигде не применялся —
+    # автономный цикл мог крутиться без жёсткого предела (дыра B1).
+    max_action_iterations: int = 6
     large_input_chars: int = 6000      # §7 — выше порога включаем ingest
     auto_confirm_high_risk: bool = False   # §21 — HIGH требует человека
     enable_skill_forge: bool = True    # §9
@@ -280,6 +285,14 @@ class Agent:
         """
         self._settings = settings
         self._config = config or AgentConfig()
+        # settings.limits.max_action_iterations — единый источник истины для
+        # потолка tool-вызовов (B1). Если пользователь переопределил лимит в
+        # settings.json — он побеждает над дефолтом AgentConfig.
+        if config is None:
+            _limits = getattr(settings, "limits", None)
+            _max_iter = getattr(_limits, "max_action_iterations", None)
+            if isinstance(_max_iter, int) and _max_iter > 0:
+                self._config.max_action_iterations = _max_iter
         self._council = council
         self._brain_fabric = brain_fabric
         self._registry = DEFAULT_REGISTRY
@@ -525,6 +538,10 @@ class Agent:
         bounded session memory для контекста следующих вопросов.
         """
         goal = (goal or "").strip()
+        # Счётчик вызовов инструментов на весь пользовательский запрос
+        # (B1): сбрасывается в точке входа, применяется в _execute_verified,
+        # разделяется всеми частями составной команды.
+        self._action_calls_left = int(getattr(self._config, "max_action_iterations", 6) or 6)
         executive_contract = None
         if goal:
             try:
@@ -1657,6 +1674,10 @@ class Agent:
             max_retries=0 if web_tool else 2,
             timeout_sec=web_timeout if web_tool else None,
         )
+        # Тратим одну единицу бюджета действий (B1). Декремент ПОСЛЕ
+        # выполнения: проверка лимита выше видит израсходованное количество.
+        if hasattr(self, "_action_calls_left"):
+            self._action_calls_left -= 1
         trace.append(f"execute {tool}({args}) -> ok={result.ok}")
 
         if mission is not None:
@@ -1665,6 +1686,23 @@ class Agent:
                 "output": str(result.output)[:500] if result.output else None,
                 "error": result.error,
             })
+
+        # ---- ACTION BUDGET (B1) ----
+        # Проверка ПОСЛЕ выполнения: сколько попыток уже израсходовано.
+        # Лимит итераций — страховка от бесконечного цикла, а не способ
+        # планирования: честный запрос почти никогда его не касается.
+        calls_left = getattr(self, "_action_calls_left", None)
+        if calls_left is not None and calls_left <= 0:
+            trace.append(f"action budget exhausted (max_action_iterations)")
+            return AgentOutcome(
+                text=(
+                    f"Сэр, остановился: действие «{tool}» выполнено, но лимит "
+                    f"из {self._config.max_action_iterations} действий на один запрос "
+                    "исчерпан — продолжу после вашего слова, чтобы не крутиться в цикле."
+                ),
+                verified=False, verification=verify_action_result(result),
+                tool_used=tool, risk=risk, mode="budget_exhausted", trace=trace,
+            )
 
         # ---- VERIFY (§14) ----
         if mission is not None:

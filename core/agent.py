@@ -89,7 +89,7 @@ from core.verifier import VerificationResult, verify_action_result
 from core.executive import ExecutiveMind
 from core.intelligence import ResearchPending, SkillCatalog, TeachingSession, TutorEngine, UniversalIntake
 
-__all__ = ["Agent", "AgentConfig", "AgentOutcome", "ACK_PHRASES", "pick_acknowledgement"]
+__all__ = ["Agent", "AgentConfig", "AgentOutcome", "pick_acknowledgement"]
 
 log = get_logger(__name__)
 
@@ -139,17 +139,6 @@ def _hide_reasoning_stream(cumulative: str) -> str:
 #  §5 — FIRST ACKNOWLEDGEMENT (быстро, без тяжёлой модели)
 # --------------------------------------------------------------------------- #
 
-ACK_PHRASES: Dict[str, str] = {
-    "app": "Принято, сэр.",
-    "file": "Сейчас проверю.",
-    "web": "Разбираюсь.",
-    "browser": "Понял, сэр.",
-    "system": "Принято.",
-    "media": "Понял, сэр.",
-    "none": "Понял, сэр. Разбираюсь.",
-}
-
-
 def pick_acknowledgement(intent: str, goal: str = "",
                           settings: Optional["Settings"] = None,
                           *, allow_model: bool = True) -> str:
@@ -157,7 +146,7 @@ def pick_acknowledgement(intent: str, goal: str = "",
 
     Базовая фраза выбирается по намерению (как раньше — мгновенно),
     затем, если доступна ЛОКАЛЬНАЯ модель (Qwen 4B на лице) и задан
-    контекст цели, фраза ОБОГАЩАЕТСЯ коротким конт����кстным вариантом
+    контекст цели, фраза ОБОГАЩАЕТСЯ коротким конт������кстным вариантом
     от модели (чтобы ACK звучал как живая сущность, а не робот-заглушка).
 
     ЖЁСТКИЙ FALLBACK (критично для офлайн-тестов и надёжности): при
@@ -165,13 +154,11 @@ def pick_acknowledgement(intent: str, goal: str = "",
     ответе — возвращается базовая canned-фраза по intent. Стадия
     ACKNOWLEDGING остаётся мгновенной и НИКОГДА не падает.
     """
-    base = ACK_PHRASES.get(intent, ACK_PHRASES["none"])
+    base = ""
 
-    # The live mission path passes ``allow_model=False``.  An ACK is a
-    # transport guarantee, not a second inference request: loading a GGUF or
-    # waiting on a provider here is exactly the minute-long pause reported by
-    # the real UI.  The opt-in model enrichment remains for callers that
-    # explicitly want it (and for the existing presentation tests).
+    # The live mission path uses a model-generated acknowledgement. If the
+    # model is unavailable, return an empty transport payload rather than
+    # inventing a canned phrase.
     if not allow_model or not goal or not goal.strip() or settings is None:
         return base
 
@@ -181,11 +168,9 @@ def pick_acknowledgement(intent: str, goal: str = "",
 
         backend = get_llm_backend(settings, Tier.FAST)
         prompt = (
-            f"Ты — АТЛАС. Пользователь только что дал команду: \"{goal}\". "
-            f"Сгенерируй ОДНУ короткую (до 5 слов) фразу подтверждения приёма "
-            f"в стиле живого дворецкого, без приветствий и пояснений. "
-            f"Не начинай выполнять задачу. Только подтверди, что понял. "
-            f"Примеры стиля: \"{base}\", \"Есть, сэр.\", \"Слушаюсь.\""
+            f"Ты — исполнитель автономной задачи. Запрос пользователя: \"{goal}\". "
+            "Сформулируй краткое подтверждение на языке запроса, без обращения, "
+            "без фиксированной фразы и без утверждения о выполнении."
         )
         ack = backend.direct(prompt, max_tokens=24, temperature=0.4)
         ack = (ack or "").strip().strip('"\'‘’“”')
@@ -305,7 +290,7 @@ class Agent:
         self._capability_planner = CapabilityPlanner(
             self._capability_catalog, self._registry,
         )
-        # P5 §5.7: делим ЕДИНЫЙ роутер моделей с CouncilRouter, чтобы оба
+        # P5 §5.7: делим ЕДИНЫЙ роутер моделей с CouncilRouter, ��тобы оба
         # пути (REPL/WebSocket и агентная миссия) маршрутизировались одинаково.
         self._model_router = model_router if model_router is not None else ModelRouter(settings)
         self._forge = SkillForge(settings) if self._config.enable_skill_forge else None
@@ -1497,7 +1482,7 @@ class Agent:
                     mission.emit(EVENT_PLAN_READY, payload={"plan": mission.plan})
             return decision, ""
 
-        return None, last_error or "модель не смогла вернуть валидное решение"
+        return None, last_error or "мод��ль не смогла вернуть валидное решение"
 
     def _native_tool_schemas(self, caps: List[Capability]) -> List[Dict[str, Any]]:
         """Build deterministic OpenAI-compatible schemas from the registry."""

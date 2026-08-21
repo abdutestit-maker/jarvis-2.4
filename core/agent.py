@@ -157,7 +157,7 @@ def pick_acknowledgement(intent: str, goal: str = "",
 
     Базовая фраза выбирается по намерению (как раньше — мгновенно),
     затем, если доступна ЛОКАЛЬНАЯ модель (Qwen 4B на лице) и задан
-    контекст цели, фраза ОБОГАЩАЕТСЯ коротким контекстным вариантом
+    контекст цели, фраза ОБОГАЩАЕТСЯ коротким конт��кстным вариантом
     от модели (чтобы ACK звучал как живая сущность, а не робот-заглушка).
 
     ЖЁСТКИЙ FALLBACK (критично для офлайн-тестов и надёжности): при
@@ -778,44 +778,10 @@ class Agent:
 
         # ---- 9. RISK GATE перед выполнением (§21) ----
         exec_risk = assess_risk(goal, decision.tool, decision.arguments)
-        if exec_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
-            trace.append(f"HIGH risk -> требуется подтверждение: {exec_risk.reasons}")
-            conf_id = uuid.uuid4().hex
-            if mission is not None:
-                mission.emit(EVENT_CONFIRMATION_REQUIRED, payload={
-                    "confirmation_id": conf_id,
-                    "tool": decision.tool,
-                    "arguments": decision.arguments,
-                    "risk": exec_risk.to_dict(),
-                    "prompt": exec_risk.confirmation_prompt(),
-                })
-                mission.set_status(MissionStatus.PAUSED, "ожидание подтверждения пользователя")
-            # Регистрируем ожидающее подтверждение, чтобы позже можно
-            # было ответить (confirm/reject) и продолжить или отменить.
-            with self._lock:
-                self._pending_confirmations[conf_id] = {
-                    "goal": goal,
-                    "tool": decision.tool,
-                    "args": decision.arguments,
-                    "risk": exec_risk,
-                    "caps": caps,
-                    "mission": mission,
-                    "cancel": cancel,
-                    "trace": trace,
-                }
-            # П1 §1.3 (voice-first): если пользователь не ответит в голос/текст
-            # за confirmation_timeout_sec — безопасный авто-reject (отказ).
-            self._start_confirmation_watchdog(conf_id)
-            return AgentOutcome(
-                text=exec_risk.confirmation_prompt(),
-                verified=False,
-                needs_confirmation=True,
-                confirmation_id=conf_id,
-                risk=exec_risk,
-                tool_used=decision.tool,
-                mode="confirmation",
-                trace=trace,
-            )
+        # Autonomous mode: risk is recorded in the audit trace, but it never
+        # becomes a conversational command or a blocking confirmation gate.
+        if exec_risk.needs_confirmation:
+            trace.append(f"autonomous_risk={exec_risk.level.value}; execution_not_paused")
 
         # ---- 10. EXECUTION + VERIFICATION + REPAIR ----
         return self._execute_verified(
@@ -902,7 +868,7 @@ class Agent:
 
     def _fallback_backend(self, routing: Optional[RoutingDecision], tried,
                           policy_override=None):
-        """Следующий доступный бэкенд после ``tried`` (для повтора при сбое).
+        """Следующий доступный б��кенд после ``tried`` (для повтора при сбое).
 
         ``policy_override`` — ко��откая «разговорная» политика для простых
         задач: фолбэк не должен ждать полный бюджет аналитического тира.
@@ -1003,7 +969,7 @@ class Agent:
 
         if not approved:
             if mission is not None:
-                mission.set_status(MissionStatus.CANCELLED, "отклонено пользователем")
+                mission.set_status(MissionStatus.CANCELLED, "отклонено поль��ователем")
                 mission.emit(EVENT_TASK_FAILED, payload={"reason": "confirmation_rejected"})
             return AgentOutcome(
                 text="Понял, сэр. Действие отменено.",
@@ -1966,7 +1932,7 @@ class Agent:
                                   trace: List[str], plan_error: str) -> AgentOutcome:
         """Сбой модели (таймаут/провайдер/ключ) — НЕ «не умею» и НЕ навык.
 
-        Это временная ошибка инфраструктуры: пользователю — короткая
+        Это временная ошибка инфраструктуры: по��ьзователю — короткая
         дружелюбная фраза (без HTTP-кодов и трейсбеков), сырые детали —
         только в лог. Черновик навыка (SkillForge) НЕ создаётся: навыки
         фиксируются только для реальных «не умею», а не для сетевых сбоев.

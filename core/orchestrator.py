@@ -25,14 +25,12 @@ from typing import Any, Callable, Dict, List, Optional
 
 from config.settings import Settings
 from core.actions import DEFAULT_REGISTRY, ToolContext, execute_tool
-from core.agent import Agent, pick_acknowledgement
+from core.agent import Agent
 from core.capabilities import CAPABILITIES
 from core.cognitive import CognitiveOrchestrator
 from core.memory import MemoryRetriever
-from core.model_router import ModelRouter, classify_conversation, estimate_complexity
-from core.research import is_research_goal
+from core.model_router import ModelRouter, estimate_complexity
 from core.router import CouncilRouter
-from core.router.intent_router import resolve_keyword_tool
 from core.state import JarvisState, ActionResult, new_state, push_message, trim_short_memory
 from core.task_runtime import Mission, MissionStatus, TaskEvent, TaskRuntime
 from core.voice import (
@@ -216,15 +214,16 @@ class Orchestrator:
             clear()
 
     def _new_state(self, text: str, *, include_executive: bool = True) -> JarvisState:
-        """Create a state with deterministic intent and bounded executive context."""
+        """Create state from the model intake, never from command words."""
         state = new_state(text)
-        state["intent"] = resolve_keyword_tool(text, text)
         try:
             state["task_contract"] = self._intake.classify(text).to_dict()
         except Exception as exc:
             log.debug("Universal intake skipped: %s", exc)
             state["task_contract"] = {}
-        state["latency_budget"] = self._latency_budget_for(state.get("intent"), text)
+        contract = state["task_contract"]
+        state["intent"] = contract.get("intent_family", "model") if isinstance(contract, dict) else "model"
+        state["latency_budget"] = self._latency_budget_for(text)
         if include_executive:
             try:
                 state["executive"] = self._agent.executive.snapshot()
@@ -234,14 +233,13 @@ class Orchestrator:
         return state
 
     @staticmethod
-    def _latency_budget_for(intent: Optional[str], text: str) -> Dict[str, Any]:
-        fast = intent in {"app", "system", "media"} and len((text or "").strip()) <= 180
-        if fast:
-            budget = LatencyBudget("fast", 600.0, 1000.0, 1500.0)
-        elif intent == "web" or is_research_goal(text):
-            budget = LatencyBudget("research", 8000.0, 15000.0, 30000.0, 3000.0)
+    def _latency_budget_for(text: str) -> Dict[str, Any]:
+        # Language and wording do not choose an execution path. Only payload
+        # size affects the initial budget; the agent can extend it as needed.
+        if len((text or "").strip()) <= 180:
+            budget = LatencyBudget("adaptive", 8000.0, 15000.0, 30000.0, 2500.0)
         else:
-            budget = LatencyBudget("deliberate", 8000.0, 15000.0, 30000.0, 2500.0)
+            budget = LatencyBudget("adaptive", 12000.0, 20000.0, 60000.0, 3500.0)
         return {
             "path": budget.path,
             "p50_ms": budget.p50_ms,
@@ -469,17 +467,12 @@ class Orchestrator:
             return self._stamp_latency(self._direct_cognitive_response(text, cognitive_turn.response), request_started, "fast")
         if cognitive_turn is not None and cognitive_turn.action in {"continue", "retry"} and cognitive_turn.goal:
             text = cognitive_turn.goal
-            pre_intent = resolve_keyword_tool(text, text)
+            # The cognitive layer may rewrite a request after clarification.
+            # No lexical intent is allowed to select the execution path.
 
-        # Sprint 11: natural queries are answered from evidence-backed local
-        # structured context. Action intents skip retrieval entirely: loading
-        # Chroma/RAG/graph on a media or app command is a latency regression,
-        # not intelligence.
-        context_reply = (
-            self._living.answer_context(text)
-            if pre_intent not in {"app", "system", "media", "file", "browser"}
-            else None
-        )
+        # Context retrieval is deliberately advisory. The agent decides whether
+        # evidence is useful; lexical intent must never bypass the model cycle.
+        context_reply = self._living.answer_context(text)
         if context_reply is not None:
             response = str(context_reply["answer"])
             output = AssistantOutput.natural(response, speech_mode="focused")
@@ -507,15 +500,14 @@ class Orchestrator:
             self._cognitive.state.active_mission_id = mission.task_id
             self._cognitive.state.mission_state = mission.status.value
             self._cognitive.store.save(self._cognitive.state)
-            ack = mission.acknowledgement or "Принято, сэр. Работаю."
+            # A mission is acknowledged by a structured state/event, not by a
+            # canned sentence. The model owns all user-facing language.
             state = self._new_state(text)
             self._session.push("user", text)
             self._session.to_state(state)
-            state["response"] = ack
-            ack_output = AssistantOutput.natural(ack, speech_mode="focused")
-            rendered = self._speech_renderer.render(ack_output)
-            state["tts_text"] = rendered.text if rendered else None
-            state["assistant_output"] = ack_output.to_dict()
+            state["response"] = ""
+            state["tts_text"] = None
+            state["assistant_output"] = None
             state["mission_id"] = mission.task_id
             return self._stamp_latency(state, request_started, "background")
 
@@ -586,17 +578,9 @@ class Orchestrator:
         goal = (text or "").strip()
         if not goal:
             return False
-        # A conversational question must stay on the immediate path.  The
-        # previous score-only check sent "почему..." to a background mission,
-        # showing an ACK while the CPU model kept thinking for tens of seconds.
-        intent = resolve_keyword_tool(goal, goal)
-        conversational, _ = classify_conversation(goal, intent)
-        if conversational:
-            return False
-        if is_research_goal(goal):
-            return True
+        # Scheduling is based only on bounded complexity estimation. It does
+        # not inspect command words, language, or a frontend prediction.
         cx = estimate_complexity(goal)
-        # LOCAL_THRESHOLD из ModelRouter (0.35): выше — в фон.
         return cx.score >= 0.35
 
     @staticmethod
@@ -622,7 +606,7 @@ class Orchestrator:
             return "Всегда пожалуйста, сэр."
         if re.fullmatch(r"(?:доброе утро|добрый день|добрый вечер)[!.]?", lowered):
             return "Добрый вечер, сэр. Я на связи." if "вечер" in lowered else "На связи, сэр."
-        if "энтроп" in lowered and any(marker in lowered for marker in ("что такое", "объясни", "это")):
+        if "энтроп" in lowered and any(marker in lowered for marker in ("что такое", "объясни", "э��о")):
             return "Энтропия — мера неопределённости или числа возможных состояний системы."
         return None
 
@@ -683,14 +667,9 @@ class Orchestrator:
         goal = (text or "").strip()
         self._proactor.mark_user_activity()
 
-        # §5 — ACK формируется мгновенно. Если доступна локальная модель —
-        # обогащается контекстной фразой (П1 §1.2); при сбое — canned fallback.
-        intent = resolve_keyword_tool(goal, goal)
-        # ACK must never pay the model-load/inference cost.  The mission
-        # worker owns all deliberate reasoning after this line.
-        ack = pick_acknowledgement(
-            intent, goal=goal, settings=self._settings, allow_model=False,
-        )
+        # No textual acknowledgement is generated here. The mission lifecycle
+        # is communicated through structured events; the worker owns language.
+        ack = ""
 
         # Подписка ставится ДО запуска, но task_id известен только после
         # submit(). Держим его в изменяемой ячейке и добираем уже

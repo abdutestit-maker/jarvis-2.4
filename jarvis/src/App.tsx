@@ -5,7 +5,7 @@ import { StateMachine, presenceFromTransport, type PresenceState } from '@/bridg
 import { TTSController } from '@/bridge/TTSController';
 import { OperatorShell } from '@/operator/OperatorShell';
 import {
-  confirmationFromEvent, createMission, fixtureMission, reduceMission,
+  confirmationFromEvent, fixtureMission, reduceMission,
   type OperatorMission, type UiMode,
 } from '@/operator/model';
 import { InputOverlay } from '@/overlay/InputOverlay';

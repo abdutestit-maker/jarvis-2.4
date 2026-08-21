@@ -646,7 +646,7 @@ class JarvisWSServer:
             if not text:
                 return
             # Sprint 5 STEP 5.3 (barge-in): новый ввод прерывает текущую
-            # речь Джарвиса — новая команда важнее договариваемой фразы.
+            # речь Джарвиса — новая команда важнее ��оговариваемой фразы.
             self._tts_interrupt()
             # Единый путь (P5 §5.7): тот же handle_input, что и в REPL.
             # Гоним через executor, чтобы не блокировать asyncio-цикл
@@ -748,8 +748,9 @@ class JarvisWSServer:
                                 "payload": {
                                     "id": tls.cid,
                                     "kind": "jarvis",
-                                    "content": tls.streamed or "Сэр, ответ не сформирован.",
+                                    "content": tls.streamed or "",
                                     "model": "local",
+                                    "status": "completed" if tls.streamed else "failed",
                                 },
                                 "timestamp": _now_ms(),
                             },

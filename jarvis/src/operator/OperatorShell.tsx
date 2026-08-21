@@ -17,7 +17,6 @@ interface Props {
   mode: UiMode;
   mission: OperatorMission | null;
   confirmation: PendingConfirmation | null;
-  firstLaunch: boolean;
   onModeChange: (mode: UiMode) => void;
   onSend: (text: string) => void;
   onInterrupt: () => void;
@@ -164,7 +163,7 @@ function CompactPresence(props: Props) {
         onInterrupt={props.onInterrupt}
         onVoiceListen={props.onVoiceListen}
         busy={props.state === 'thinking'}
-        placeholder={props.firstLaunch ? 'Как тебя зовут?' : 'Сообщение для JARVIS…'}
+        placeholder="Сообщение для JARVIS…"
       />
     </main>
   );
@@ -291,7 +290,7 @@ function CommandCenter(props: Props) {
             <section className="welcomeMission"><SignalCore tone={tone} /><h1>Готов к следующей задаче</h1><p>Диалог остаётся главным. Миссия, инструменты и доказательства появятся только когда они действительно нужны.</p></section>
           )}
         </div>
-        <Composer onSend={props.onSend} onInterrupt={props.onInterrupt} onVoiceListen={props.onVoiceListen} busy={props.state === 'thinking'} placeholder={props.firstLaunch ? 'Как тебя зовут?' : 'Сообщение для JARVIS…'} />
+        <Composer onSend={props.onSend} onInterrupt={props.onInterrupt} onVoiceListen={props.onVoiceListen} busy={props.state === 'thinking'} placeholder="Сообщение для JARVIS…" />
       </section>
       <EvidenceRail mission={props.mission} confirmation={props.confirmation} />
     </main>

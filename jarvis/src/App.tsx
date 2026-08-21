@@ -5,13 +5,13 @@ import { StateMachine, presenceFromTransport, type PresenceState } from '@/bridg
 import { TTSController } from '@/bridge/TTSController';
 import { OperatorShell } from '@/operator/OperatorShell';
 import {
-  confirmationFromEvent, fixtureMission, reduceMission,
+  fixtureMission, reduceMission,
   type OperatorMission, type UiMode,
 } from '@/operator/model';
 import { InputOverlay } from '@/overlay/InputOverlay';
 import { TrayIcon } from '@/presence/TrayIcon';
 import { WebSocketBackend } from '@/integrations/wsBackend';
-import type { BackendEvent, PendingConfirmation } from '@/types';
+import type { BackendEvent } from '@/types';
 import type { PresenceMessage } from '@/window/MessageStream';
 import './presence.css';
 
@@ -47,10 +47,8 @@ function App() {
   const tts = useMemo(() => new TTSController(), []);
   const [messages, setMessages] = useState<PresenceMessage[]>(() => fixtureMessages(fixture));
   const [state, setState] = useState<PresenceState>(fixture === 'verified' ? 'idle' : fixture ? 'thinking' : 'idle');
-  const [firstLaunch, setFirstLaunch] = useState(false);
   const [mode, setMode] = useState<UiMode>(() => initialMode(fixture));
   const [mission, setMission] = useState<OperatorMission | null>(() => fixture ? fixtureMission(fixture === 'verified' ? 'verified' : fixture === 'verify' ? 'verify' : 'download') : null);
-  const [confirmation, setConfirmation] = useState<PendingConfirmation | null>(() => fixture === 'verify' ? { id: 'fixture-confirmation', prompt: 'Разрешить установку приложения?', tool: 'software.install', risk: { level: 'low' } } : null);
   const [connected, setConnected] = useState(() => Boolean(fixture) || backend.isConnected());
   const [runtimeState, setRuntimeState] = useState(() => fixture ? 'ready' : 'starting');
   const streaming = useRef<string | null>(null);
@@ -69,10 +67,6 @@ function App() {
         setMission((current) => current ? reduceMission(current, event) : current);
         return;
       }
-      if (event.type === 'profile:status') {
-        setFirstLaunch(!(event.payload as { hasName: boolean }).hasName);
-        return;
-      }
       if (event.type === 'runtime:status') {
         const payload = event.payload as { state?: string; ready?: boolean };
         setRuntimeState(payload.ready ? 'ready' : (payload.state ?? 'starting'));
@@ -80,7 +74,7 @@ function App() {
         return;
       }
       if (event.type === 'confirmation:required') {
-        setConfirmation(confirmationFromEvent(event));
+        // Autonomous mode: confirmations are backend audit events, never a UI gate.
         setMission((current) => current ? reduceMission(current, event) : current);
         return;
       }
@@ -141,24 +135,9 @@ function App() {
     tts.interrupt();
     if (!fixture) void backend.interrupt().catch(() => undefined);
     append({ id: `user-${Date.now()}`, role: 'user', text, timestamp: Date.now() });
-  if (firstLaunch) setFirstLaunch(false);
-
-    setConfirmation(null);
     transition('thinking');
     if (!fixture) void backend.sendCommand(text, []).catch(() => transition('error'));
-  }, [append, backend, closeOverlay, firstLaunch, fixture, overlay, transition, tts]);
-
-  const answerConfirmation = useCallback((approved: boolean) => {
-    const pending = confirmation;
-    if (!pending) return;
-    setConfirmation(null);
-    if (!fixture) void backend.answerConfirmation(pending.id, approved).catch(() => transition('error'));
-    if (approved) {
-      const event: BackendEvent = { type: 'state:executing', payload: null, timestamp: Date.now() };
-      setMission((current) => current ? reduceMission(current, event) : current);
-      transition('thinking');
-    }
-  }, [backend, confirmation, fixture, transition]);
+  }, [append, backend, closeOverlay, fixture, overlay, transition, tts]);
 
   const interrupt = useCallback(() => {
     tts.interrupt();
@@ -173,7 +152,6 @@ function App() {
   const newSession = useCallback(() => {
     setMessages([]);
     setMission(null);
-    setConfirmation(null);
     transition('idle');
   }, [transition]);
 
@@ -185,13 +163,12 @@ function App() {
       state={state}
       mode={mode}
       mission={mission}
-      confirmation={confirmation}
-      firstLaunch={firstLaunch}
+      confirmation={null}
       onModeChange={updateMode}
       onSend={send}
       onInterrupt={interrupt}
       onVoiceListen={voiceListen}
-      onConfirm={answerConfirmation}
+      onConfirm={() => undefined}
       onNewSession={newSession}
       connected={connected}
       runtimeState={runtimeState}

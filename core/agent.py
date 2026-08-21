@@ -157,7 +157,7 @@ def pick_acknowledgement(intent: str, goal: str = "",
 
     Базовая фраза выбирается по намерению (как раньше — мгновенно),
     затем, если доступна ЛОКАЛЬНАЯ модель (Qwen 4B на лице) и задан
-    контекст цели, фраза ОБОГАЩАЕТСЯ коротким конт��кстным вариантом
+    контекст цели, фраза ОБОГАЩАЕТСЯ коротким конт����кстным вариантом
     от модели (чтобы ACK звучал как живая сущность, а не робот-заглушка).
 
     ЖЁСТКИЙ FALLBACK (критично для офлайн-тестов и надёжности): при
@@ -215,7 +215,7 @@ class AgentConfig:
     large_input_chars: int = 6000      # §7 — выше порога включаем ingest
     auto_confirm_high_risk: bool = True    # autonomous mode: audit high-risk actions without pausing
     enable_skill_forge: bool = True    # §9
-    confirmation_timeout_sec: float = 30.0  # П1 §1.3: таймаут ожидания подтверждения -> авто-reject
+    confirmation_timeout_sec: float = 0.0  # Autonomous mode: confirmation watchdog disabled
 
 
 @dataclass
@@ -1963,48 +1963,13 @@ class Agent:
         """
         trace.append(f"unknown task path: {reason}")
 
-        # Do not let capability discovery, Shadow preparation or generated
-        # tools cross a destructive boundary.  There may be no concrete tool
-        # yet, but the user still gets a real confirmation gate rather than a
-        # misleading failed-success message.
+        # Autonomous mode: capability discovery is part of execution. Risk is
+        # recorded in the mission trace, but it never pauses the agent or
+        # creates a conversational confirmation command.
         on_demand_risk = assess_risk(goal)
-        if on_demand_risk.needs_confirmation and not skip_confirmation:
-            conf_id = uuid.uuid4().hex
-            cancel = threading.Event()
-            pending = {
-                "goal": goal,
-                "tool": attempted_tool or "capability_research",
-                "args": {},
-                "risk": on_demand_risk,
-                "caps": caps,
-                "mission": mission,
-                "cancel": cancel,
-                "trace": trace,
-                "unknown_capability": True,
-                "reason": reason or "нет подходящего проверенного инструмента",
-                "attempted_tool": attempted_tool,
-            }
-            with self._lock:
-                self._pending_confirmations[conf_id] = pending
-            if mission is not None:
-                mission.set_status(MissionStatus.PAUSED, "ожидание подтверждения перед исследованием")
-                mission.emit(EVENT_CONFIRMATION_REQUIRED, payload={
-                    "confirmation_id": conf_id,
-                    "tool": attempted_tool or "capability_research",
-                    "arguments": {},
-                    "risk": on_demand_risk.to_dict(),
-                    "prompt": on_demand_risk.confirmation_prompt(),
-                })
-            self._start_confirmation_watchdog(conf_id)
-            return AgentOutcome(
-                text=on_demand_risk.confirmation_prompt(),
-                verified=False,
-                needs_confirmation=True,
-                confirmation_id=conf_id,
-                risk=on_demand_risk,
-                tool_used=attempted_tool,
-                mode="confirmation",
-                trace=trace,
+        if on_demand_risk.needs_confirmation:
+            trace.append(
+                f"autonomous_capability_risk={on_demand_risk.level.value}; execution_not_paused"
             )
 
         # Sprint 9: a task class is resolved before generating another Python
@@ -2024,11 +1989,7 @@ class Agent:
                 capability_report = capability_engine.execute(capability_plan, max_repairs=2)
                 trace.extend(f"capability: {item}" for item in capability_report.action_trace)
                 if capability_report.needs_confirmation:
-                    return AgentOutcome(
-                        text="Сэр, для следующего системного изменения требуется подтверждение.",
-                        verified=False, needs_confirmation=True,
-                        risk=assess_risk(goal), mode="confirmation_required", trace=trace,
-                    )
+                    trace.append("capability risk recorded; autonomous execution continues")
                 if capability_report.completed:
                     return AgentOutcome(
                         text="Готово. Проверяйте, сэр.", verified=True,

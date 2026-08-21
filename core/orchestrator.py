@@ -33,6 +33,7 @@ from core.model_router import ModelRouter, classify_conversation, estimate_compl
 from core.research import is_research_goal
 from core.router import CouncilRouter
 from core.router.intent_router import resolve_keyword_tool
+from core.understanding import Route, UnderstandingLayer
 from core.state import JarvisState, ActionResult, new_state, push_message, trim_short_memory
 from core.task_runtime import Mission, MissionStatus, TaskEvent, TaskRuntime
 from core.voice import (
@@ -101,6 +102,10 @@ class Orchestrator:
             intake=UniversalIntake(),
         )
         self._register_kernel_capabilities()
+
+        # Understanding Layer (Фаза 1): единственная точка классификации
+        # ввода. Создаётся ДО агента — лёгкий regex-конструктор, без моделей.
+        self._understanding = UnderstandingLayer()
 
         # --- Агентное ядро J.A.R.V.I.S. 3.0 (§3, §6) ---
         # Агент исполняет миссии, TaskRuntime даёт им асинхронную жизнь.
@@ -484,6 +489,12 @@ class Orchestrator:
                     "fast",
                 )
 
+        # Understanding Layer: классифицируем ОДИН раз сразу после старта —
+        # результат переиспользуют и reflex, и быстрый ответ, и выбор
+        # «синхронно vs фон» ниже (раньше это делали три рассогласованных
+        # классификатора — баги A2/A4).
+        understanding = self._understanding.understand(text, channel=channel)
+
         # Reflex actions must reach the deterministic tool path before the
         # continuity coordinator tries to interpret them as a follow-up to a
         # stale mission (for example, "Системный статус" after "Открой
@@ -539,7 +550,16 @@ class Orchestrator:
 
         # Единый путь (§3): тяжёлая задача -> фон (мгновенный ACK),
         # лёгкая -> синхронно в том же агентном цикле (без фоновой миссии).
-        run_background = self._should_run_background(text)
+        # Understanding Layer имеет слово первым: mission — всегда фон,
+        # quick_answer — всегда синхронно (запрет уходить в mission даже
+        # для сложных вопросов, фикс «почему...» в фоне). Остальное —
+        # эвристика _should_run_background.
+        if understanding.route == Route.MISSION:
+            run_background = True
+        elif understanding.route == Route.QUICK_ANSWER:
+            run_background = False
+        else:
+            run_background = self._should_run_background(text)
         self._living.observe_user_input(text, active_mission=run_background)
         self._agent.set_user_context(self._living.context.current)
         if run_background:
@@ -559,6 +579,7 @@ class Orchestrator:
             state["tts_text"] = rendered.text if rendered else None
             state["assistant_output"] = ack_output.to_dict()
             state["mission_id"] = mission.task_id
+            state["route"] = understanding.route.value
             return self._stamp_latency(state, request_started, "background")
 
         # Синхронный путь через единый агентный цикл
@@ -612,6 +633,7 @@ class Orchestrator:
         state["tool"] = outcome.tool_used or ""
         state["verified"] = bool(outcome.verified)
         state["mode"] = outcome.mode
+        state["route"] = understanding.route.value
         if outcome.needs_confirmation:
             state["confirmation_id"] = getattr(outcome, "confirmation_id", None)
             state["needs_confirmation"] = True

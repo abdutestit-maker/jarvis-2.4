@@ -711,6 +711,14 @@ class JarvisWSServer:
                         )
                     else:
                         state = self._orch.handle_input(t)
+                    if isinstance(state, dict) and state.get("route"):
+                        # Understanding Layer (Фаза 1): фронт узнаёт маршрут
+                        # из бека, а не из собственного needsMission() —
+                        # источник истины один.
+                        self._emit({
+                            "type": "route",
+                            "route": state["route"],
+                        })
                     if isinstance(state, dict) and state.get("mission_id"):
                         # Фронт привязывает будущие события миссии (progress,
                         # steps, result) к запросу по mission_id. Раньше ACK

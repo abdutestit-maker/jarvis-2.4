@@ -18,5 +18,12 @@ from __future__ import annotations
 
 from core.understanding.layer import UnderstandingLayer
 from core.understanding.models import Route, Understanding
+from core.understanding.quick_answer import QuickAnswerEngine, QuickAnswerResult
 
-__all__ = ["UnderstandingLayer", "Route", "Understanding"]
+__all__ = [
+    "UnderstandingLayer",
+    "Route",
+    "Understanding",
+    "QuickAnswerEngine",
+    "QuickAnswerResult",
+]

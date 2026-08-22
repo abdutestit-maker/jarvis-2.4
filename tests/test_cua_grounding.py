@@ -91,11 +91,40 @@ def test_ground_respects_view():
     from core.cua.backend import ObservedScreen
     from core.cua.geometry import Region
     scr = ObservedScreen(words=[("Кнопка", Region(100, 100, 50, 50))])
-    view = Region(0, 0, 50, 50)  # View не включает слово
+    view = Region(0, 0, 50, 50)  # View не включает слово (centroid 125,125)
     res = Grounder().ground(scr, "Кнопка", view=view)
-    # Слово вне view — confidence от точного матча всё равно найдёт, но точка
-    # ограничивается view. Проверяем, что действует (не падает) и found.
+    # Новое поведение: words вне view игнорируются -> not found.
+    assert res.found is False
+
+
+def test_ground_view_finds_inside():
+    from core.cua.backend import ObservedScreen
+    from core.cua.geometry import Region
+    scr = ObservedScreen(words=[("Внутри", Region(10, 10, 30, 30)), ("Снаружи", Region(200, 200, 50, 50))])
+    view = Region(0, 0, 100, 100)
+    res = Grounder().ground(scr, "Внутри", view=view)
     assert res.found is True
+    assert res.confidence == 1.0
+
+
+def test_ground_zoom_small_target():
+    from core.cua.backend import ObservedScreen
+    from core.cua.geometry import Region
+    # Маленький регион (1×1) должен триггерить zoom_to_region при zoom_slop=24.
+    scr = ObservedScreen(words=[("Микро", Region(100, 100, 1, 1))])
+    res = Grounder(zoom_slop=24).ground(scr, "Микро")
+    assert res.found is True
+    # zoom_to_region пересчитает centroid (100.5,100.5) внутри tiny region.
+
+
+def test_ground_no_zoom_large_target():
+    from core.cua.backend import ObservedScreen
+    from core.cua.geometry import Region
+    # Большой регион (100×100) — zoom НЕ должен срабатывать (slop=24, но w,h > 24).
+    scr = ObservedScreen(words=[("Большой", Region(100, 100, 100, 100))])
+    res = Grounder(zoom_slop=24).ground(scr, "Большой")
+    assert res.found is True
+    assert res.point == Region(100, 100, 100, 100).centroid
 
 
 # --------------------------------------------------------------------------- #

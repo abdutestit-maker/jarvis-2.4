@@ -27,7 +27,7 @@ from core.cua.backend import ComputerBackend, ObservedScreen
 from core.cua.geometry import Point, Region
 from core.utils.logger import get_logger
 
-__all__ = ["Reflector", "ReflectResult", "Groounder"]
+__all__ = ["Reflector", "ReflectResult"]
 
 log = get_logger(__name__)
 
@@ -94,6 +94,13 @@ class Reflector:
         last_error = ""
 
         before = self._observe(evidence)
+        if before.error:
+            # Нет экрана → нет смысла действовать.
+            return ReflectResult(
+                ok=False, action=action, verify_text="",
+                attempts=0, recovered=False, evidence=evidence,
+                error=before.error,
+            )
         while attempts < self._max_attempts:
             attempts += 1
             # Ground: если нет явной точки/региона, ищем через grounder.

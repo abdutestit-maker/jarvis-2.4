@@ -4,9 +4,11 @@
 тестировать и использовать отдельно от реестра инструментов.
 """
 from __future__ import annotations
+
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional
 from urllib.parse import quote_plus
+
 import requests
 
 _TIMEOUT = 10
@@ -14,18 +16,23 @@ _USER_AGENT = "Jarvis/2.4 public-data client"
 
 
 def news_search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    if not (query or '').strip():
+    if not (query or "").strip():
         return []
     url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=ru&gl=RU&ceid=RU:ru"
     try:
         response = requests.get(url, headers={"User-Agent": _USER_AGENT}, timeout=_TIMEOUT)
         response.raise_for_status()
-        root = ET.fromstring(response.text)
-    except (requests.RequestException, ET.ParseError):
+        text = response.text
+    except requests.RequestException:
         return []
-    out = []
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
+    out: List[Dict[str, str]] = []
+    limit = max(1, min(int(max_results), 10))
     for item in root.iter("item"):
-        if len(out) >= max(1, min(int(max_results), 10)):
+        if len(out) >= limit:
             break
         title = (item.findtext("title") or "").strip()
         link = (item.findtext("link") or "").strip()
@@ -35,7 +42,7 @@ def news_search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
 
 
 def wiki_summary(topic: str, lang: str = "ru") -> Optional[str]:
-    if not (topic or '').strip():
+    if not (topic or "").strip():
         return None
     url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote_plus(topic)}"
     try:
@@ -55,6 +62,6 @@ def currency_rates(base: str = "RUB") -> Optional[Dict[str, float]]:
         data = response.json()
     except (requests.RequestException, ValueError):
         return None
-    if data.get("result") != "success":
+    if not isinstance(data, dict) or data.get("result") != "success":
         return None
     return {str(k): float(v) for k, v in (data.get("rates") or {}).items()}

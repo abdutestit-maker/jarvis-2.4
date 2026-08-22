@@ -50,7 +50,8 @@ class Grounder:
     """Находит цель по имени среди OCR-слов экрана. (детерминированный, no-key)"""
 
     def __init__(self, *, zoom_slop: int = 24) -> None:
-        # Пытаться ли «приблизить» регион вокруг цели (регион-zoom на мелкое).
+        # Маленькие цели (w/h < zoom_slop) «приближаем» через zoom_to_region
+        # для точнее координат внутри маленького региона.
         self._zoom_slop = max(0, int(zoom_slop))
 
     def ground(self, screen: ObservedScreen, target: str,
@@ -60,7 +61,7 @@ class Grounder:
         Args:
             screen: снимок экрана (words = OCR-слова с регионами).
             target: что ищем (напр. 'Открыть', 'Submit').
-            view: если задан — сузиться до этого региона (для region-zoom).
+            view: если задан — сузиться до этого региона (words вне view игнорируются).
 
         Returns:
             GroundResult с точкой/регионом и уверенностью.
@@ -69,11 +70,15 @@ class Grounder:
         if not t:
             return GroundResult(None, view, target, 0.0, False)
 
+        candidates = (screen.words or [])
+        if view is not None:
+            # Сузить поиск до региона (region-zoom): игнорировать слова вне view.
+            candidates = [(w, r) for w, r in candidates if r is not None and view.contains(r.centroid)]
+
         best: Optional[tuple[float, Region]] = None
-        for word, reg in (screen.words or []):
+        for word, reg in candidates:
             w = _norm(word)
             if not w or reg is None:
-                # Нет региона -> некуда кликать; пропускаем (честно).
                 continue
             if w == t:
                 score = 1.0
@@ -90,7 +95,8 @@ class Grounder:
             if view is not None and not _region_inside(reg, view):
                 reg = view
             pt = reg.centroid
-            if self._zoom_slop and not (0 < reg.x < 1000 and 0 < reg.y < 1000):
+            # Приближаем только маленькие цели (иначе zoom_to_region бессмысленен).
+            if self._zoom_slop and (reg.w < self._zoom_slop or reg.h < self._zoom_slop):
                 pt = zoom_to_region(pt, reg)
             return GroundResult(pt, reg, target, score, True)
 

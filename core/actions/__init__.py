@@ -34,6 +34,7 @@ from core.actions import (  # noqa: F401
     browser_bridge,
     media,
     time,
+    public_data,
 )
 
 __all__ = [

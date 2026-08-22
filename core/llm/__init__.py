@@ -34,6 +34,12 @@ from core.llm.factory import (
 from core.llm.local_qwen import LocalQwenBackend
 from core.llm.llama_server import LlamaServerBackend, find_llama_server
 from core.llm.remote_api import RemoteAPIBackend, RetryableHTTPError
+from core.llm.free_providers import (
+    FREE_PROVIDERS,
+    FreeProvider,
+    as_openai_compatible,
+    resolve_free_provider,
+)
 from core.llm.tiers import (
     ESCALATION_ORDER,
     Tier,
@@ -80,4 +86,9 @@ __all__ = [
     "ToolCall",
     "ToolCallResponse",
     "parse_tool_calls",
+    # свободные (бесплатные) провайдеры — Фаза 5
+    "FreeProvider",
+    "FREE_PROVIDERS",
+    "resolve_free_provider",
+    "as_openai_compatible",
 ]

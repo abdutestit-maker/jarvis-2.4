@@ -34,6 +34,7 @@ from core.memory.relationship import (
     WorkingMemory,
 )
 from core.memory.short_term import SessionManager
+from core.memory.taste import DEFAULT_TASTE, TasteProfile, extract_taste_signals
 
 __all__ = [
     "SessionManager",
@@ -61,4 +62,7 @@ __all__ = [
     "RelationshipMemory",
     "RelationshipMemoryStore",
     "WorkingMemory",
+    "TasteProfile",
+    "DEFAULT_TASTE",
+    "extract_taste_signals",
 ]

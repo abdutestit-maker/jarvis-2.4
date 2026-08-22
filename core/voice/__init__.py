@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from core.voice.notifications import show_toast
 from core.voice.stt import STTEngine, STT_DISABLED_MSG, VoiceActivityDetector
-from core.voice.wake_word import WakeWordDetector, NoOpWakeWord
+from core.voice.wake_word import (
+    WakeWordDetector,
+    NoOpWakeWord,
+    OpenWakeWordDetector,
+    build_wake_word_detector,
+)
 from core.voice.tts import PiperTTS
 from core.voice.tts_queue import TTSQueue
 from core.voice.output import (
@@ -26,6 +31,8 @@ __all__ = [
     "VoiceActivityDetector",
     "WakeWordDetector",
     "NoOpWakeWord",
+    "OpenWakeWordDetector",
+    "build_wake_word_detector",
     "AssistantOutput",
     "ErrorCategory",
     "ErrorInfo",

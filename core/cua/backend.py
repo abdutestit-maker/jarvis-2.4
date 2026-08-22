@@ -42,6 +42,7 @@ class ObservedScreen:
     regions: list[Region] = field(default_factory=list)  # обнаруженные UI-регионы
     raw: Any = None                     # сырой кадр (не сериализуется)
     error: str = ""                     # текст ошибки observe() (если была)
+    words: list[tuple[str, Region]] = field(default_factory=list)  # OCR: (метка, регион)
 
 
 class ComputerBackend(ABC):

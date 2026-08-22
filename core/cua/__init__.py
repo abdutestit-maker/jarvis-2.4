@@ -27,6 +27,8 @@ from core.cua.backend import (
 )
 from core.cua.geometry import NORM_MAX, Point, Region, region_centroid, zoom_to_region
 from core.cua.reflector import ReflectResult, Reflector
+from core.cua.grounding import GroundResult, Grounder, default_grounder
+from core.cua.engine import CUAEngine, CUAResult
 
 __all__ = [
     "ComputerBackend",
@@ -41,4 +43,9 @@ __all__ = [
     "zoom_to_region",
     "ReflectResult",
     "Reflector",
+    "GroundResult",
+    "Grounder",
+    "default_grounder",
+    "CUAEngine",
+    "CUAResult",
 ]

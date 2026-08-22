@@ -33,12 +33,12 @@ from core.model_router import ModelRouter, classify_conversation, estimate_compl
 from core.research import is_research_goal
 from core.router import CouncilRouter
 from core.router.intent_router import resolve_keyword_tool
-from core.understanding import Route, UnderstandingLayer
+from core.understanding import QuickAnswerEngine, Route, UnderstandingLayer
 from core.state import JarvisState, ActionResult, new_state, push_message, trim_short_memory
 from core.task_runtime import Mission, MissionStatus, TaskEvent, TaskRuntime
 from core.voice import (
     AssistantOutput, PiperTTS, SpeechRenderer, TTSQueue,
-    assistant_output_from_outcome, show_toast,
+    build_wake_word_detector, assistant_output_from_outcome, show_toast,
 )
 from core.proactive import Proactor, BackgroundScheduler
 from core.actions.reminders import TaskManager, get_default_manager
@@ -106,6 +106,25 @@ class Orchestrator:
         # Understanding Layer (Фаза 1): единственная точка классификации
         # ввода. Создаётся ДО агента — лёгкий regex-конструктор, без моделей.
         self._understanding = UnderstandingLayer()
+        # Quick-Answer путь (Фаза 2, без API-ключа): вопрос -> локальная
+        # Qwen решает -> DuckDuckGo(+Bing fallback) -> сжатие -> ответ 1-3 сек.
+        # Не требует внешних ключей; модель берётся из тира FAST лениво.
+        # Память (дыры 1/3): ретривер — живой контекст (self._living.answer_context),
+        # saver — долговременная память (self._memory.remember_exchange). Оба
+        # резолвятся ЛЕНИВО (при вызове), т.к. _living создаётся позже.
+        self._quick_answer = QuickAnswerEngine(
+            settings,
+            memory_retriever=lambda q: self._quick_memory_retrieve(q),
+            memory_saver=lambda q, a: self._remember_exchange_background(q, a),
+        )
+
+        # Wake word (Фаза 3, MIT): детектирует слово-пробуждение и будит
+        # слушателя. Создаётся лениво через фабрику — тяжёлые движки
+        # подхватятся только при enabled=True и установленных зависимостях.
+        self._wake_word = build_wake_word_detector(
+            settings,
+            on_detected=self._on_wake_word_detected,
+        )
 
         # --- Агентное ядро J.A.R.V.I.S. 3.0 (§3, §6) ---
         # Агент исполняет миссии, TaskRuntime даёт им асинхронную жизнь.
@@ -408,6 +427,14 @@ class Orchestrator:
             self._shadow.start(interval_sec=int(getattr(shadow_cfg, "interval_sec", 300)))
             self._living.start()
 
+            # Wake word (Фаза 3): если включён и движок доступен — слушает.
+            ww = getattr(self, "_wake_word", None)
+            if ww is not None:
+                try:
+                    ww.start()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Wake word не запустился: %s", exc)
+
             log.info("Оркестратор запущен")
 
     def shutdown(self) -> None:
@@ -421,6 +448,12 @@ class Orchestrator:
         self._scheduler.stop()
         self._living.stop()
         self._shadow.stop()
+        ww = getattr(self, "_wake_word", None)
+        if ww is not None:
+            try:
+                ww.stop()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Wake word stop: %s", exc)
         self._tts_queue.stop(wait=True)
         try:
             self._brain.close()
@@ -558,6 +591,21 @@ class Orchestrator:
             run_background = True
         elif understanding.route == Route.QUICK_ANSWER:
             run_background = False
+            # Фаза 2: выделенный быстрый путь — вопрос -> (память | поиск
+            # DuckDuckGo) -> сжатие локальной Qwen -> ответ за 1-3 сек.
+            # НЕ уходит в агентный цикл действий и НЕ в миссию. Фикс A3:
+            # любая деградация озвучивается живо (честно), не canned-фразой.
+            answer = self._quick_answer.answer(text)
+            qa_state = self._direct_cognitive_response(
+                text,
+                answer.text,
+                mode="quick_answer",
+                verified=answer.verified,
+            )
+            qa_state["route"] = understanding.route.value
+            qa_state["quick_answer"] = answer.to_dict()
+            qa_state["confidence"] = understanding.confidence
+            return self._stamp_latency(qa_state, request_started, "fast")
         else:
             run_background = self._should_run_background(text)
         self._living.observe_user_input(text, active_mission=run_background)
@@ -1039,6 +1087,43 @@ class Orchestrator:
         if self._settings.voice.tts_enabled and self._tts.is_available():
             self._tts_queue.add_output(output)
         return rendered.text
+
+    def _on_wake_word_detected(self) -> None:
+        """Сработало слово-пробуждение: регистрируем и будим слушателя.
+
+        Вызывается из потока wake-word. Безопасно: только логирует и
+        помечает состояние — само «что делать дальше» вешает слушатель
+        (STT/голосовой цикл). Эмитим WS-событие, если WS-сервер находится
+        в этом же процессе (делегируется через callback).
+        """
+        log.info("Wake word: слово-пробуждение распознано — слушатель активен")
+        # Лёгкий способ уведомить фронт/консоль без жёсткой связи:
+        # делегируем в существующий механизм событий, если он доступен.
+        emit = getattr(self, "_emit_wake_word_event", None)
+        if callable(emit):
+            try:
+                emit()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Wake word event emit: %s", exc)
+
+    def _quick_memory_retrieve(self, question: str) -> Optional[str]:
+        """Ретривер памяти для Quick-Answer: живой контекст без сети.
+
+        Использует ``self._living.answer_context`` (быстрый структурированный
+        ответ из локального контекста) как источник «уже знаю это». Если
+        ``_living`` ещё не создан или не ответил — возвращает None (дыра 1).
+        """
+        living = getattr(self, "_living", None)
+        if living is None:
+            return None
+        try:
+            reply = living.answer_context(question)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Quick-answer: живой контекст не ответил: %s", exc)
+            return None
+        if reply and reply.get("answer"):
+            return str(reply["answer"])
+        return None
 
     def _direct_cognitive_response(self, user_text: str, response: str, *,
                                    mode: str = "conversation",

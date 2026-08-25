@@ -159,6 +159,10 @@ class CognitiveOrchestrator:
             self.state.mission_state = "executing" if continuation.action != "status" else "paused"
             self.state.pending_user_question = ""
             self.state.confidence = continuation.confidence
+            if "user correction" in continuation.evidence:
+                self.state.last_verified_result = ""
+                self.state.pending_verification = ["user-reported outcome mismatch"]
+                self.state.mission_state = "repairing"
             self.store.save(self.state)
             return CognitiveTurn(
                 command, True, continuation.action, continuation.goal,

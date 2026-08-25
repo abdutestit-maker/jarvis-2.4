@@ -393,6 +393,7 @@ class BrowserBridge:
         self._clock = clock or time.time
         self.max_nodes = max(1, int(max_nodes))
         self._session: BrowserSession | None = None
+        self._evidence_scope = str(getattr(provider, "evidence_scope", "internal") or "internal")
 
     @property
     def session(self) -> BrowserSession | None:
@@ -430,6 +431,10 @@ class BrowserBridge:
             title=str(opened.get("title", "")) if isinstance(opened, Mapping) else "",
             created_at=self._clock(),
         )
+        if isinstance(opened, Mapping):
+            self._evidence_scope = str(
+                opened.get("evidence_scope") or self._evidence_scope or "internal"
+            )
         observed = self.observe()
         return {
             "ok": True,
@@ -437,6 +442,7 @@ class BrowserBridge:
             "url": observed["url"],
             "title": observed["title"],
             "dom_hash": observed["dom_hash"],
+            "evidence_scope": observed["evidence_scope"],
         }
 
     def navigate(self, url: str) -> dict[str, Any]:
@@ -446,7 +452,13 @@ class BrowserBridge:
         except Exception as exc:
             raise BrowserBridgeError(str(exc)) from exc
         observed = self.observe()
-        return {"ok": True, **{key: observed[key] for key in ("session_id", "url", "title", "dom_hash")}}
+        return {
+            "ok": True,
+            **{
+                key: observed[key]
+                for key in ("session_id", "url", "title", "dom_hash", "evidence_scope")
+            },
+        }
 
     def observe(self) -> dict[str, Any]:
         session = self._require_session()
@@ -478,6 +490,7 @@ class BrowserBridge:
             "dom_hash": dom_hash,
             "nodes": safe_nodes,
             "observed_at": self._session.last_observed_at,
+            "evidence_scope": self._evidence_scope,
         }
 
     def inspect_dom(self, *, max_nodes: int | None = None) -> list[dict[str, Any]]:
@@ -589,6 +602,7 @@ class BrowserBridge:
             "title": observed.get("title"),
             "dom_hash": observed.get("dom_hash"),
             "node_count": len(observed.get("nodes", [])),
+            "evidence_scope": observed.get("evidence_scope", "internal"),
         }
 
     def _observe_after_action(
@@ -994,5 +1008,6 @@ class BrowserBridge:
             "ok": bool(result.get("ok", True)) if isinstance(result, Mapping) else True,
             "closed": True,
             "session_id": previous.session_id if previous else None,
+            "evidence_scope": self._evidence_scope,
             "result": result,
         }

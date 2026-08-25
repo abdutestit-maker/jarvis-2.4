@@ -690,7 +690,7 @@ class Agent:
         risk = assess_risk(goal)
         trace.append(f"risk={risk.level.value}")
         safe_conversation, safe_conversation_reason = classify_conversation(goal, intent)
-        if safe_conversation and not self.deepseek_brain_mode:
+        if safe_conversation:
             routing = self._model_router.route(goal, context_tokens=0)
             memory_ctx = self._retrieve_context(goal)
             trace.append(f"conversation safety gate: {safe_conversation_reason}")
@@ -712,7 +712,7 @@ class Agent:
         # Explicit independent clauses become a verified batch.  This keeps
         # a planner from silently completing only the first half of a request.
         compound = split_compound_commands(goal)
-        if compound and not risk.needs_confirmation and not self.deepseek_brain_mode:
+        if compound and not risk.needs_confirmation:
             trace.append(f"compound batch -> {len(compound)} clauses")
             if mission is not None:
                 mission.metadata["compound_commands"] = list(compound)
@@ -762,7 +762,7 @@ class Agent:
         # Local system/app/media commands do not need Chroma initialization or
         # a model context.  Keeping this branch first protects the 1.5s hard
         # budget and prevents cold memory setup from polluting tool latency.
-        fast = None if self.deepseek_brain_mode else self._try_fast_path(
+        fast = self._try_fast_path(
             goal, intent, mission, cancel, risk,
         )
         if fast is not None:
@@ -780,7 +780,7 @@ class Agent:
         # не может «позвать» list_files. Настоящие действия идут мимо гейта
         # (явные глаголы/интент файлов/приложений/системы) в planner ниже.
         is_conversation, conv_reason = classify_conversation(goal, intent)
-        if is_conversation and not self.deepseek_brain_mode:
+        if is_conversation:
             trace.append(f"conversation gate: {conv_reason}")
             if mission is not None:
                 mission.metadata["conversation_gate"] = conv_reason
@@ -2145,10 +2145,11 @@ class Agent:
     @staticmethod
     def _required_capability_contract(capability_ids: Sequence[str]) -> tuple[str, ...]:
         """Do not turn generic recovery hands into mandatory specialized steps."""
-        ordered = tuple(dict.fromkeys(
+        requested = tuple(dict.fromkeys(
             str(name).strip() for name in capability_ids if str(name).strip()
         ))
-        live = {cap.name: cap for cap in CAPABILITIES.resolve(ordered)}
+        live = {cap.name: cap for cap in CAPABILITIES.resolve(requested)}
+        ordered = tuple(name for name in requested if name in live)
         generic_hands = {
             name for name, cap in live.items()
             if name.startswith("computer_") and "computer" in {
@@ -3112,15 +3113,6 @@ class Agent:
         if degraded:
             trace.append(f"degraded: ответил {used_tier} вместо {routing.tier if routing else '?'}")
             text = f"[degraded] {text}"
-        if self.deepseek_brain_mode:
-            text, finalize_error = self._finalize_conversational_response(
-                goal=goal, draft=text, routing=routing, memory_ctx=memory_ctx,
-            )
-            if not text:
-                return self._handle_model_unavailable(
-                    goal, mission, trace,
-                    MODEL_ERROR_PREFIX + f"финальная реплика DeepSeek не сформирована: {finalize_error}",
-                )
         if mission is not None:
             mission.set_progress(1.0, "ответ сформирован")
         return AgentOutcome(text=text, verified=True, mode="conversation",
@@ -3379,11 +3371,17 @@ class Agent:
                             self._registry, prepared.name, {"request": goal},
                             ToolContext(settings=self._settings), max_retries=0,
                         )
-                        if result.ok:
+                        verification = verify_action_result(result)
+                        trace.append(
+                            f"shadow verification: {verification.method} -> {verification.verified}"
+                        )
+                        if verification.verified:
                             return AgentOutcome(
                                 text=str(result.output or "Сейчас разберусь — способ подготовлен."),
-                                verified=True, tool_used=prepared.name, mode="tool", trace=trace,
+                                verified=True, verification=verification,
+                                tool_used=prepared.name, mode="tool", trace=trace,
                             )
+                        trace.append("shadow result rejected: no independent verification")
             except Exception as exc:  # Generated tools never break Active mode.
                 trace.append(f"shadow on-demand skipped: {type(exc).__name__}")
         if mission is not None:

@@ -45,6 +45,10 @@ class BrowserAutomationProvider:
         self.engine = engine or BrowserAutomationEngine(headless=headless)
 
     @property
+    def evidence_scope(self) -> str:
+        return "internal" if bool(getattr(self.engine, "_headless", True)) else "user_visible"
+
+    @property
     def _page(self) -> Any:
         page = getattr(self.engine, "_page", None)
         if page is None:
@@ -61,7 +65,12 @@ class BrowserAutomationProvider:
         from core.network_guard import assert_safe_url
         safe_url = assert_safe_url(str(url))
         page.goto(safe_url, wait_until="load")
-        return {"ok": True, "url": page.url, "title": page.title()}
+        return {
+            "ok": True,
+            "url": page.url,
+            "title": page.title(),
+            "evidence_scope": self.evidence_scope,
+        }
 
     def inspect(self) -> list[dict[str, Any]]:
         return self.engine.list_elements()

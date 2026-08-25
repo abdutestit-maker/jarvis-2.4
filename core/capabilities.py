@@ -99,6 +99,8 @@ class Capability:
     success_check: str = ""            # как проверяется фактически (§14)
     fallbacks: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
+    model_visible: bool = True          # доступно ли generic user-goal discovery
+    evidence_scope: str = "system"      # system | internal | user_visible
 
     @classmethod
     def from_tool(cls, tool: Any, **overrides: Any) -> "Capability":
@@ -136,6 +138,8 @@ class Capability:
             "success_check": self.success_check,
             "fallbacks": list(self.fallbacks),
             "tags": list(self.tags),
+            "model_visible": self.model_visible,
+            "evidence_scope": self.evidence_scope,
             "strict_verifier": has_strict_verifier(self.name),
         }
 
@@ -340,6 +344,8 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
         success_check="конечная страница соответствует цели (URL/контент)",
         fallbacks=["web_fetch"],
         tags=["browser", "automation", "сайт", "форма", "playwright", "клик"],
+        model_visible=False,
+        evidence_scope="internal",
     ),
     "browser_bridge": dict(
         description=(
@@ -352,8 +358,10 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
         speed=Speed.SLOW,
         internet_required=True,
         success_check="конечный URL/DOM или post-action state фактически наблюдён",
-        fallbacks=["browser_automation", "computer_mouse", "computer_keyboard"],
+        fallbacks=["computer_mouse", "computer_keyboard"],
         tags=["browser", "automation", "dom", "visible", "web", "click", "type"],
+        model_visible=True,
+        evidence_scope="user_visible",
     ),
 }
 
@@ -425,7 +433,7 @@ class CapabilityRegistry:
         """Карта tool -> fallbacks для ``RepairLoop`` (§11)."""
         return {c.name: list(c.fallbacks) for c in self.all() if c.fallbacks}
 
-    def resolve(self, names: Sequence[str]) -> List[Capability]:
+    def resolve(self, names: Sequence[str], *, include_internal: bool = False) -> List[Capability]:
         """Resolve model-selected capability ids against the live registry.
 
         IDs are accepted only when their underlying Tool is currently
@@ -440,7 +448,7 @@ class CapabilityRegistry:
             if not name or name in seen or name not in self._tools:
                 continue
             cap = self._caps.get(name)
-            if cap is not None:
+            if cap is not None and (include_internal or cap.model_visible):
                 selected.append(cap)
                 seen.add(name)
         return selected
@@ -486,6 +494,8 @@ class CapabilityRegistry:
         groups: Dict[str, List[Capability]] = {name: [] for name, _ in category_tags}
         groups["other"] = []
         for cap in self.all():
+            if not cap.model_visible:
+                continue
             tags = {str(tag).casefold() for tag in cap.tags}
             category = next(
                 (name for name, markers in category_tags if tags & markers),
@@ -611,7 +621,10 @@ class CapabilityRegistry:
         if not words:
             return []
 
-        caps = [c for c in self.all() if not (c.internet_required and not allow_internet)]
+        caps = [
+            c for c in self.all()
+            if c.model_visible and not (c.internet_required and not allow_internet)
+        ]
         if not caps:
             return []
 

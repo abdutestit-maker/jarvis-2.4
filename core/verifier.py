@@ -176,7 +176,7 @@ def verify_command_exit(result: ActionResult) -> VerificationResult:
         code = int(m.group(1))
         return VerificationResult(code == 0, "exit_code", f"returncode={code}")
     if result.ok:
-        return VerificationResult(True, "started_no_error",
+        return VerificationResult(False, "started_no_error",
                                   "процесс запущен без исключения", strict=False)
     return VerificationResult(False, "exit_code", result.error or "ok=False")
 
@@ -290,7 +290,7 @@ def verify_process_running(result: ActionResult) -> VerificationResult:
 
     names = _app_candidate_names(result)
     if not names:
-        return VerificationResult(True, "process_running",
+        return VerificationResult(False, "process_running",
                                   "имя процесса неизвестно — строгая проверка невозможна",
                                   strict=False)
 
@@ -306,7 +306,7 @@ def verify_process_running(result: ActionResult) -> VerificationResult:
     # Протокольные цели (ms-settings:) и UWP не дают совпадения по имени.
     text = _output_text(result)
     if ":" in text and "ms-settings" in text.lower():
-        return VerificationResult(True, "shell_protocol",
+        return VerificationResult(False, "shell_protocol",
                                   "запущена протокольная цель, процесса нет", strict=False)
     return VerificationResult(False, "process_running",
                               f"процесс не найден среди запущенных: {names[:3]}")
@@ -424,7 +424,7 @@ def verify_current_time(result: ActionResult) -> VerificationResult:
 
 
 def verify_play_music(result: ActionResult) -> VerificationResult:
-    """play_music: локальная медиаточка открыта, а не просто поиск в сети."""
+    """play_music: an active audio session exists after the launch request."""
     text = _output_text(result)
     args = result.args or {}
     source = str(args.get("source") or "auto").casefold()
@@ -438,9 +438,45 @@ def verify_play_music(result: ActionResult) -> VerificationResult:
             "media_playback",
             "открыта поисковая страница; воспроизведение не подтверждено",
         )
-    if result.ok and text:
-        return VerificationResult(True, "media_surface", "локальная медиаточка открыта launcher-ом")
-    return VerificationResult(False, "media_surface", result.error or "медиаточка не открыта")
+    if not result.ok:
+        return VerificationResult(False, "media_playback", result.error or "медиаточка не открыта")
+    deadline = time.time() + 2.0
+    active: List[str] = []
+    while time.time() < deadline and not active:
+        active = _active_audio_sessions()
+        if not active:
+            time.sleep(0.2)
+    if active:
+        return VerificationResult(
+            True,
+            "active_audio_session",
+            f"активное воспроизведение наблюдалось: {active[:3]}",
+        )
+    return VerificationResult(
+        False,
+        "media_playback",
+        "медиаповерхность открыта, но активное воспроизведение не наблюдалось",
+    )
+
+
+def _active_audio_sessions() -> List[str]:
+    """Observe active Windows audio sessions independently of the launcher."""
+    try:
+        from pycaw.pycaw import AudioUtilities
+    except Exception:
+        return []
+    active: List[str] = []
+    try:
+        for session in AudioUtilities.GetAllSessions():
+            if int(getattr(session, "State", 0) or 0) != 1:
+                continue
+            process = getattr(session, "Process", None)
+            name = process.name() if process is not None else "system-audio"
+            if name and name not in active:
+                active.append(str(name))
+    except Exception as exc:
+        log.debug("Audio session observation failed: %s", exc)
+    return active
 
 
 def verify_computer_action(result: ActionResult) -> VerificationResult:
@@ -472,6 +508,12 @@ def verify_browser_bridge(result: ActionResult) -> VerificationResult:
         return VerificationResult(False, "browser_observation", result.error or "ok=False")
     output = result.output if isinstance(result.output, Mapping) else {}
     action = str((result.args or {}).get("action") or "")
+    if str(output.get("evidence_scope") or "") != "user_visible":
+        return VerificationResult(
+            False,
+            "browser_visibility",
+            "browser observation is not proven user-visible",
+        )
     if action in {"open", "navigate", "observe"}:
         url = str(output.get("url") or "")
         dom_hash = str(output.get("dom_hash") or "")
@@ -489,11 +531,21 @@ def verify_browser_bridge(result: ActionResult) -> VerificationResult:
     return VerificationResult(False, "browser_observation", "browser result is empty")
 
 
+def verify_internal_browser(result: ActionResult) -> VerificationResult:
+    """Headless automation can support internal work, never a visible goal."""
+    return VerificationResult(
+        False,
+        "internal_browser_observation",
+        result.error or "headless browser state is internal evidence only",
+        strict=True,
+    )
+
+
 def default_verify(result: ActionResult) -> VerificationResult:
-    """Fallback: доверяем ok, но ЧЕСТНО помечаем strict=False (§14)."""
+    """Fallback records provider acknowledgement without granting completion."""
     if result.ok:
-        log.debug("Инструмент '%s' без спец. verifier — доверяем ok=True", result.tool)
-        return VerificationResult(True, "trust_ok",
+        log.debug("Инструмент '%s' без спец. verifier — completion не подтверждён", result.tool)
+        return VerificationResult(False, "trust_ok",
                                   "специализированная проверка недоступна", strict=False)
     return VerificationResult(False, "trust_ok", result.error or "ok=False", strict=False)
 
@@ -542,3 +594,4 @@ register_verifier("computer_mouse", verify_computer_action)
 register_verifier("computer_keyboard", verify_computer_action)
 register_verifier("computer_screenshot", verify_computer_action)
 register_verifier("browser_bridge", verify_browser_bridge)
+register_verifier("browser_automation", verify_internal_browser)

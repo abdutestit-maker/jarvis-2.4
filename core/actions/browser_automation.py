@@ -204,7 +204,13 @@ class BrowserAutomationEngine:
             raise BrowserAutomationError(
                 f"Не удалось открыть {url}: {type(exc).__name__}: {exc}"
             )
-        return {"ok": True, "url": self._page.url, "title": self._page.title()}
+        return {
+            "ok": True,
+            "url": self._page.url,
+            "title": self._page.title(),
+            "headless": self._headless,
+            "evidence_scope": "internal" if self._headless else "user_visible",
+        }
 
     def _require_page(self) -> None:
         if self._page is None:

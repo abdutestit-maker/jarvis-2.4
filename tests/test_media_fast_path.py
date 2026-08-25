@@ -13,7 +13,9 @@ from core.verifier import verify_action_result
 
 def test_bare_music_command_uses_media_fast_path(settings, fake_backend):
     agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
-    with patch("core.actions.media._open_target", return_value=True):
+    with patch("core.actions.media._open_target", return_value=True), \
+         patch("core.actions.media._request_playback", return_value=True), \
+         patch("core.verifier._active_audio_sessions", return_value=["fixture-player"]):
         outcome = agent.execute("поставь музыку")
 
     assert outcome.mode == "fast_path"

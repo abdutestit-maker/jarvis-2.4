@@ -16,24 +16,26 @@ def test_every_implemented_computer_tool_is_registered():
     assert {"computer_mouse", "computer_keyboard", "computer_screenshot"} <= names
 
 
-def test_discovery_keeps_model_selected_live_capabilities():
+def test_discovery_keeps_only_model_visible_live_capabilities():
     caps = CAPABILITIES.discover(
         "сделай действие через экран",
         ["computer_screenshot", "computer_mouse", "browser_automation"],
         top_k=8,
     )
     names = [cap.name for cap in caps]
-    assert names[:3] == ["computer_screenshot", "computer_mouse", "browser_automation"]
+    assert names[:2] == ["computer_screenshot", "computer_mouse"]
+    assert "browser_automation" not in names
 
 
-def test_surface_summary_contains_full_capability_categories():
+def test_surface_summary_contains_full_user_goal_capability_categories():
     surface = CAPABILITIES.surface_summary()
     assert "computer:" in surface
     assert "applications:" in surface
     assert "filesystem:" in surface
     assert "browser:" in surface
     assert "computer_keyboard:" in surface
-    assert "browser_automation:" in surface
+    assert "browser_bridge:" in surface
+    assert "browser_automation:" not in surface
 
 
 def test_discovery_uses_dialogue_history_for_follow_up(settings, monkeypatch):
@@ -62,7 +64,7 @@ def test_discovery_uses_dialogue_history_for_follow_up(settings, monkeypatch):
     assert "Capability surface:" in captured["system"]
 
 
-def test_ambiguous_turn_reaches_model_discovery_before_conversation(settings, monkeypatch):
+def test_ambiguous_turn_uses_direct_conversation_without_capability_discovery(settings, monkeypatch):
     settings.deepseek_brain_mode = True
     agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
     seen = []
@@ -74,13 +76,23 @@ def test_ambiguous_turn_reaches_model_discovery_before_conversation(settings, mo
         ), ""
 
     monkeypatch.setattr(agent, "_discover_capabilities", discover)
+    monkeypatch.setattr(
+        agent,
+        "_answer_conversation",
+        lambda goal, mission, cancel, trace, routing, memory_ctx="": AgentOutcome(
+            "Какой именно объект вы имеете в виду?",
+            verified=True,
+            mode="conversation",
+            trace=trace,
+        ),
+    )
     outcome = agent.execute("что именно?")
 
-    assert seen == ["что именно?"]
+    assert seen == []
     assert outcome.tool_used is None
     assert outcome.text == "Какой именно объект вы имеете в виду?"
-    assert outcome.verified is False
-    assert outcome.mode == "clarification"
+    assert outcome.verified is True
+    assert outcome.mode == "conversation"
 
 
 def test_inconsistent_discovery_is_retried_before_any_conversational_output(settings, monkeypatch):

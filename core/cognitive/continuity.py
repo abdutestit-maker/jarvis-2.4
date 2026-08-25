@@ -77,12 +77,30 @@ class ContinuityResolver:
     _CONTINUE = re.compile(r"(?i)\b(продолжай|продолжим|дальше|вернись|continue|resume)\b")
     _STATUS = re.compile(r"(?i)(что\s+там\s+с|как\s+там|статус|status)")
     _RETRY = re.compile(r"(?i)\b(повтори|ещ[её]\s+раз|retry)\b")
+    _CORRECTION = re.compile(
+        r"(?i)(?:\b(?:не|ничего)\b.{0,80}"
+        r"(?:откр|запуст|произош|сработ|создал|создался|отправ|появ|включ|игра|воспроизв)"
+        r"|\b(?:не|ничего)\s+(?:вижу|получил|получила)\b)"
+    )
 
     def __init__(self, stack: GoalStack) -> None:
         self.stack = stack
 
     def resolve(self, text: str, state: CurrentMindState,
                 *, now: datetime | None = None) -> ContinuationResolution:
+        correction = bool(self._CORRECTION.search(text or ""))
+        if correction and state.current_goal and (
+            state.last_verified_result
+            or state.mission_state in {"completed", "verifying", "verification_failed"}
+        ):
+            return ContinuationResolution(
+                "retry",
+                state.current_goal,
+                state.active_mission_id,
+                confidence=0.35,
+                evidence=("user correction", "previous completion invalidated"),
+            )
+
         action = "status" if self._STATUS.search(text) else (
             "retry" if self._RETRY.search(text) else (
                 "continue" if self._CONTINUE.search(text) else "none"

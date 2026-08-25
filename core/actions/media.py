@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
 import urllib.parse
 import webbrowser
@@ -39,6 +40,26 @@ def _open_default_player() -> bool:
     return False
 
 
+def _request_playback() -> bool:
+    """Send the Windows media PLAY command without toggling active audio off."""
+    if os.name != "nt":
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        hwnd_broadcast = 0xFFFF
+        wm_appcommand = 0x0319
+        appcommand_media_play = 46
+        user32.SendMessageW(
+            hwnd_broadcast,
+            wm_appcommand,
+            0,
+            appcommand_media_play << 16,
+        )
+        return True
+    except Exception:
+        return False
+
+
 def play_music(*, query: str = "", mood: str = "", uri: str = "", path: str = "",
                source: str = "auto", allow_network: bool = False) -> ActionResult:
     args = {"query": query, "mood": mood, "uri": uri, "path": path,
@@ -63,9 +84,14 @@ def play_music(*, query: str = "", mood: str = "", uri: str = "", path: str = ""
     query = " ".join((query or (mood if allow_network else "")).split())
     if not query:
         if _open_default_player():
+            requested = _request_playback()
             return ActionResult(
                 tool="play_music", args=args, ok=True,
-                output="Открыл локальный музыкальный плеер. Назовите трек, если нужен конкретный.",
+                output=(
+                    "Открыл локальный музыкальный плеер и отправил команду воспроизведения."
+                    if requested else
+                    "Открыл локальный музыкальный плеер; команда воспроизведения не подтверждена."
+                ),
                 side_effects_contained=False,
             )
         return ActionResult(tool="play_music", args=args, ok=False,

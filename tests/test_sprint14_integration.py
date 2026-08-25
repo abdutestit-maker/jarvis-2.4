@@ -11,7 +11,10 @@ from core.metacognition import EpistemicStatus
 from core.metacognition import Expectation, Strategy
 
 
-NOW = datetime(2026, 8, 17, 16, 0, tzinfo=timezone.utc)
+# Freshness assertions exercise current observations, not an eventually stale
+# calendar fixture.  Keeping this anchored to the test run prevents the suite
+# from changing meaning as wall-clock time advances.
+NOW = datetime.now(timezone.utc)
 
 
 def test_current_mind_state_exposes_only_safe_epistemic_summaries():

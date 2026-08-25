@@ -592,8 +592,7 @@ class Orchestrator:
         # cognitive layer; explicit actions never pay that ambiguity tax.
         pre_intent = resolve_keyword_tool(text, text)
         cognitive_turn = None
-        if (not bool(getattr(self._settings, "deepseek_brain_mode", False))
-                and pre_intent not in {"app", "system", "media", "file", "browser"}):
+        if pre_intent not in {"app", "system", "media", "file", "browser"}:
             # Text arriving through the explicit chat/WS input is implicitly
             # addressed to JARVIS. Voice callers can use ``cognitive``
             # directly with ``implicit_address=False`` before forwarding.
@@ -614,6 +613,7 @@ class Orchestrator:
         if cognitive_turn is not None and cognitive_turn.action in {"continue", "retry"} and cognitive_turn.goal:
             text = cognitive_turn.goal
             pre_intent = resolve_keyword_tool(text, text)
+            understanding = self._understanding.understand(text, channel=channel)
 
         # Sprint 11: natural queries are answered from evidence-backed local
         # structured context. Action intents skip retrieval entirely: loading
@@ -646,9 +646,7 @@ class Orchestrator:
         # quick_answer — всегда синхронно (запрет уходить в mission даже
         # для сложных вопросов, фикс «почему...» в фоне). Остальное —
         # эвристика _should_run_background.
-        if bool(getattr(self._settings, "deepseek_brain_mode", False)):
-            run_background = False
-        elif understanding.route == Route.MISSION:
+        if understanding.route == Route.MISSION:
             run_background = True
         elif understanding.route == Route.QUICK_ANSWER:
             run_background = False
@@ -656,17 +654,18 @@ class Orchestrator:
             # DuckDuckGo) -> сжатие локальной Qwen -> ответ за 1-3 сек.
             # НЕ уходит в агентный цикл действий и НЕ в миссию. Фикс A3:
             # любая деградация озвучивается живо (честно), не canned-фразой.
-            answer = self._quick_answer.answer(text)
-            qa_state = self._direct_cognitive_response(
-                text,
-                answer.text,
-                mode="quick_answer",
-                verified=answer.verified,
-            )
-            qa_state["route"] = understanding.route.value
-            qa_state["quick_answer"] = answer.to_dict()
-            qa_state["confidence"] = understanding.confidence
-            return self._stamp_latency(qa_state, request_started, "fast")
+            if not bool(getattr(self._settings, "deepseek_brain_mode", False)):
+                answer = self._quick_answer.answer(text)
+                qa_state = self._direct_cognitive_response(
+                    text,
+                    answer.text,
+                    mode="quick_answer",
+                    verified=answer.verified,
+                )
+                qa_state["route"] = understanding.route.value
+                qa_state["quick_answer"] = answer.to_dict()
+                qa_state["confidence"] = understanding.confidence
+                return self._stamp_latency(qa_state, request_started, "fast")
         else:
             run_background = self._should_run_background(text)
         self._living.observe_user_input(text, active_mission=run_background)

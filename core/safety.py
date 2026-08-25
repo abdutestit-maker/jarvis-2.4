@@ -162,7 +162,8 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
             bump(RiskLevel.MEDIUM, why)
 
     # 3) Аргументы.
-    arg_text = " ".join(str(v) for v in (arguments or {}).values()).lower()
+    raw_arg_values = [str(v) for v in (arguments or {}).values()]
+    arg_text = " ".join(raw_arg_values).lower()
     if arg_text:
         for pattern, why in _CRITICAL_RISK_PATTERNS:
             if re.search(pattern, arg_text):
@@ -170,7 +171,15 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
         for pattern, why in _HIGH_RISK_PATTERNS:
             if re.search(pattern, arg_text):
                 bump(RiskLevel.HIGH, f"{why} (в аргументах)")
-        if _EXECUTABLE_RE.search(arg_text):
+        # A hostname such as ``example.com`` is navigation, not a DOS
+        # ``.com`` executable.  Executable classification applies only to
+        # non-HTTP argument values; download risk is assessed by the concrete
+        # browser action rather than by a domain suffix.
+        executable_arg_text = " ".join(
+            value for value in raw_arg_values
+            if not value.strip().casefold().startswith(("http://", "https://"))
+        ).lower()
+        if _EXECUTABLE_RE.search(executable_arg_text):
             # Известные системные приложения не считаем неизвестным exe.
             known = ("notepad", "calc", "explorer", "cmd", "powershell", "taskmgr",
                      "chrome", "firefox", "msedge", "winword", "excel", "vlc", "telegram")

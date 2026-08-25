@@ -21,7 +21,7 @@ import json
 import re
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from config.settings import Settings
 from core.actions import DEFAULT_REGISTRY, ToolContext, execute_tool
@@ -36,7 +36,7 @@ from core.router import CouncilRouter
 from core.router.intent_router import resolve_keyword_tool
 from core.understanding import QuickAnswerEngine, Route, UnderstandingLayer
 from core.state import JarvisState, ActionResult, new_state, push_message, trim_short_memory
-from core.task_runtime import Mission, MissionStatus, TaskEvent, TaskRuntime
+from core.task_runtime import Mission, MissionStatus, MissionTrigger, TaskEvent, TaskRuntime
 from core.voice import (
     AssistantOutput, ErrorCategory, ErrorInfo, PiperTTS, SpeechRenderer, TTSQueue,
     build_wake_word_detector, assistant_output_from_outcome, show_toast,
@@ -155,7 +155,10 @@ class Orchestrator:
         self._runtime = TaskRuntime(
             default_watchdog_sec=None,
             persistence_dir=settings.data_dir / "missions",
+            durable_runner=self._durable_mission_runner,
+            world_state=self._agent.executive.world,
         )
+        self._agent.attach_task_runtime(self._runtime)
         from core.living import LivingIntelligence
         self._living = LivingIntelligence(
             settings.data_dir / "living",
@@ -488,6 +491,7 @@ class Orchestrator:
 
             # Proactive
             self._proactor.start()
+            self._runtime.start_scheduler()
             self._scheduler.start()
             shadow_cfg = getattr(self._settings, "shadow", None)
             self._shadow.start(interval_sec=int(getattr(shadow_cfg, "interval_sec", 300)))
@@ -511,6 +515,7 @@ class Orchestrator:
             self._running = False
 
         self._proactor.stop()
+        self._runtime.stop_scheduler()
         self._scheduler.stop()
         self._living.stop()
         self._shadow.stop()
@@ -927,6 +932,44 @@ class Orchestrator:
             mission.metadata["_unsubscribe"] = unsubscribe
         return mission
 
+    def schedule_mission(
+        self, goal: str, trigger: MissionTrigger | Mapping[str, Any], *,
+        context: Optional[Dict[str, Any]] = None,
+        completion_criteria: Optional[Dict[str, Any]] = None,
+        expires_at: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Mission:
+        """Register a durable mission without creating an execution path beside Agent."""
+        if not self._running:
+            self.start()
+        return self._runtime.schedule(
+            goal, trigger, context=context, completion_criteria=completion_criteria,
+            expires_at=expires_at, metadata=metadata,
+        )
+
+    def resume_mission(self, task_id: str) -> bool:
+        return self._runtime.resume(task_id)
+
+    def reschedule_mission(
+        self, task_id: str, trigger: MissionTrigger | Mapping[str, Any],
+    ) -> bool:
+        return self._runtime.reschedule(task_id, trigger)
+
+    def _durable_mission_runner(self, mission: Mission, cancel: threading.Event) -> str:
+        if mission.metadata.get("durable_kind") == "reminder":
+            text = str(mission.context.get("notification_text") or mission.goal)
+            message = f"Напоминание: {text}"
+            self._output_callback(message)
+            self._queue_assistant_output(AssistantOutput.natural(message, speech_mode="focused"))
+            mission.verification = {
+                "verified": True,
+                "method": "local_notification_dispatch",
+                "detail": "notification dispatched to the active local output channel",
+                "strict": True,
+            }
+            return message
+        return self._mission_runner(mission, cancel)
+
     def _mission_runner(self, mission: Mission, cancel: threading.Event) -> str:
         """Исполнитель миссии: агент + память + озвучка результата."""
         kernel_mission_id = str(mission.metadata.get("kernel_mission_id", ""))
@@ -1092,6 +1135,7 @@ class Orchestrator:
                 user_id="default",
                 settings=self._settings,
                 state=state,
+                extra={"task_runtime": self._runtime},
             )
             result = execute_tool(self._registry, tool_name, args, context)
 

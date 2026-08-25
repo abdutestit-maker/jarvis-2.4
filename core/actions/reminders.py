@@ -1,11 +1,11 @@
-"""Менеджер напоминаний (reminders) на threading.Timer.
+"""Reminder tools backed by canonical durable missions in the main runtime.
 
 Инструмент:
 - ``AddReminderTool`` — добавляет напоминание через N минут.
 - ``TaskManager`` — управляет таймерами, вызывает callback при срабатывании.
 
-При срабатывании таймера вызывается callback-функция
-(оркестратор Части 5 подключит сюда notifications.py).
+``TaskManager`` remains a compatibility fallback for isolated callers that do
+not provide ``TaskRuntime``; production Agent context always provides it.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from config.settings import Settings
@@ -165,8 +166,8 @@ class AddReminderTool(Tool):
     def description(self) -> str:
         return (
             "Создаёт напоминание, которое сработает через указанное число минут. "
-            "При срабатывании вызывает callback (подключается оркестратором). "
-            "Не персистентно — при перезапуске теряется."
+            "При подключённом TaskRuntime хранится как durable mission и переживает restart; "
+            "legacy callback используется только вне основного runtime."
         )
 
     @property
@@ -192,6 +193,34 @@ class AddReminderTool(Tool):
     def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
         text = args["text"]
         minutes = args["minutes"]
+
+        runtime = context.extra.get("task_runtime") if context.extra else None
+        if runtime is not None:
+            try:
+                from core.task_runtime import MissedTriggerPolicy, MissionTrigger
+                due_at = datetime.now(timezone.utc) + timedelta(minutes=int(minutes))
+                mission = runtime.schedule(
+                    f"Напомнить пользователю: {text}",
+                    MissionTrigger.at(
+                        due_at, missed_policy=MissedTriggerPolicy.NOTIFY_LATE,
+                        max_lateness_sec=0,
+                    ),
+                    context={"notification_text": text},
+                    completion_criteria={"notification_dispatched": True},
+                    metadata={"durable_kind": "reminder", "source": "add_reminder"},
+                )
+                path = runtime.persistence_path(mission.task_id)
+                return ActionResult(
+                    tool=self.name, args=args, ok=True,
+                    output={
+                        "summary": f"Напоминание создано (ID: {mission.task_id}): через {minutes} мин — «{text}»",
+                        "mission_id": mission.task_id, "trigger_id": mission.trigger_id,
+                        "due_at": due_at.isoformat(), "status": mission.status.value,
+                        "durable": True, "persistence_path": str(path) if path else "",
+                    },
+                )
+            except Exception as exc:
+                return ActionResult(tool=self.name, args=args, ok=False, error=str(exc))
 
         manager = get_default_manager()
         # Если у контекста есть callback — используем его (оркестратор прокидывает)
@@ -232,6 +261,20 @@ class ListRemindersTool(Tool):
         return {"type": "object", "properties": {}, "additionalProperties": False}
 
     def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
+        runtime = context.extra.get("task_runtime") if context.extra else None
+        if runtime is not None:
+            reminders = [
+                mission for mission in runtime.list_missions(include_terminal=False)
+                if mission.metadata.get("durable_kind") == "reminder"
+            ]
+            if not reminders:
+                return ActionResult(tool=self.name, args=args, ok=True, output="Активных напоминаний нет.")
+            lines = ["Активные напоминания:"]
+            for mission in sorted(reminders, key=lambda item: str((item.trigger or {}).get("due_at") or "")):
+                due_at = str((mission.trigger or {}).get("due_at") or "")
+                lines.append(f"  #{mission.task_id} — {mission.context.get('notification_text', mission.goal)} ({due_at})")
+            return ActionResult(tool=self.name, args=args, ok=True, output="\n".join(lines))
+
         manager = get_default_manager()
         reminders = manager.list_reminders()
 
@@ -283,6 +326,19 @@ class CancelReminderTool(Tool):
 
     def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
         reminder_id = args["reminder_id"]
+        runtime = context.extra.get("task_runtime") if context.extra else None
+        if runtime is not None:
+            mission = runtime.get(reminder_id)
+            if mission is not None and mission.metadata.get("durable_kind") == "reminder" and runtime.cancel(reminder_id):
+                return ActionResult(
+                    tool=self.name, args=args, ok=True,
+                    output=f"Напоминание #{reminder_id} отменено.",
+                )
+            return ActionResult(
+                tool=self.name, args=args, ok=False,
+                error=f"Напоминание #{reminder_id} не найдено.",
+            )
+
         manager = get_default_manager()
 
         if manager.cancel_reminder(reminder_id):

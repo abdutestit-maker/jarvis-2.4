@@ -404,6 +404,26 @@ def verify_reminder_registered(result: ActionResult) -> VerificationResult:
     """add_reminder: напоминание реально существует в менеджере."""
     if not result.ok:
         return VerificationResult(False, "reminder_registered", result.error or "ok=False")
+    output = result.output if isinstance(result.output, Mapping) else {}
+    if output.get("durable") is True:
+        try:
+            from core.security.atomic import load_json
+            path = Path(str(output.get("persistence_path") or ""))
+            stored = load_json(path, default={}) if path.is_file() else {}
+            verified = bool(
+                stored.get("task_id") == output.get("mission_id")
+                and stored.get("status") == "waiting"
+                and isinstance(stored.get("trigger"), Mapping)
+                and stored["trigger"].get("trigger_id") == output.get("trigger_id")
+                and stored.get("metadata", {}).get("durable") is True
+            )
+            return VerificationResult(
+                verified, "durable_reminder_record",
+                "durable waiting mission independently reloaded from disk"
+                if verified else "durable mission record is missing or inconsistent",
+            )
+        except Exception as exc:
+            return VerificationResult(False, "durable_reminder_record", f"persistence check failed: {exc}")
     try:
         from core.actions.reminders import get_default_manager
         reminders = get_default_manager().list_reminders()

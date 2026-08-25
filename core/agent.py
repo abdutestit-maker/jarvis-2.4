@@ -325,6 +325,7 @@ class Agent:
         self._council = council
         self._brain_fabric = brain_fabric
         self._registry = DEFAULT_REGISTRY
+        self._task_runtime = None
         # Executive Mind owns goals/commitments/world state, while this Agent
         # remains the sole owner of tool execution and verification.
         from core.executive import LocalWorldObserver
@@ -516,6 +517,10 @@ class Agent:
     # ------------------------------------------------------------------ #
     #  Публичный вход: исполнение миссии
     # ------------------------------------------------------------------ #
+
+    def attach_task_runtime(self, runtime: Any) -> None:
+        """Attach the canonical runtime used by durable action primitives."""
+        self._task_runtime = runtime
 
     def run_mission(self, mission: Mission, cancel: threading.Event) -> str:
         """Исполняет миссию целиком. Возвращает финальный текст ответа.
@@ -2723,7 +2728,10 @@ class Agent:
             user_id="default",
             settings=self._settings,
             state=None,
-            extra={"confirmation_approved": bool(confirmation_approved)},
+            extra={
+                "confirmation_approved": bool(confirmation_approved),
+                "task_runtime": self._task_runtime,
+            },
         )
 
         if not fast_path:

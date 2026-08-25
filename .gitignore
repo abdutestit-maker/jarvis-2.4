@@ -62,3 +62,9 @@ artifacts/**/source_snapshots/
 artifacts/**/*.wav
 artifacts/**/*.tmp
 artifacts/**/test_installations/
+
+# local build and audit outputs
+runtime/
+runtime-temp/
+living_jarvis.egg-info/
+artifacts/

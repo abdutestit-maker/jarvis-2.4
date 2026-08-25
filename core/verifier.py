@@ -181,19 +181,19 @@ def verify_command_exit(result: ActionResult) -> VerificationResult:
     return VerificationResult(False, "exit_code", result.error or "ok=False")
 
 
-def _process_matches(names: List[str]) -> List[str]:
+def _process_matches(names: List[str]) -> Optional[List[str]]:
     """Список запущенных процессов, чьё имя совпадает с одним из names."""
     try:
-        import psutil
-    except ImportError:
-        return []
+        from core.executive import LocalWorldObserver
+        observation = LocalWorldObserver().observe("processes", limit=4096)
+    except Exception:
+        return None
+    if not observation.ok:
+        return None
     wanted = {n.lower() for n in names if n}
     running: List[str] = []
-    for proc in psutil.process_iter(["name"]):
-        try:
-            pname = (proc.info.get("name") or "").lower()
-        except Exception:
-            continue
+    for item in observation.data.get("processes", []):
+        pname = str(item.get("name") or "").lower()
         if not pname:
             continue
         for w in wanted:
@@ -296,8 +296,13 @@ def verify_process_running(result: ActionResult) -> VerificationResult:
 
     # Приложению нужно время на старт — короткий реальный поллинг (не «лимит мышления»).
     deadline = time.time() + 1.5
+    observation_failed = False
     while time.time() < deadline:
         running = _process_matches(names)
+        if running is None:
+            observation_failed = True
+            time.sleep(0.4)
+            continue
         if running:
             return VerificationResult(True, "process_running",
                                       f"процесс запущен: {sorted(set(running))[:3]}")
@@ -308,8 +313,12 @@ def verify_process_running(result: ActionResult) -> VerificationResult:
     if ":" in text and "ms-settings" in text.lower():
         return VerificationResult(False, "shell_protocol",
                                   "запущена протокольная цель, процесса нет", strict=False)
-    return VerificationResult(False, "process_running",
-                              f"процесс не найден среди запущенных: {names[:3]}")
+    detail = (
+        "наблюдение списка процессов недоступно"
+        if observation_failed else
+        f"процесс не найден среди запущенных: {names[:3]}"
+    )
+    return VerificationResult(False, "process_running", detail)
 
 
 def verify_process_gone(result: ActionResult) -> VerificationResult:
@@ -318,10 +327,13 @@ def verify_process_gone(result: ActionResult) -> VerificationResult:
         return VerificationResult(False, "process_gone", result.error or "ok=False")
     names = _app_candidate_names(result)
     if not names:
-        return VerificationResult(True, "process_gone", "имя процесса неизвестно", strict=False)
+        return VerificationResult(False, "process_gone", "имя процесса неизвестно", strict=False)
     deadline = time.time() + 5.0
     while time.time() < deadline:
-        if not _process_matches(names):
+        running = _process_matches(names)
+        if running is None:
+            return VerificationResult(False, "process_gone", "наблюдение списка процессов недоступно")
+        if not running:
             return VerificationResult(True, "process_gone", f"процессы {names[:3]} завершены")
         time.sleep(0.4)
     return VerificationResult(False, "process_gone", f"процесс всё ещё запущен: {names[:3]}")
@@ -407,9 +419,24 @@ def verify_system_metrics(result: ActionResult) -> VerificationResult:
     """system_status: в ответе реально есть метрики (CPU/RAM)."""
     if not result.ok:
         return VerificationResult(False, "system_metrics", result.error or "ok=False")
+    output = result.output if isinstance(result.output, Mapping) else {}
+    if output:
+        observed = (
+            output.get("fact_type") == "observed"
+            and output.get("freshness") == "fresh"
+            and bool(output.get("observed_at"))
+            and bool(output.get("source"))
+            and "cpu_percent" in output
+            and isinstance(output.get("ram"), Mapping)
+        )
+        return VerificationResult(
+            observed,
+            "system_metrics_observation",
+            "fresh OS metrics with provenance" if observed else "structured OS evidence is incomplete",
+        )
     text = _output_text(result).lower()
     if any(k in text for k in ("cpu", "процессор", "ram", "память", "диск", "%")):
-        return VerificationResult(True, "system_metrics", "метрики присутствуют в ответе")
+        return VerificationResult(False, "system_metrics", "legacy text has no freshness/provenance", strict=False)
     return VerificationResult(False, "system_metrics", "метрик в ответе нет")
 
 

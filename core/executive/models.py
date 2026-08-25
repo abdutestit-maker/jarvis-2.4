@@ -35,6 +35,15 @@ class _StrEnum(str, Enum):
         return self.value
 
 
+class FactType(_StrEnum):
+    """Epistemic origin of a world fact; current state is never memory."""
+
+    OBSERVED = "observed"
+    REMEMBERED = "remembered"
+    INFERRED = "inferred"
+    USER_REPORTED = "user_reported"
+
+
 class GoalStatus(_StrEnum):
     OPEN = "open"
     ACTIVE = "active"
@@ -148,9 +157,29 @@ class WorldFact:
     confidence: float = 0.7
     volatility: str = "normal"
     supersedes: Optional[str] = None
+    domain: str = "general"
+    fact_type: str = FactType.INFERRED.value
+    ttl_seconds: Optional[float] = None
+    evidence: List[str] = field(default_factory=list)
+    error: Optional[str] = None
+    ephemeral: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
-        return _jsonable(asdict(self))
+        payload = _jsonable(asdict(self))
+        payload["freshness"] = self.freshness()
+        return payload
+
+    def freshness(self, now: Optional[datetime] = None) -> str:
+        if not self.valid_until:
+            return "timeless"
+        moment = now or datetime.now(timezone.utc)
+        try:
+            deadline = datetime.fromisoformat(self.valid_until)
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return "unknown"
+        return "fresh" if deadline > moment else "stale"
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "WorldFact":
@@ -286,4 +315,3 @@ class EvalCase:
 
 def normalize_tokens(text: str) -> set[str]:
     return set(re.findall(r"[\w-]{2,}", (text or "").casefold(), flags=re.UNICODE))
-

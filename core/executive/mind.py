@@ -26,11 +26,11 @@ class ExecutiveMind:
     """One local executive state owner; execution remains in existing Agent."""
 
     def __init__(self, root: str | Any = "data/executive", *, registry: Any = None,
-                 capability_registry: Any = None) -> None:
+                 capability_registry: Any = None, world_observer: Any = None) -> None:
         self.store = ExecutiveStore(root)
         self.goals = GoalGraph(self.store)
         self.commitments = CommitmentEngine(self.store)
-        self.world = UnifiedWorldState(self.store)
+        self.world = UnifiedWorldState(self.store, observer=world_observer)
         self.commands = CommandOS()
         self.capabilities = CapabilityGraph(capability_registry, registry)
         self.demonstrations = DemonstrationLearner(self.store)

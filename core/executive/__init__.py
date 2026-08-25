@@ -16,6 +16,7 @@ from .models import (
     CommitmentType,
     DemoStep,
     EvalCase,
+    FactType,
     GoalNode,
     GoalStatus,
     IntentContract,
@@ -27,7 +28,15 @@ from .models import (
 from .commands import CommandOS
 from .goals import GoalGraph
 from .commitments import CommitmentEngine, PromiseCommitmentEngine
-from .world import UnifiedWorldState, WorldState
+from .world import (
+    DomainObservation,
+    LocalWorldObserver,
+    UnifiedWorldState,
+    WorldQuery,
+    WorldQueryResult,
+    WorldQueryRouter,
+    WorldState,
+)
 from .capability_graph import CapabilityGraph
 from .learning import (
     AskOncePolicy,
@@ -48,10 +57,12 @@ __all__ = [
     "ActionMode", "CapabilitySpec", "CommandPlan", "CommandPrimitive",
     "CommandStep", "Commitment", "CommitmentEngine", "CommitmentStatus",
     "CommitmentType", "CounterfactualEngine", "DemoStep", "DemonstrationLearner",
-    "ExecutiveMind", "EvalCase", "GoalGraph", "GoalNode", "GoalStatus",
+    "DomainObservation", "ExecutiveMind", "EvalCase", "FactType", "GoalGraph", "GoalNode", "GoalStatus",
     "IntentContract", "LearnedWorkflow", "PromiseCommitmentEngine",
     "RehearsalReport", "SemanticUndo", "ShadowRehearsal", "SleepMode",
     "TeachByDemonstration", "TemporalMemory", "UnifiedWorldState", "UndoRecord",
-    "TwoSpeedCognition", "LocalPresenceMesh", "WorldFact", "WorldState", "AskOncePolicy", "PersonalEvalLab", "CapabilityGraph",
+    "TwoSpeedCognition", "LocalPresenceMesh", "LocalWorldObserver", "WorldFact",
+    "WorldQuery", "WorldQueryResult", "WorldQueryRouter", "WorldState",
+    "AskOncePolicy", "PersonalEvalLab", "CapabilityGraph",
     "CommandOS",
 ]

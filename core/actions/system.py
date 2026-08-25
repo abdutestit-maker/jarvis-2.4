@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +20,7 @@ import psutil
 from config.settings import Settings
 from core.actions.base import ActionResult, Tool, ToolContext
 from core.actions.registry import DEFAULT_REGISTRY
+from core.executive.world import DomainObservation, LocalWorldObserver
 from core.utils.logger import get_logger
 
 __all__ = [
@@ -26,11 +28,19 @@ __all__ = [
     "decrease_volume",
     "mute_volume",
     "system_status",
+    "get_machine_state",
+    "get_storage_state",
+    "list_drives",
+    "list_processes",
+    "list_windows",
+    "get_active_window",
+    "list_installed_apps",
     "VolumeTool",
     "SystemStatusTool",
 ]
 
 log = get_logger(__name__)
+_WORLD_OBSERVER = LocalWorldObserver()
 
 # Пытаемся импортировать pycaw для точного управления громкостью
 _PYCAW_AVAILABLE = False
@@ -160,67 +170,74 @@ def _adjust_volume(delta_percent: int) -> ActionResult:
     )
 
 
+def get_machine_state() -> DomainObservation:
+    return _WORLD_OBSERVER.observe("machine")
+
+
+def get_storage_state() -> DomainObservation:
+    return _WORLD_OBSERVER.observe("storage")
+
+
+def list_drives() -> List[Dict[str, Any]]:
+    observation = get_storage_state()
+    return list(observation.data.get("volumes", [])) if observation.ok else []
+
+
+def list_processes(limit: int = 128) -> DomainObservation:
+    return _WORLD_OBSERVER.observe("processes", limit=limit)
+
+
+def list_windows(limit: int = 64) -> DomainObservation:
+    return _WORLD_OBSERVER.observe("desktop", limit=limit)
+
+
+def get_active_window() -> Dict[str, Any]:
+    observation = list_windows(limit=64)
+    return dict(observation.data.get("active_window", {})) if observation.ok else {}
+
+
+def list_installed_apps(limit: int = 256) -> DomainObservation:
+    return _WORLD_OBSERVER.observe("applications", limit=limit)
+
+
 def system_status() -> Dict[str, Any]:
-    """Собирает статус системы: CPU, RAM, диск, батарея."""
-    status: Dict[str, Any] = {}
-
-    # CPU
-    try:
-        status["cpu_percent"] = psutil.cpu_percent(interval=0.1)
-        status["cpu_count"] = psutil.cpu_count(logical=True)
-        status["cpu_freq_mhz"] = (
-            int(psutil.cpu_freq().current) if psutil.cpu_freq() else None
-        )
-    except Exception as exc:
-        status["cpu_error"] = str(exc)
-
-    # RAM
-    try:
-        mem = psutil.virtual_memory()
-        status["ram"] = {
-            "total_gb": round(mem.total / (1024**3), 1),
-            "available_gb": round(mem.available / (1024**3), 1),
-            "used_percent": mem.percent,
-        }
-    except Exception as exc:
-        status["ram_error"] = str(exc)
-
-    # Диск (системный раздел)
-    try:
-        system_drive = os.environ.get("SystemDrive", "C:") + "\\"
-        disk = psutil.disk_usage(system_drive)
-        status["disk"] = {
-            "path": system_drive,
-            "total_gb": round(disk.total / (1024**3), 1),
-            "free_gb": round(disk.free / (1024**3), 1),
-            "used_percent": round(disk.used / disk.total * 100, 1),
-        }
-    except Exception as exc:
-        status["disk_error"] = str(exc)
-
-    # Батарея (если ноутбук)
-    try:
-        battery = psutil.sensors_battery()
-        if battery:
-            status["battery"] = {
-                "percent": battery.percent,
-                "plugged": battery.power_plugged,
-                "time_left_min": (
-                    int(battery.secsleft / 60) if battery.secsleft not in (psutil.POWER_TIME_UNLIMITED, psutil.POWER_TIME_UNKNOWN) else None
-                ),
-            }
-        else:
-            status["battery"] = "не обнаружена (стационарный ПК)"
-    except Exception as exc:
-        status["battery_error"] = str(exc)
-
-    # OS info
-    status["os"] = {
-        "platform": platform.platform(),
-        "version": platform.version(),
-        "python": platform.python_version(),
+    """Compatibility summary backed by canonical current-world observations."""
+    machine = get_machine_state()
+    storage = get_storage_state()
+    status: Dict[str, Any] = {
+        "observed_at": max(machine.observed_at, storage.observed_at).isoformat(),
+        "source": [machine.source, storage.source],
+        "freshness": "fresh",
+        "fact_type": "observed",
+        "evidence": [*machine.evidence, *storage.evidence],
+        "errors": [item.error for item in (machine, storage) if item.error],
     }
-
+    if machine.ok:
+        data = machine.data
+        status["cpu_percent"] = data["cpu"]["used_percent"]
+        status["cpu_count"] = data["cpu"]["logical_count"]
+        status["cpu_freq_mhz"] = data["cpu"]["frequency_mhz"]
+        memory = data["memory"]
+        status["ram"] = {
+            "total_gb": round(memory["total_bytes"] / (1024**3), 1),
+            "available_gb": round(memory["available_bytes"] / (1024**3), 1),
+            "used_percent": memory["used_percent"],
+        }
+        status["battery"] = data["battery"] or "не обнаружена (стационарный ПК)"
+        status["os"] = {
+            "platform": platform.platform(), "version": platform.version(),
+            "python": platform.python_version(), "hostname": data["hostname"],
+        }
+    if storage.ok:
+        status["volumes"] = storage.data["volumes"]
+        if status["volumes"]:
+            first = status["volumes"][0]
+            status["disk"] = {
+                "path": first["mountpoint"],
+                "total_gb": round(first["total_bytes"] / (1024**3), 1),
+                "free_gb": round(first["free_bytes"] / (1024**3), 1),
+                "used_percent": first["used_percent"],
+            }
     return status
 
 
@@ -328,15 +345,12 @@ class SystemStatusTool(Tool):
         return ActionResult(
             tool=self.name,
             args=args,
-            ok=True,
-            output=summary,
-            # Полный статус кладём в output как структуру для LLM
+            ok=not bool(status.get("errors")),
+            output={"summary": summary, **status},
+            error="; ".join(str(item) for item in status.get("errors", [])) or None,
         )
 
 
 # Авто-регистрация
 DEFAULT_REGISTRY.register(VolumeTool())
 DEFAULT_REGISTRY.register(SystemStatusTool())
-
-# Импорт os для system_drive
-import os

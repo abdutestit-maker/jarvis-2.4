@@ -35,7 +35,7 @@ import re
 import json
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 import uuid
 
@@ -327,10 +327,14 @@ class Agent:
         self._registry = DEFAULT_REGISTRY
         # Executive Mind owns goals/commitments/world state, while this Agent
         # remains the sole owner of tool execution and verification.
+        from core.executive import LocalWorldObserver
         self._executive = ExecutiveMind(
             (settings.paths.resolved("data_dir") or settings.data_dir) / "executive",
             registry=self._registry,
             capability_registry=CAPABILITIES,
+            world_observer=LocalWorldObserver(roots={
+                "documents": settings.paths.resolved("documents_dir"),
+            }),
         )
         # Sprint 8: Shadow Engine observes only when explicitly enabled in
         # local settings. It is separate from the active request path.
@@ -689,6 +693,9 @@ class Agent:
         # ---- 2. RISK (§21) ----
         risk = assess_risk(goal)
         trace.append(f"risk={risk.level.value}")
+        perception = self._try_world_perception(goal, mission, cancel, risk, trace)
+        if perception is not None:
+            return perception
         safe_conversation, safe_conversation_reason = classify_conversation(goal, intent)
         if safe_conversation:
             routing = self._model_router.route(goal, context_tokens=0)
@@ -1536,6 +1543,71 @@ class Agent:
         outcome.mode = "fast_path"
         return outcome
 
+    def _try_world_perception(
+        self,
+        goal: str,
+        mission: Optional[Mission],
+        cancel: threading.Event,
+        risk: RiskAssessment,
+        trace: List[str],
+    ) -> Optional[AgentOutcome]:
+        """Answer clear current-state questions from bounded local observation."""
+        if risk.needs_confirmation or cancel.is_set():
+            return None
+        try:
+            route = self._executive.world.router.route(goal)
+        except Exception as exc:
+            trace.append(f"world routing unavailable: {type(exc).__name__}")
+            return None
+        if not route.current or not route.domains or route.confidence < 0.8:
+            return None
+        if mission is not None:
+            mission.set_status(MissionStatus.ANALYZING, "наблюдаю текущее состояние системы")
+            mission.set_progress(0.35, f"world domains: {', '.join(route.domains)}")
+        result = self._executive.world.query(goal)
+        observed = result.to_dict()
+        verified = bool(result.ok and all(
+            fact.fact_type == "observed"
+            and fact.freshness() == "fresh"
+            and bool(fact.source)
+            and not fact.error
+            for fact in result.observations
+        ))
+        verification = VerificationResult(
+            verified=verified,
+            method="world_observation",
+            detail=(
+                "fresh OS observation with provenance"
+                if verified else
+                "current OS observation unavailable or stale"
+            ),
+            strict=True,
+        )
+        action_result = ActionResult(
+            tool="world_observe",
+            args={"domains": list(route.domains)},
+            ok=result.ok,
+            output=observed,
+            error=None if result.ok else result.render(),
+            side_effects_contained=True,
+        )
+        trace.append(
+            f"world perception -> {list(route.domains)} verified={verification.verified}"
+        )
+        if mission is not None:
+            mission.emit(EVENT_VERIFICATION, payload=verification.to_dict())
+            mission.set_progress(1.0, verification.detail)
+        return AgentOutcome(
+            text=result.render(),
+            verified=verification.verified,
+            verification=verification,
+            tool_used="world_observe:" + "+".join(route.domains),
+            risk=risk,
+            mode="perception",
+            trace=trace,
+            action_result=action_result,
+        )
+
     def _extract_simple_args(self, goal: str, cap: Capability) -> Optional[Dict[str, Any]]:
         """Тривиальное извлечение аргументов для fast path (без модели)."""
         text = goal.strip().rstrip(".!?")
@@ -1615,7 +1687,7 @@ class Agent:
         if backend is None:
             return None, "DeepSeek runtime unavailable"
         try:
-            world_state = self._executive.world.current()
+            world_state = self._executive.world.context_for(goal)
         except Exception:
             world_state = {}
         from persona.system_prompt import build_agent_system_prompt
@@ -1782,7 +1854,7 @@ class Agent:
         history_messages = [dict(item) for item in self._session.get_recent()]
         world_state = {}
         try:
-            world_state = self._executive.world.current()
+            world_state = self._executive.world.context_for(goal)
         except Exception as exc:
             log.debug("World state unavailable for brain context: %s", exc)
         world_block = json.dumps({
@@ -2904,7 +2976,7 @@ class Agent:
         if backend is None:
             return ""
         try:
-            world_state = self._executive.world.current()
+            world_state = self._executive.world.context_for(goal)
         except Exception:
             world_state = {}
         from persona.system_prompt import build_agent_system_prompt
@@ -3014,7 +3086,10 @@ class Agent:
     @staticmethod
     def _format_success(result: ActionResult, verification: VerificationResult) -> str:
         """Формирует честный ответ пользователю (§14)."""
-        body = str(result.output).strip() if result.output else "Выполнено."
+        if isinstance(result.output, Mapping) and result.output.get("summary"):
+            body = str(result.output["summary"]).strip()
+        else:
+            body = str(result.output).strip() if result.output else "Выполнено."
         if not verification.strict:
             # Не врём, что проверили фактически.
             return f"{body}\n\n(Проверка: {verification.detail}.)"

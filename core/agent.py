@@ -326,6 +326,7 @@ class Agent:
         self._brain_fabric = brain_fabric
         self._registry = DEFAULT_REGISTRY
         self._task_runtime = None
+        self._authority = None
         # Executive Mind owns goals/commitments/world state, while this Agent
         # remains the sole owner of tool execution and verification.
         from core.executive import LocalWorldObserver
@@ -521,6 +522,50 @@ class Agent:
     def attach_task_runtime(self, runtime: Any) -> None:
         """Attach the canonical runtime used by durable action primitives."""
         self._task_runtime = runtime
+
+    def attach_authority(self, authority: Any) -> None:
+        """Attach the canonical deterministic delegated-authority boundary."""
+        self._authority = authority
+
+    def authorize_delegated_action(
+        self, mission: Optional[Mission], *, goal: str, tool: str,
+        args: Dict[str, Any], risk: RiskAssessment,
+    ) -> Any:
+        """Match a concrete action against trusted structured mission scope."""
+        from core.authority import AuthorityDecision
+
+        request = self._delegated_authority_request(
+            mission, goal=goal, tool=tool, args=args, risk=risk,
+        )
+        if self._authority is None or request is None:
+            return AuthorityDecision(False, True, "no delegated authority")
+        return self._authority.check(request)
+
+    def _delegated_authority_request(
+        self, mission: Optional[Mission], *, goal: str, tool: str,
+        args: Dict[str, Any], risk: RiskAssessment,
+    ) -> Any:
+        from core.authority import AuthorityRequest, classify_effect
+
+        if mission is None:
+            return None
+        raw = mission.context.get("authority_request")
+        if not isinstance(raw, dict):
+            return None
+        action = str(args.get("action") or raw.get("action") or tool)
+        try:
+            request = AuthorityRequest(
+                mission_id=mission.task_id, commitment_id=raw.get("commitment_id"),
+                subject=str(raw.get("subject") or ""),
+                resource=str(raw.get("resource") or ""), action=action,
+                capability_family=str(raw.get("capability_family") or tool),
+                effect=classify_effect(goal, action, tool, args),
+                purpose=str(raw.get("purpose") or ""), risk=risk.level,
+                constraints=dict(raw.get("constraints") or {}),
+            )
+            return request
+        except (TypeError, ValueError):
+            return None
 
     def run_mission(self, mission: Mission, cancel: threading.Event) -> str:
         """Исполняет миссию целиком. Возвращает финальный текст ответа.
@@ -1036,7 +1081,14 @@ class Agent:
 
         # ---- 9. RISK GATE перед выполнением (§21) ----
         exec_risk = assess_risk(goal, decision.tool, decision.arguments)
-        if exec_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
+        authority = self.authorize_delegated_action(
+            mission, goal=goal, tool=decision.tool,
+            args=decision.arguments, risk=exec_risk,
+        )
+        if authority.allowed:
+            trace.append(f"delegated authority matched grant={authority.grant_id}")
+        if (exec_risk.needs_confirmation and not authority.allowed
+                and not self._config.auto_confirm_high_risk):
             trace.append(f"HIGH risk -> требуется подтверждение: {exec_risk.reasons}")
             conf_id = uuid.uuid4().hex
             if mission is not None:
@@ -2505,7 +2557,12 @@ class Agent:
                     return _finalize_failed_step()
                 trace.append(f"recovery selected {next_decision.tool}")
                 next_risk = assess_risk(goal, next_decision.tool, next_decision.arguments)
-                if next_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
+                next_authority = self.authorize_delegated_action(
+                    mission, goal=goal, tool=next_decision.tool,
+                    args=next_decision.arguments, risk=next_risk,
+                )
+                if (next_risk.needs_confirmation and not next_authority.allowed
+                        and not self._config.auto_confirm_high_risk):
                     conf_id = uuid.uuid4().hex
                     with self._lock:
                         self._pending_confirmations[conf_id] = {
@@ -2645,7 +2702,12 @@ class Agent:
                 caps = selected_next
 
             next_risk = assess_risk(goal, next_decision.tool, next_decision.arguments)
-            if next_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
+            next_authority = self.authorize_delegated_action(
+                mission, goal=goal, tool=next_decision.tool,
+                args=next_decision.arguments, risk=next_risk,
+            )
+            if (next_risk.needs_confirmation and not next_authority.allowed
+                    and not self._config.auto_confirm_high_risk):
                 trace.append(f"next action requires confirmation: {next_risk.reasons}")
                 conf_id = uuid.uuid4().hex
                 with self._lock:
@@ -2731,6 +2793,12 @@ class Agent:
             extra={
                 "confirmation_approved": bool(confirmation_approved),
                 "task_runtime": self._task_runtime,
+                "authority_grant_id": (
+                    self.authorize_delegated_action(
+                        mission, goal=goal, tool=tool, args=args, risk=risk,
+                    ).grant_id
+                    if mission is not None and self._authority is not None else None
+                ),
             },
         )
 
@@ -2760,11 +2828,29 @@ class Agent:
         web_tool = tool in {"web_search", "web_fetch", "weather"}
         budget_cfg = getattr(self._settings, "latency_budgets", None)
         web_timeout = float(getattr(budget_cfg, "research_source_timeout_ms", 8000.0)) / 1000.0
-        result = execute_tool(
-            self._registry, tool, args, context,
-            max_retries=0 if web_tool else 2,
-            timeout_sec=web_timeout if web_tool else None,
+        def _call_tool() -> ActionResult:
+            return execute_tool(
+                self._registry, tool, args, context,
+                max_retries=0 if web_tool else 2,
+                timeout_sec=web_timeout if web_tool else None,
+            )
+
+        authority_request = self._delegated_authority_request(
+            mission, goal=goal, tool=tool, args=args, risk=risk,
         )
+        if authority_request is not None and self._authority is not None:
+            authority_decision = self._authority.check(authority_request)
+        else:
+            authority_decision = None
+        if authority_decision is not None and authority_decision.allowed:
+            final_decision, result = self._authority.execute_authorized(authority_request, _call_tool)
+            if not final_decision.allowed:
+                result = ActionResult(
+                    tool=tool, args=args, ok=False,
+                    error=f"delegated authority changed: {final_decision.reason}",
+                )
+        else:
+            result = _call_tool()
         # Тратим одну единицу бюджета действий (B1). Декремент ПОСЛЕ
         # выполнения: проверка лимита выше видит израсходованное количество.
         if hasattr(self, "_action_calls_left"):

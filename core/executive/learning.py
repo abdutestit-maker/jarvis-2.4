@@ -233,6 +233,33 @@ class AskOncePolicy:
     def reset(self) -> None:
         self._asked.clear()
 
+    def choose_for(
+        self, mission_context: dict[str, Any], uncertainties: Iterable[str],
+        *, observations: Optional[dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Choose once using durable mission context instead of process memory."""
+        state = mission_context.setdefault("ask_once", {})
+        asked = state.setdefault("asked", [])
+        answers = state.setdefault("answers", {})
+        known = {_key.casefold() for _key in (observations or {}).keys()}
+        known.update(str(item).casefold() for item in answers)
+        prior = {str(item).casefold() for item in asked}
+        options = [" ".join(str(item).split()).strip() for item in uncertainties if str(item).strip()]
+        options = [item for item in options if item.casefold() not in prior and item.casefold() not in known]
+        if not options:
+            return None
+        selected = max(options, key=lambda item: (len(set(item.casefold().split())), -len(item)))
+        asked.append(selected)
+        return selected
+
+    @staticmethod
+    def record_answer(mission_context: dict[str, Any], question: str, answer: Any) -> None:
+        state = mission_context.setdefault("ask_once", {})
+        asked = state.setdefault("asked", [])
+        if question not in asked:
+            asked.append(question)
+        state.setdefault("answers", {})[question] = answer
+
 
 class CounterfactualEngine:
     def evaluate(self, goal: str, options: Iterable[str], *, constraints: Iterable[str] = ()) -> dict[str, Any]:

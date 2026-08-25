@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from config.settings import Settings
 from core.actions import DEFAULT_REGISTRY, ToolContext, execute_tool
+from core.authority import AuthorityProposal, AuthorityRequest, AuthorityStore, ProvenanceKind
 from core.agent import Agent, pick_acknowledgement
 from core.capabilities import CAPABILITIES
 from core.cognitive import CognitiveOrchestrator
@@ -159,6 +160,11 @@ class Orchestrator:
             world_state=self._agent.executive.world,
         )
         self._agent.attach_task_runtime(self._runtime)
+        self._authority = AuthorityStore(
+            settings.data_dir / "authority", mission_resolver=self._runtime.get,
+        )
+        self._authority_unsubscribe = self._authority.bind_runtime(self._runtime)
+        self._agent.attach_authority(self._authority)
         from core.living import LivingIntelligence
         self._living = LivingIntelligence(
             settings.data_dir / "living",
@@ -949,6 +955,22 @@ class Orchestrator:
 
     def resume_mission(self, task_id: str) -> bool:
         return self._runtime.resume(task_id)
+
+    def issue_authority(
+        self, proposal: AuthorityProposal, *, user_instruction: str,
+        source_id: str, source_role: str = "user",
+    ):
+        """Install a validated proposal only at the real user-input boundary."""
+        return self._authority.issue(
+            proposal, source_kind=ProvenanceKind.USER_INSTRUCTION,
+            source_role=source_role, source_text=user_instruction, source_id=source_id,
+        )
+
+    def revoke_authority(self, grant_id: str, reason: str = "user revoked") -> bool:
+        return self._authority.revoke(grant_id, reason)
+
+    def check_authority(self, request: AuthorityRequest):
+        return self._authority.check(request)
 
     def reschedule_mission(
         self, task_id: str, trigger: MissionTrigger | Mapping[str, Any],

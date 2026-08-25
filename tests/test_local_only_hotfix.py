@@ -4,21 +4,19 @@ from core.llm.local_qwen import LocalQwenBackend
 from core.model_router import ModelRouter
 
 
-def test_production_config_is_local_only():
+def test_production_config_is_deepseek_only():
     settings = load_config()
-    assert settings.offline_mode is True
-    assert settings.get_provider("analyst") == "local"
+    assert settings.offline_mode is False
+    assert settings.deepseek_brain_mode is True
+    assert settings.get_provider("analyst") == "deepinfra"
     assert all(not value for value in settings.api_keys.model_dump().values())
 
 
-def test_offline_router_preserves_role_without_remote_escalation():
+def test_deepseek_router_preserves_single_remote_brain():
     settings = load_config()
-    decision = ModelRouter(settings).route("проанализируй проект")
-    assert decision.forced_local is True
-    assert decision.tier.value == "analyst"
+    from core.brain.bootstrap import build_brain_fabric
+    decision = ModelRouter(settings, brain_fabric=build_brain_fabric(settings)).route("проанализируй проект")
+    assert decision.forced_local is False
+    assert decision.provider == "deepinfra" or decision.brain_route.primary.provider == "deepinfra"
+    assert decision.model == "deepseek-ai/DeepSeek-V4-Flash-0731" or decision.brain_route.primary.model == "deepseek-ai/DeepSeek-V4-Flash-0731"
     assert decision.fallback_chain == []
-    clear_backend_cache()
-    backend = get_llm_backend(settings, "analyst")
-    assert isinstance(backend, LocalQwenBackend)
-    assert backend.task_role == "analyst"
-    clear_backend_cache()

@@ -74,7 +74,8 @@ class PiperTTS:
         self._load_voices()
 
         self._available = (
-            self._provider == "piper" and self._binary is not None and len(self._voices) > 0
+            self._provider == "piper" and self._binary is not None
+            and any(voice.model_path.is_file() for voice in self._voices.values())
         )
 
         if self._available:
@@ -182,6 +183,23 @@ class PiperTTS:
                 noise_w=getattr(voice_cfg, "piper_noise_w", 0.8) if use_model_tuning else 0.0,
             )
             self._default_voice = main_model.stem
+
+        # Keep the configured Russian voice selectable even before its model
+        # is downloaded.  Availability still requires a real model file above.
+        if main_model and not main_model.exists():
+            config_path = main_model.with_suffix(main_model.suffix + ".json")
+            if not config_path.exists():
+                config_path = main_model.with_name(main_model.name + ".json")
+            lang = self._model_language(config_path, main_model.stem)
+            if lang == self._target_language:
+                self._voices[main_model.stem] = VoiceConfig(
+                    name=main_model.stem,
+                    model_path=main_model,
+                    config_path=config_path,
+                    language=lang,
+                    speaker_id=getattr(voice_cfg, "piper_speaker_id", 0),
+                )
+                self._default_voice = self._default_voice or main_model.stem
 
         # Дополнительные голоса из piper_voices (если заданы)
         extra_voices = getattr(voice_cfg, "piper_voices", None)

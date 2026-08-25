@@ -26,7 +26,11 @@
 from __future__ import annotations
 
 import time
+import tempfile
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+from urllib.request import url2pathname
+from pathlib import Path
 
 from core.actions.base import ActionResult, Tool, ToolContext
 from core.actions.registry import DEFAULT_REGISTRY
@@ -141,20 +145,47 @@ class BrowserAutomationEngine:
         self._page = None
 
     # --- жизненный цикл --------------------------------------------------- #
+    @staticmethod
+    def _guard_request(route: Any) -> None:
+        """Revalidate every browser request, including redirects."""
+        request_url = str(getattr(getattr(route, "request", None), "url", "") or "")
+        scheme = urlparse(request_url).scheme.casefold()
+        if scheme in {"about", "blob", "data"}:
+            route.continue_()
+            return
+        try:
+            BrowserAutomationEngine._validate_url(request_url)
+        except Exception as exc:
+            log.warning("Browser request blocked: %s (%s)", request_url, exc)
+            route.abort()
+            return
+        route.continue_()
+
+    @staticmethod
+    def _validate_url(url: str) -> str:
+        parsed = urlparse(str(url))
+        if parsed.scheme.casefold() == "file":
+            target = Path(url2pathname(parsed.path)).resolve()
+            temp_root = Path(tempfile.gettempdir()).resolve()
+            if target != temp_root and temp_root not in target.parents:
+                raise ValueError("file URL must stay inside the temporary directory")
+            return str(url).strip()
+        from core.network_guard import assert_safe_url
+        return assert_safe_url(str(url))
+
     def open(self, url: str, timeout: int = 30000) -> Dict[str, Any]:
         """Открывает URL в новом контексте. Сбрасывает предыдущую сессию."""
         self.close()
         try:
-            if str(url).startswith(("http://", "https://")):
-                from core.network_guard import assert_safe_url
-                assert_safe_url(str(url))
+            safe_url = self._validate_url(str(url))
             from playwright.sync_api import sync_playwright
             self._pw = sync_playwright().start()
             if self._user_data_dir:
                 # Постоянный контекст: куки/сессии сохраняются в user_data_dir
                 # (он в .gitignore, см. требования безопасности спринта).
                 self._context = self._pw.chromium.launch_persistent_context(
-                    self._user_data_dir, headless=self._headless, args=_LAUNCH_ARGS
+                    self._user_data_dir, headless=self._headless, args=_LAUNCH_ARGS,
+                    service_workers="block",
                 )
                 self._page = (
                     self._context.pages[0]
@@ -164,9 +195,10 @@ class BrowserAutomationEngine:
             else:
                 # Эфемерный контекст — ничего не пишется на диск.
                 self._browser = self._pw.chromium.launch(headless=self._headless, args=_LAUNCH_ARGS)
-                self._context = self._browser.new_context()
+                self._context = self._browser.new_context(service_workers="block")
                 self._page = self._context.new_page()
-            self._page.goto(url, wait_until="load", timeout=timeout)
+            self._page.route("**/*", self._guard_request)
+            self._page.goto(safe_url, wait_until="load", timeout=timeout)
         except Exception as exc:  # любая ошибка запуска — чистый сброс
             self.close()
             raise BrowserAutomationError(

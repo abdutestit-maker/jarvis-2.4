@@ -3,9 +3,9 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { StateMachine, presenceFromTransport, type PresenceState } from '@/bridge/StateMachine';
 import { TTSController } from '@/bridge/TTSController';
-import { OperatorShell } from '@/operator/OperatorShell';
+import { OperatorShell, type LiveSignal } from '@/operator/OperatorShell';
 import {
-  confirmationFromEvent, createMission, fixtureMission, reduceMission,
+  confirmationFromEvent, fixtureMission, reduceMission,
   type OperatorMission, type UiMode,
 } from '@/operator/model';
 import { InputOverlay } from '@/overlay/InputOverlay';
@@ -33,22 +33,6 @@ function fixtureMessages(fixture: string | null): PresenceMessage[] {
   ];
 }
 
-// The command centre is for real operator work, not every conversational
-// exchange. A greeting or "как дела?" must stay a calm dialogue without an
-// artificial RESEARCH card; the backend still receives every command.
-function needsMission(command: string): boolean {
-  const text = command.trim().toLocaleLowerCase('ru-RU');
-  if (!text) return false;
-  // Short reversible controls stay in the compact presence view.  They are
-  // executed by the backend fast path and do not need a fake RESEARCH card.
-  if (/^(?:поставь|включи)\s+(?:мне\s+)?(?:музык\w*|трек\w*|песн\w*)[.!?]?$/u.test(text)
-    || /^(?:который\s+час|сколько\s+времени|текущее\s+время|громкость\s+(?:тише|громче)|(?:сделай\s+)?(?:тише|громче))[.!?]?$/u.test(text)) {
-    return false;
-  }
-  return /\b(установ|настрой|настро|открой|запусти|закрой|скачай|найди|создай|сделай|удали|скопируй|перемести|поставь|включи|выключи|громк|музык|файл|папк|браузер|программ|приложен|проверь|настрой)\w*/u.test(text)
-    || /\b(install|configure|open|launch|download|find|create|delete|copy|move|setup|check)\b/i.test(text);
-}
-
 function initialMode(fixture: string | null): UiMode {
   if (fixture && fixture !== 'compact') return 'command_center';
   const saved = window.localStorage.getItem('jarvis.ui.mode');
@@ -68,7 +52,10 @@ function App() {
   const [confirmation, setConfirmation] = useState<PendingConfirmation | null>(() => fixture === 'verify' ? { id: 'fixture-confirmation', prompt: 'Разрешить установку приложения?', tool: 'software.install', risk: { level: 'low' } } : null);
   const [connected, setConnected] = useState(() => Boolean(fixture) || backend.isConnected());
   const [runtimeState, setRuntimeState] = useState(() => fixture ? 'ready' : 'starting');
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<Record<string, unknown>>({});
+  const [signals, setSignals] = useState<LiveSignal[]>([]);
   const streaming = useRef<string | null>(null);
+  const activeTool = useRef<string | null>(null);
   const overlay = isOverlayWindow();
 
   const transition = useCallback((next: PresenceState) => setState(machine.transition(next)), [machine]);
@@ -85,12 +72,15 @@ function App() {
         return;
       }
       if (event.type === 'profile:status') {
-        setFirstLaunch(!(event.payload as { hasName: boolean }).hasName);
+        // Profile metadata must never divert a real command into a scripted
+        // onboarding reply. Every user input stays on the production WS path.
+        setFirstLaunch(false);
         return;
       }
       if (event.type === 'runtime:status') {
-        const payload = event.payload as { state?: string; ready?: boolean };
+        const payload = event.payload as { state?: string; ready?: boolean; diagnostics?: Record<string, unknown> };
         setRuntimeState(payload.ready ? 'ready' : (payload.state ?? 'starting'));
+        setRuntimeDiagnostics(payload.diagnostics ?? {});
         setConnected(backend.isConnected());
         return;
       }
@@ -103,7 +93,9 @@ function App() {
         const payload = event.payload as { text: string; confidence: number };
         if (payload.confidence >= 0.7 && payload.text.trim()) {
           append({ id: `voice-${Date.now()}`, role: 'user', text: payload.text, timestamp: Date.now() });
-          if (needsMission(payload.text)) setMission(createMission(payload.text));
+          setSignals([]);
+          setMission(null);
+          activeTool.current = null;
           transition('thinking');
           void backend.sendCommand(payload.text, []).catch(() => transition('error'));
         }
@@ -129,6 +121,23 @@ function App() {
       }
       if (event.type === 'event:action' || event.type === 'event:tool' || event.type === 'event:progress' || event.type === 'event:result' || event.type === 'event:system') {
         setMission((current) => current ? reduceMission(current, event) : current);
+        const payload = (event.payload && typeof event.payload === 'object') ? event.payload as Record<string, unknown> : {};
+        const content = String(payload.content ?? payload.detail ?? payload.result ?? payload.tool ?? '').trim();
+        if (event.type === 'event:tool' && typeof payload.tool === 'string') activeTool.current = payload.tool;
+        // System envelopes remain available through diagnostics. The live rail
+        // is for user-facing activity, not transport noise or repeated startup
+        // notices from an earlier reconnect.
+        if (event.type !== 'event:system' && content) {
+          setSignals((current) => [...current, {
+            id: `${event.type}-${event.timestamp}-${current.length}`,
+            kind: event.type.slice(6),
+            content: content || 'Системное событие',
+            status: String(payload.status ?? (payload.verified === true ? 'verified' : 'running')),
+            timestamp: event.timestamp,
+            tool: typeof payload.tool === 'string' ? payload.tool : activeTool.current ?? undefined,
+            payload,
+          }].slice(-8));
+        }
       }
     });
   }, [append, backend, fixture, transition, tts]);
@@ -151,29 +160,18 @@ function App() {
     return () => window.removeEventListener('jarvis:command-sent', close);
   }, [closeOverlay, overlay]);
 
-  useEffect(() => {
-    if (!firstLaunch || overlay || fixture) return;
-    const timer = window.setTimeout(() => append({ id: 'ritual-hello', role: 'jarvis', text: 'Привет.\n\nЯ JARVIS.\n\nА ты кто?', timestamp: Date.now() }), 1000);
-    return () => window.clearTimeout(timer);
-  }, [append, firstLaunch, fixture, overlay]);
-
   const send = useCallback((text: string) => {
     if (overlay) closeOverlay();
     tts.interrupt();
     if (!fixture) void backend.interrupt().catch(() => undefined);
     append({ id: `user-${Date.now()}`, role: 'user', text, timestamp: Date.now() });
-    if (firstLaunch) {
-      if (!fixture) void backend.saveFirstLaunchName(text).catch(() => transition('error'));
-      setFirstLaunch(false);
-      transition('thinking');
-      window.setTimeout(() => { append({ id: 'ritual-known', role: 'jarvis', text: `${text}.\n\nЗапомнил.\n\nДавай знакомиться.`, timestamp: Date.now() }); transition('idle'); }, 600);
-      return;
-    }
-    if (needsMission(text)) setMission(createMission(text));
+    setSignals([]);
+    setMission(null);
+    activeTool.current = null;
     setConfirmation(null);
     transition('thinking');
     if (!fixture) void backend.sendCommand(text, []).catch(() => transition('error'));
-  }, [append, backend, closeOverlay, firstLaunch, fixture, overlay, transition, tts]);
+  }, [append, backend, closeOverlay, fixture, overlay, transition, tts]);
 
   const answerConfirmation = useCallback((approved: boolean) => {
     const pending = confirmation;
@@ -200,6 +198,7 @@ function App() {
   const newSession = useCallback(() => {
     setMessages([]);
     setMission(null);
+    setSignals([]);
     setConfirmation(null);
     transition('idle');
   }, [transition]);
@@ -222,6 +221,8 @@ function App() {
       onNewSession={newSession}
       connected={connected}
       runtimeState={runtimeState}
+      runtimeDiagnostics={runtimeDiagnostics}
+      signals={signals}
     />
   </>;
 }

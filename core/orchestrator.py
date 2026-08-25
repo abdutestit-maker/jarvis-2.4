@@ -38,7 +38,7 @@ from core.understanding import QuickAnswerEngine, Route, UnderstandingLayer
 from core.state import JarvisState, ActionResult, new_state, push_message, trim_short_memory
 from core.task_runtime import Mission, MissionStatus, TaskEvent, TaskRuntime
 from core.voice import (
-    AssistantOutput, PiperTTS, SpeechRenderer, TTSQueue,
+    AssistantOutput, ErrorCategory, ErrorInfo, PiperTTS, SpeechRenderer, TTSQueue,
     build_wake_word_detector, assistant_output_from_outcome, show_toast,
 )
 from core.proactive import Proactor, BackgroundScheduler
@@ -210,7 +210,11 @@ class Orchestrator:
         self._warmup_thread: Optional[threading.Thread] = None
         self._warmup_diagnostics: Dict[str, Any] = {
             "backend": "unknown",
-            "model": "local-runtime",
+            "model": (
+                str(getattr(settings, "deepseek_model", ""))
+                if bool(getattr(settings, "deepseek_brain_mode", False))
+                else "local-runtime"
+            ),
             "n_gpu_layers": 0,
             "warmup_ms": 0.0,
             "ready_before_first_request": False,
@@ -313,13 +317,60 @@ class Orchestrator:
 
     def _start_local_warmup(self) -> None:
         """Warm local backend before the first user request and record diagnostics."""
-        if not bool(getattr(self._settings, "warmup_local_on_start", False)):
+        if (not bool(getattr(self._settings, "warmup_local_on_start", False))
+                and not bool(getattr(self._settings, "deepseek_brain_mode", False))):
             return
         if self._warmup_thread is not None and self._warmup_thread.is_alive():
             return
 
         def _warm() -> None:
             started = time.perf_counter()
+            if bool(getattr(self._settings, "deepseek_brain_mode", False)):
+                try:
+                    from core.brain import BrainRequest, BrainRole
+                    provider_name = str(getattr(self._settings, "deepseek_provider", "deepinfra"))
+                    provider = self._brain.registry.get(provider_name)
+                    if provider is None:
+                        raise RuntimeError(f"provider {provider_name} не зарегистрирован")
+                    statuses = self._brain.refresh_health()
+                    snapshot = statuses.get(provider_name)
+                    if snapshot is None or str(getattr(snapshot.status, "value", snapshot.status)) != "available":
+                        detail = str(getattr(snapshot, "last_error", "provider health check failed") or "provider health check failed")
+                        raise RuntimeError(detail)
+                    probe = provider.generate(BrainRequest(
+                        user_request="Ответь одним словом: готов",
+                        role=BrainRole.FAST,
+                        max_tokens=1,
+                        temperature=0.0,
+                    ), model=str(getattr(self._settings, "deepseek_model", "")))
+                    if not str(probe.text or "").strip():
+                        raise RuntimeError("DeepSeek readiness probe вернул пустой ответ")
+                    self._warmup_diagnostics.update({
+                        "backend": provider_name,
+                        "model": str(getattr(self._settings, "deepseek_model", "")),
+                        "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
+                        "ready_before_first_request": True,
+                        "state": "ready",
+                        "runtime": {
+                            "provider": provider_name,
+                            "endpoint": str(getattr(self._settings, "api_endpoints", {}).get(provider_name) or ""),
+                            "model_probe": True,
+                            "probe_latency_ms": round(float(probe.latency_ms), 3),
+                            "error": None,
+                        },
+                    })
+                except Exception as exc:
+                    self._warmup_diagnostics.update({
+                        "backend": "unavailable",
+                        "warmup_ms": round((time.perf_counter() - started) * 1000.0, 3),
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "ready_before_first_request": False,
+                        "state": "unavailable",
+                    })
+                    log.error("DeepInfra readiness probe failed: %s", exc)
+                finally:
+                    self._warmup_ready.set()
+                return
             try:
                 # A clean install may have no GGUF yet.  Prepare exactly one
                 # hardware-selected artifact in the background; an existing
@@ -517,34 +568,16 @@ class Orchestrator:
 
         # Отмечаем активность для proactor
         self._proactor.mark_user_activity()
-        self._agent.set_user_context(self._living.context.current)
-
-        # Production config opts into tiny deterministic replies for high-
-        # frequency local probes.  Test/library Settings() stays untouched,
-        # while the live path avoids a 40-second model round trip and prompt
-        # contamination for greetings and elementary definitions.
-        if bool(getattr(self._settings, "warmup_local_on_start", False)):
-            quick = self._quick_local_reply(text)
-            if quick is not None:
-                lowered = " ".join((text or "").casefold().split())
-                routine = (
-                    lowered in {
-                        "привет", "здравствуйте", "как дела", "как ты",
-                        "как жизнь", "спасибо", "благодарю",
-                    }
-                    or "ты меня слыш" in lowered
-                    or "слышишь меня" in lowered
-                )
-                return self._stamp_latency(
-                    self._direct_cognitive_response(
-                        text,
-                        quick,
-                        mode="conversation_fast" if routine else "conversation",
-                        verified=routine,
-                    ),
-                    request_started,
-                    "fast",
-                )
+        living_context = self._living.context.current
+        living_state = (
+            living_context.to_dict()
+            if hasattr(living_context, "to_dict")
+            else dict(vars(living_context)) if living_context is not None else {}
+        )
+        self._agent.set_user_context({
+            **living_state,
+            "music_preference": self._taste.context(),
+        })
 
         # Understanding Layer: классифицируем ОДИН раз сразу после старта —
         # результат переиспользуют и reflex, и быстрый ответ, и выбор
@@ -559,7 +592,8 @@ class Orchestrator:
         # cognitive layer; explicit actions never pay that ambiguity tax.
         pre_intent = resolve_keyword_tool(text, text)
         cognitive_turn = None
-        if pre_intent not in {"app", "system", "media", "file", "browser"}:
+        if (not bool(getattr(self._settings, "deepseek_brain_mode", False))
+                and pre_intent not in {"app", "system", "media", "file", "browser"}):
             # Text arriving through the explicit chat/WS input is implicitly
             # addressed to JARVIS. Voice callers can use ``cognitive``
             # directly with ``implicit_address=False`` before forwarding.
@@ -587,7 +621,8 @@ class Orchestrator:
         # not intelligence.
         context_reply = (
             self._living.answer_context(text)
-            if pre_intent not in {"app", "system", "media", "file", "browser"}
+            if (not bool(getattr(self._settings, "deepseek_brain_mode", False))
+                and pre_intent not in {"app", "system", "media", "file", "browser"})
             else None
         )
         if context_reply is not None:
@@ -611,7 +646,9 @@ class Orchestrator:
         # quick_answer — всегда синхронно (запрет уходить в mission даже
         # для сложных вопросов, фикс «почему...» в фоне). Остальное —
         # эвристика _should_run_background.
-        if understanding.route == Route.MISSION:
+        if bool(getattr(self._settings, "deepseek_brain_mode", False)):
+            run_background = False
+        elif understanding.route == Route.MISSION:
             run_background = True
         elif understanding.route == Route.QUICK_ANSWER:
             run_background = False
@@ -633,7 +670,16 @@ class Orchestrator:
         else:
             run_background = self._should_run_background(text)
         self._living.observe_user_input(text, active_mission=run_background)
-        self._agent.set_user_context(self._living.context.current)
+        living_context = self._living.context.current
+        living_state = (
+            living_context.to_dict()
+            if hasattr(living_context, "to_dict")
+            else dict(vars(living_context)) if living_context is not None else {}
+        )
+        self._agent.set_user_context({
+            **living_state,
+            "music_preference": self._taste.context(),
+        })
         if run_background:
             mission = self.submit_goal(text)
             self._cognitive.state.current_goal = mission.goal
@@ -674,7 +720,20 @@ class Orchestrator:
                 _record_cognitive()
 
         output = assistant_output_from_outcome(outcome)
-        response = output.display_text or "(пустой ответ, сэр)."
+        response = (output.display_text or "").strip()
+        if not response:
+            response = (
+                "Ошибка DeepInfra/DeepSeek runtime: backend вернул пустой ответ."
+                if bool(getattr(self._settings, "deepseek_brain_mode", False))
+                else "Ошибка локального runtime: backend вернул пустой ответ."
+            )
+            output = AssistantOutput.failure(
+                display_text=response,
+                error=ErrorInfo(
+                    ErrorCategory.UNKNOWN_FAILURE,
+                    technical_message="assistant output was empty",
+                ),
+            )
 
         state = self._new_state(
             text,
@@ -735,33 +794,6 @@ class Orchestrator:
         # LOCAL_THRESHOLD из ModelRouter (0.35): выше — в фон.
         return cx.score >= 0.35
 
-    @staticmethod
-    def _quick_local_reply(text: str) -> Optional[str]:
-        lowered = " ".join((text or "").casefold().split())
-        # A pasted local installer/path is input context, not a question for
-        # the language model.  Keep the response immediate and explicit so a
-        # bare path never turns into a long generic safety monologue.
-        if re.match(r"^(?:[a-z]:[\\/]|\\\\|/).+", (text or "").strip(), re.IGNORECASE):
-            return (
-                "Путь получен. Выберите действие: проверить файл, открыть папку "
-                "или запустить установку."
-            )
-        if any(marker in lowered for marker in ("привет", "здравствуй", "ты меня слыш", "слышишь меня")):
-            return "Слышу вас, сэр. Канал связи работает."
-        if re.fullmatch(r"(?:как дела|как ты|как жизнь)\??", lowered):
-            return "В порядке, сэр. Готов помочь с задачей."
-        if re.fullmatch(r"почему небо голубое\??", lowered):
-            return "Небо голубое из-за рэлеевского рассеяния: короткие синие волны рассеиваются в атмосфере сильнее."
-        if re.fullmatch(r"(?:что нового|что делаешь)\??", lowered):
-            return "Слушаю вас и готов к следующему шагу, сэр."
-        if re.fullmatch(r"(?:спасибо|благодарю)[!.]?", lowered):
-            return "Всегда пожалуйста, сэр."
-        if re.fullmatch(r"(?:доброе утро|добрый день|добрый вечер)[!.]?", lowered):
-            return "Добрый вечер, сэр. Я на связи." if "вечер" in lowered else "На связи, сэр."
-        if "энтроп" in lowered and any(marker in lowered for marker in ("что такое", "объясни", "это")):
-            return "Энтропия — мера неопределённости или числа возможных состояний системы."
-        return None
-
     # --------------------------------------------------------------------- #
     #  Ответ на подтверждение HIGH-risk операции (§21)
     # --------------------------------------------------------------------- #
@@ -781,7 +813,20 @@ class Orchestrator:
             return None
 
         output = assistant_output_from_outcome(outcome)
-        text = output.display_text or "(пустой ответ, сэр)."
+        text = (output.display_text or "").strip()
+        if not text:
+            text = (
+                "Ошибка DeepInfra/DeepSeek runtime: backend вернул пустой ответ."
+                if bool(getattr(self._settings, "deepseek_brain_mode", False))
+                else "Ошибка локального runtime: backend вернул пустой ответ."
+            )
+            output = AssistantOutput.failure(
+                display_text=text,
+                error=ErrorInfo(
+                    ErrorCategory.UNKNOWN_FAILURE,
+                    technical_message="confirmation output was empty",
+                ),
+            )
         self._output_callback(text)
         spoken = self._queue_assistant_output(output)
 
@@ -789,6 +834,9 @@ class Orchestrator:
         state["response"] = text
         state["tts_text"] = spoken
         state["assistant_output"] = output.to_dict()
+        state["tool"] = outcome.tool_used or ""
+        state["verified"] = bool(outcome.verified)
+        state["mode"] = outcome.mode
         if outcome.needs_confirmation:
             state["confirmation_id"] = getattr(outcome, "confirmation_id", None)
             state["needs_confirmation"] = True
@@ -1153,7 +1201,11 @@ class Orchestrator:
                                    mode: str = "conversation",
                                    verified: bool = False) -> JarvisState:
         """Render a deterministic cognitive answer through the existing voice path."""
-        output = AssistantOutput.natural(response, speech_mode="focused")
+        output = AssistantOutput.natural(
+            response,
+            speech_mode="focused",
+            debug={"mode": mode, "verified": verified, "source": "orchestrator"},
+        )
         state = self._new_state(user_text)
         if self._session is not None:
             self._session.push("user", user_text)
@@ -1193,8 +1245,9 @@ class Orchestrator:
         ``сейчас не отвечает`` response.  Callers run this method from their
         worker thread, never from the asyncio event loop.
         """
-        if not bool(getattr(self._settings, "warmup_local_on_start", False)):
-            return str(self._warmup_diagnostics.get("state", "ready"))
+        if (not bool(getattr(self._settings, "warmup_local_on_start", False))
+                and not bool(getattr(self._settings, "deepseek_brain_mode", False))):
+            return str(self._warmup_diagnostics.get("state", "starting"))
         if not self._warmup_ready.is_set():
             configured = timeout
             if configured is None:

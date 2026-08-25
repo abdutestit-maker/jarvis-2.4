@@ -68,11 +68,11 @@ def test_model_failure_friendly_text_no_draft(dead_backend, settings, tmp_path):
     outcome = agent.execute("напиши большой текст про закат на море")
 
     assert outcome.mode == "model_error"
-    assert outcome.text == MODEL_UNAVAILABLE_TEXT
-    # Ни сырых ошибок, ни «не умею»-текста в ответе пользователю.
+    assert outcome.text.startswith(MODEL_UNAVAILABLE_TEXT)
+    # UI получает точную причину сбоя, включая последний backend error.
     lowered = outcome.text.lower()
-    assert "http" not in lowered
-    assert "таймаут" not in lowered
+    assert "http 408" in lowered
+    assert "таймаут" in lowered
     assert "навык" not in lowered
     assert "не научен" not in lowered
     assert "готового способа" not in lowered
@@ -84,7 +84,7 @@ def test_model_failure_text_safe_for_tts():
     """Фраза сбоя проходит TTS-санитайзер как есть (не подменяется fallback)."""
     from core.voice.tts_sanitizer import looks_unsafe_for_tts
 
-    assert not looks_unsafe_for_tts(MODEL_UNAVAILABLE_TEXT)
+    assert not looks_unsafe_for_tts(f"{MODEL_UNAVAILABLE_TEXT} BackendUnavailable: llama-server не найден")
 
 
 def test_fast_tier_short_retry_policy():

@@ -225,7 +225,7 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
         resolved_name = Path(cmd).name if cmd and ":" not in cmd else ""
         candidates = [*process_names, resolved_name]
         existing_pids = _process_ids_for_names(candidates)
-        if existing_pids:
+        if existing_pids and not args.strip():
             return ActionResult(
                 tool="open_app",
                 args={"name": name, "args": args},
@@ -251,6 +251,12 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
             cmd_parts = [cmd]
             if args:
                 cmd_parts.extend(shlex.split(args, posix=False))
+            if Path(cmd).name.casefold() == "explorer.exe":
+                cmd_parts = [
+                    part[:8] + part[8:].strip('"')
+                    if part.casefold().startswith("/select,") else part
+                    for part in cmd_parts
+                ]
             process = subprocess.Popen(cmd_parts, shell=False)
         log.debug("Запущено приложение: %s (cmd=%s)", name, cmd)
         pid_suffix = f" (pid={process.pid})" if "process" in locals() else ""
@@ -258,7 +264,7 @@ def open_app(name: str, settings: Optional[Settings] = None, args: str = "") -> 
             tool="open_app",
             args={"name": name, "args": args},
             ok=True,
-            output=f"Запустил {name}{pid_suffix}.",
+            output=f"Запустил {name}{pid_suffix}. target_args={args}" if args else f"Запустил {name}{pid_suffix}.",
         )
     except Exception as exc:
         log.error("Ошибка запуска '%s': %s", name, exc)
@@ -354,6 +360,8 @@ class OpenAppTool(Tool):
             "Открывает Windows-приложение по разговорному имени. "
             "Поддерживает: блокнот, калькулятор, браузер (chrome/firefox/edge), "
             "word, excel, powerpoint, vscode, telegram, discord, vlc и др. "
+            "target_path открывает существующий файл в выбранном приложении; для Проводника "
+            "он физически открывает содержащую папку и выделяет файл. "
             "Полный список — в документации. Можно добавить свои через настройки."
         )
 
@@ -371,13 +379,40 @@ class OpenAppTool(Tool):
                     "description": "Дополнительные аргументы командной строки (опционально).",
                     "default": "",
                 },
+                "target_path": {
+                    "type": "string",
+                    "description": (
+                        "Существующий абсолютный путь к файлу/папке, обычно из verified output "
+                        "search_files; Проводник выделит файл, другое приложение откроет его."
+                    ),
+                },
             },
             "required": ["name"],
             "additionalProperties": False,
         }
 
     def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
-        return open_app(args["name"], context.settings, args.get("args", ""))
+        launch_args = str(args.get("args") or "")
+        target_path = str(args.get("target_path") or "").strip()
+        if target_path:
+            resolved_target = Path(target_path).expanduser().resolve()
+            if not resolved_target.exists():
+                return ActionResult(
+                    self.name, args, False,
+                    error=(
+                        f"target_path не найден: {resolved_target}. "
+                        "Сначала получите существующий абсолютный путь через search_files."
+                    ),
+                )
+            if str(args["name"]).strip().casefold() in {"explorer", "проводник"}:
+                launch_args = (
+                    f'"{resolved_target}"'
+                    if resolved_target.is_dir()
+                    else f'/select,"{resolved_target}"'
+                )
+            else:
+                launch_args = f'"{resolved_target}"'
+        return open_app(args["name"], context.settings, launch_args)
 
 
 class CloseAppTool(Tool):

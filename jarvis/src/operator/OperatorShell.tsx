@@ -1,314 +1,175 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
-  Check, ChevronRight, Circle, Download, Expand, Globe2, Menu,
-  Mic, Minus, Paperclip, Plus, Search, Settings, ShieldCheck,
-  Shrink, Square, X,
+  Activity, AudioLines, Bot, Check, CircleStop, CloudSun, Cpu, FileSearch, Files,
+  Gauge, Globe2, HardDrive, Headphones, Layers3, Maximize2, Mic, Minimize2,
+  MonitorUp, Music2, Palette, Radio, Search, Send, Settings2,
+  Sparkles, Square, X, Zap,
 } from 'lucide-react';
 import type { PresenceState } from '@/bridge/StateMachine';
-import type { PendingConfirmation } from '@/types';
+import { useTheme } from '@/stores/themeStore';
+import type { AppSettings, PendingConfirmation, ThemeName } from '@/types';
 import type { PresenceMessage } from '@/window/MessageStream';
 import type { OperatorMission, UiMode } from './model';
 
+export interface LiveSignal {
+  id: string; kind: string; content: string; status: string; timestamp: number;
+  tool?: string; payload?: Record<string, unknown>;
+}
 interface Props {
-  messages: PresenceMessage[];
-  state: PresenceState;
-  mode: UiMode;
-  mission: OperatorMission | null;
-  confirmation: PendingConfirmation | null;
-  firstLaunch: boolean;
-  onModeChange: (mode: UiMode) => void;
-  onSend: (text: string) => void;
-  onInterrupt: () => void;
-  onVoiceListen: () => void;
-  onConfirm: (approved: boolean) => void;
-  onNewSession: () => void;
-  connected: boolean;
-  runtimeState: string;
+  messages: PresenceMessage[]; state: PresenceState; mode: UiMode; mission: OperatorMission | null;
+  confirmation: PendingConfirmation | null; firstLaunch: boolean; onModeChange: (mode: UiMode) => void;
+  onSend: (text: string) => void; onInterrupt: () => void; onVoiceListen: () => void;
+  onConfirm: (approved: boolean) => void; onNewSession: () => void; connected: boolean;
+  runtimeState: string; runtimeDiagnostics: Record<string, unknown>; signals: LiveSignal[];
 }
 
+type VisualState = 'idle' | 'listening' | 'thinking' | 'executing' | 'speaking' | 'success' | 'error' | 'starting';
+type CardKind = 'system' | 'weather' | 'music' | 'research' | 'files' | 'computer' | 'task';
 const CLOCK = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
-function useClock(): string {
-  const [value, setValue] = useState(() => CLOCK.format(new Date()));
-  useEffect(() => {
-    const timer = window.setInterval(() => setValue(CLOCK.format(new Date())), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return value;
+function useClock() {
+  const [clock, setClock] = useState(() => CLOCK.format(new Date()));
+  useEffect(() => { const timer = window.setInterval(() => setClock(CLOCK.format(new Date())), 1000); return () => window.clearInterval(timer); }, []);
+  return clock;
 }
-
 function windowAction(action: 'minimize' | 'close' | 'maximize') {
+  try { const appWindow = getCurrentWindow(); if (action === 'minimize') void appWindow.minimize(); if (action === 'close') void appWindow.close(); if (action === 'maximize') void appWindow.toggleMaximize(); } catch { /* browser fixture */ }
+}
+export function syncWindowMode(mode: UiMode) {
   try {
-    const window = getCurrentWindow();
-    if (action === 'minimize') void window.minimize();
-    if (action === 'close') void window.close();
-    if (action === 'maximize') void window.toggleMaximize();
+    const appWindow = getCurrentWindow(); const workspace = mode === 'command_center';
+    void appWindow.setResizable(workspace); void appWindow.setMinSize(new LogicalSize(workspace ? 1040 : 390, workspace ? 680 : 560));
+    void appWindow.setSize(new LogicalSize(workspace ? 1380 : 390, workspace ? 860 : 560)); if (workspace) void appWindow.center();
   } catch { /* browser fixture */ }
 }
-
-export function syncWindowMode(mode: UiMode): void {
-  try {
-    const window = getCurrentWindow();
-    const expanded = mode === 'command_center';
-    void window.setResizable(expanded);
-    void window.setMinSize(new LogicalSize(expanded ? 960 : 360, expanded ? 640 : 520));
-    void window.setSize(new LogicalSize(expanded ? 1180 : 360, expanded ? 760 : 520));
-    if (expanded) void window.center();
-  } catch { /* browser fixture */ }
+function isVerified(signal?: LiveSignal) { return Boolean(signal && (/verified|completed|success/i.test(signal.status) || signal.payload?.verified === true)); }
+function visualMeta(props: Pick<Props, 'state' | 'signals' | 'confirmation' | 'connected' | 'runtimeState'>) {
+  const latest = props.signals.at(-1);
+  if (props.runtimeState === 'starting' || props.runtimeState === 'loading_model') return { state: 'starting' as const, label: 'Запуск', detail: 'Модель проходит проверку' };
+  if (!props.connected || props.runtimeState === 'unavailable' || props.state === 'error') return { state: 'error' as const, label: 'Ошибка', detail: 'Открой диагностику' };
+  if (props.confirmation) return { state: 'executing' as const, label: 'Нужно решение', detail: 'Действие ждёт подтверждения' };
+  if (latest && /failed|error/i.test(latest.status)) return { state: 'error' as const, label: 'Не выполнено', detail: latest.content };
+  if (isVerified(latest)) return { state: 'success' as const, label: 'Готово', detail: 'Результат подтверждён' };
+  if (props.state === 'listening') return { state: 'listening' as const, label: 'Слушаю', detail: 'Говори' };
+  if (props.state === 'thinking') return { state: 'thinking' as const, label: 'Думаю', detail: 'Собираю ответ' };
+  if (props.state === 'executing') return { state: 'executing' as const, label: 'Выполняю', detail: 'Работает инструмент' };
+  if (props.state === 'speaking') return { state: 'speaking' as const, label: 'Отвечаю', detail: 'Формирую реплику' };
+  return { state: 'idle' as const, label: 'Готов', detail: 'Можно говорить или писать' };
 }
 
-function statusLabel(state: PresenceState, mission: OperatorMission | null, confirmation: PendingConfirmation | null, connected: boolean, runtimeState: string): string {
-  if (runtimeState === 'loading_model' || runtimeState === 'starting') return 'STARTING';
-  if (!connected) return 'CONNECTING';
-  if (runtimeState === 'unavailable') return 'OFFLINE';
-  if (confirmation) return 'CONFIRMATION';
-  if (mission?.verified) return 'VERIFIED';
-  if (mission?.phase === 'verify' || mission?.phase === 'observe') return 'VERIFYING';
-  if (state === 'thinking') return 'EXECUTING';
-  if (state === 'speaking') return 'SPEAKING';
-  if (state === 'error') return 'ERROR';
-  return 'READY';
+function AICore({ state, compact = false }: { state: VisualState; compact?: boolean }) {
+  return <div className={`aiCore ${compact ? 'compact' : ''}`} data-state={state} aria-label={`JARVIS: ${state}`}>
+    <div className="coreAura" /><div className="corePrism prismA" /><div className="corePrism prismB" />
+    <div className="coreOrbit orbitA"><i /><i /><i /></div><div className="coreOrbit orbitB"><i /><i /><i /><i /></div><div className="coreOrbit orbitC" />
+    <div className="thoughtNodes">{Array.from({ length: 9 }, (_, index) => <i key={index} style={{ '--i': index } as CSSProperties} />)}</div>
+    <div className="listenRipples"><i /><i /><i /></div><div className="executionBlades">{Array.from({ length: 6 }, (_, index) => <i key={index} style={{ '--i': index } as CSSProperties} />)}</div>
+    <div className="voiceSpectrum">{Array.from({ length: 11 }, (_, index) => <i key={index} />)}</div><div className="coreGem"><span><Bot size={compact ? 21 : 28} /></span></div>
+    <div className="successCrown"><Check size={compact ? 22 : 30} /></div><div className="errorSlash"><i /><i /></div>
+  </div>;
 }
 
-function shellTone(props: Props): string {
-  if (props.runtimeState === 'loading_model' || props.runtimeState === 'starting') return 'amber';
-  if (!props.connected || props.runtimeState === 'unavailable') return 'error';
-  if (props.confirmation) return 'amber';
-  if (props.mission?.verified) return 'lime';
-  if (props.state === 'error') return 'error';
-  return 'cyan';
+function CommandInput({ props, compact = false }: { props: Props; compact?: boolean }) {
+  const [value, setValue] = useState(''); const busy = props.state === 'thinking' || props.state === 'executing';
+  const submit = () => { const text = value.trim(); if (!text) return; props.onSend(text); setValue(''); };
+  return <form className={`commandInput ${compact ? 'compact' : ''}`} onSubmit={(event) => { event.preventDefault(); submit(); }}><AudioLines size={17} className="inputMark" /><input value={value} onChange={(event) => setValue(event.target.value)} placeholder={props.firstLaunch ? 'Как к тебе обращаться?' : 'Скажи, что нужно сделать'} aria-label="Команда для JARVIS" /><button type="button" className="voiceKey" onClick={props.onVoiceListen} aria-label="Голосовой ввод"><Mic size={18} /></button>{busy ? <button type="button" className="sendKey stop" onClick={props.onInterrupt} aria-label="Остановить"><CircleStop size={18} /></button> : <button type="submit" className="sendKey" disabled={!value.trim()} aria-label="Отправить"><Send size={17} /></button>}</form>;
 }
 
-function SignalCore({ tone, compact = false }: { tone: string; compact?: boolean }) {
-  return (
-    <div className={`signalCore ${compact ? 'compact' : ''}`} data-tone={tone} aria-hidden="true">
-      <span className="signalRing ringOne" />
-      <span className="signalRing ringTwo" />
-      <span className="signalWave"><i /><i /><i /><i /><i /><i /><i /></span>
-    </div>
-  );
+function MessageList({ messages, compact = false }: { messages: PresenceMessage[]; compact?: boolean }) {
+  const visible = messages.slice(compact ? -3 : -9);
+  if (!visible.length) return <div className="conversationEmpty"><Sparkles size={18} /><strong>Начни разговор</strong><span>JARVIS сохранит контекст внутри текущей сессии.</span></div>;
+  return <div className={`messageList ${compact ? 'compact' : ''}`} aria-live="polite">{visible.map((message) => <article key={message.id} data-role={message.role}><header><span>{message.role === 'jarvis' ? 'JARVIS' : 'ВЫ'}</span><time>{CLOCK.format(new Date(message.timestamp))}</time></header><p>{message.text || '•••'}</p></article>)}</div>;
+}
+function ConversationPane({ props }: { props: Props }) {
+  const lastUser = [...props.messages].reverse().find((message) => message.role === 'user');
+  return <section className="conversationPane glassPanel"><header className="panelHeading"><div><span>Диалог</span><strong>{lastUser ? 'Текущая сессия' : 'Новая сессия'}</strong></div><button onClick={props.onNewSession}>Очистить</button></header>{lastUser && <div className="workContext"><span>Сейчас</span><p>{lastUser.text}</p></div>}<MessageList messages={props.messages} /></section>;
 }
 
-function Composer({ onSend, onInterrupt, onVoiceListen, busy, placeholder }: {
-  onSend: (text: string) => void;
-  onInterrupt: () => void;
-  onVoiceListen: () => void;
-  busy: boolean;
-  placeholder: string;
-}) {
-  const [value, setValue] = useState('');
-  const input = useRef<HTMLInputElement>(null);
-  const submit = () => {
-    const text = value.trim();
-    if (!text) return;
-    onSend(text);
-    setValue('');
+function classifySignal(signal: LiveSignal): CardKind {
+  const source = `${signal.tool ?? ''} ${signal.kind} ${signal.content}`.toLowerCase();
+  if (/system_status|cpu|gpu|ram|memory|систем/.test(source)) return 'system';
+  if (/weather|погод|температур|forecast/.test(source)) return 'weather';
+  if (/play_music|music|музык|трек|playlist/.test(source)) return 'music';
+  if (/web_search|web_fetch|research|источник|поиск|исслед/.test(source)) return 'research';
+  if (/list_files|read_file|write_file|search_files|file_|документ|файл|папк/.test(source)) return 'files';
+  if (/open_app|close_app|browser_|screen_|key_press|type_text|computer|блокнот|браузер|приложен/.test(source)) return 'computer';
+  return 'task';
+}
+function toolLabel(tool?: string, fallback = 'действие') {
+  const labels: Record<string, string> = {
+    play_music: 'воспроизведение', open_app: 'приложение', close_app: 'приложение',
+    web_search: 'поиск в интернете', web_fetch: 'источник', system_status: 'состояние системы',
+    weather: 'прогноз', list_files: 'просмотр файлов', read_file: 'документ', write_file: 'документ',
   };
-  return (
-    <form className="operatorComposer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-      <input ref={input} value={value} onChange={(event) => setValue(event.target.value)} placeholder={placeholder} aria-label="Сообщение для JARVIS" />
-      <button type="button" className="iconButton quiet" aria-label="Прикрепить файл"><Paperclip size={18} /></button>
-      <button type="button" className="iconButton quiet" onClick={onVoiceListen} aria-label="Голосовой ввод"><Mic size={18} /></button>
-      {busy
-        ? <button type="button" className="iconButton stop" onClick={onInterrupt} aria-label="Остановить"><Square size={12} fill="currentColor" /></button>
-        : <button type="submit" className="sendButton" disabled={!value.trim()} aria-label="Отправить"><ChevronRight size={18} /></button>}
-    </form>
-  );
+  return tool ? (labels[tool] ?? fallback) : fallback;
+}
+const CARD_META: Record<CardKind, { title: string; icon: typeof Gauge; color: string }> = {
+  system: { title: 'Система', icon: Cpu, color: 'blue' }, weather: { title: 'Погода', icon: CloudSun, color: 'cyan' }, music: { title: 'Сейчас играет', icon: Music2, color: 'magenta' }, research: { title: 'Исследование', icon: Globe2, color: 'purple' }, files: { title: 'Файлы', icon: Files, color: 'green' }, computer: { title: 'Действие на компьютере', icon: MonitorUp, color: 'orange' }, task: { title: 'Текущая задача', icon: Zap, color: 'purple' },
+};
+function urlsIn(text: string) { return text.match(/https?:\/\/[^\s)\]}>,]+/g)?.slice(0, 3) ?? []; }
+function metricTokens(text: string) { return text.match(/(?:CPU|GPU|RAM|Memory|Память)[^,;\n]{0,28}/gi)?.slice(0, 4) ?? []; }
+function fileTokens(text: string) { return text.match(/(?:[A-Za-z]:\\[^\n,;]+|\/[^\n,;]+)/g)?.slice(0, 4) ?? []; }
+
+function SignalCard({ kind, signal }: { kind: CardKind; signal: LiveSignal }) {
+  const meta = CARD_META[kind]; const Icon = meta.icon; const verified = isVerified(signal); const urls = urlsIn(signal.content); const metrics = metricTokens(signal.content); const files = fileTokens(signal.content);
+  const hasSpecial = kind === 'music' || (kind === 'system' && metrics.length > 0) || kind === 'weather' || (kind === 'research' && urls.length > 0) || (kind === 'files' && files.length > 0);
+  return <article className="contextCard glassPanel" data-kind={kind} data-color={meta.color}><header><span className="cardIcon"><Icon size={17} /></span><div><strong>{meta.title}</strong><small>{toolLabel(signal.tool, signal.kind)}</small></div><em data-ok={verified}>{verified ? 'Проверено' : signal.status}</em></header>{kind === 'music' && <div className="musicVisual"><span className="playState"><AudioLines size={17} /></span><div><span>{signal.content}</span></div></div>}{kind === 'system' && metrics.length > 0 && <div className="metricGrid">{metrics.map((metric) => <span key={metric}>{metric}</span>)}</div>}{kind === 'weather' && <div className="weatherReadout"><CloudSun size={34} /><strong>{signal.content.match(/-?\d+(?:[.,]\d+)?\s*°C?/i)?.[0] ?? 'Данные получены'}</strong></div>}{kind === 'research' && urls.length > 0 && <div className="sourceList">{urls.map((url) => <span key={url}><Globe2 size={12} />{url.replace(/^https?:\/\//, '')}</span>)}</div>}{kind === 'files' && files.length > 0 && <div className="fileList">{files.map((file) => <span key={file}><HardDrive size={12} />{file}</span>)}</div>}{!hasSpecial && <p>{signal.content}</p>}<footer><span>{CLOCK.format(new Date(signal.timestamp))}</span>{verified && <span><Check size={12} /> результат подтверждён</span>}</footer></article>;
+}
+function ContextCards({ signals }: { signals: LiveSignal[] }) {
+  const cards = useMemo(() => { const latest = new Map<CardKind, LiveSignal>(); for (const signal of signals) latest.set(classifySignal(signal), signal); return [...latest.entries()].slice(-3).reverse(); }, [signals]);
+  if (!cards.length) return null;
+  return <aside className="contextColumn"><header className="columnTitle"><span>Контекст задачи</span><i>{cards.length}</i></header>{cards.map(([kind, signal]) => <SignalCard key={`${kind}-${signal.id}`} kind={kind} signal={signal} />)}</aside>;
 }
 
-function MessageTimeline({ messages, compact = false }: { messages: PresenceMessage[]; compact?: boolean }) {
-  const visible = messages.slice(compact ? -3 : -5);
-  if (visible.length === 0) return (
-    <div className="emptyConversation">
-      <span>JARVIS готов к работе</span>
-      <small>Сформулируйте задачу — интерфейс покажет только подтверждённые действия.</small>
-    </div>
-  );
-  return (
-    <div className={`operatorMessages ${compact ? 'compact' : ''}`} role="log" aria-live="polite">
-      {visible.map((message) => (
-        <article className={`operatorMessage ${message.role}`} key={message.id}>
-          <span className="messageMark">{message.role === 'jarvis' ? <SignalCore tone="cyan" compact /> : <Circle size={18} />}</span>
-          <div><p>{message.text}</p><time>{CLOCK.format(new Date(message.timestamp))}</time></div>
-        </article>
-      ))}
-    </div>
-  );
+function CoreDeck({ props }: { props: Props }) {
+  const meta = visualMeta(props); const latest = props.signals.at(-1);
+  return <section className="coreDeck" data-state={meta.state}><div className="depthGrid" /><div className="particleField">{Array.from({ length: 18 }, (_, index) => <i key={index} style={{ '--i': index } as CSSProperties} />)}</div><div className="coreAssembly"><AICore state={meta.state} /><div className="stateCopy"><span className="stateDot" /><div><strong>{meta.label}</strong><p>{meta.detail}</p></div></div></div>{latest && <div className="activeTrace"><span>{toolLabel(latest.tool, latest.kind)}</span><p>{isVerified(latest) ? 'Результат подтверждён' : latest.status}</p><i data-ok={isVerified(latest)} /></div>}</section>;
 }
 
-function CompactPresence(props: Props) {
-  const clock = useClock();
-  const tone = shellTone(props);
-  const label = statusLabel(props.state, props.mission, props.confirmation, props.connected, props.runtimeState);
-  return (
-    <main className="compactShell">
-      <header className="compactTitlebar" data-tauri-drag-region>
-        <strong>JARVIS</strong><time>{clock}</time>
-        <span className="titleStatusDot" data-tone={tone} />
-        <button className="iconButton quiet" onClick={() => props.onModeChange('command_center')} aria-label="Открыть командный центр"><Expand size={17} /></button>
-      </header>
-      <section className="compactCore">
-        <SignalCore tone={tone} />
-        <span className="technicalLabel" data-tone={tone}>{label}</span>
-      </section>
-      <MessageTimeline messages={props.messages} compact />
-      {props.mission && props.state === 'thinking' && (
-        <button className="expandSuggestion" onClick={() => props.onModeChange('command_center')}>
-          <span>Задача выполняется в несколько этапов</span><strong>Открыть центр</strong>
-        </button>
-      )}
-      <Composer
-        onSend={props.onSend}
-        onInterrupt={props.onInterrupt}
-        onVoiceListen={props.onVoiceListen}
-        busy={props.state === 'thinking'}
-        placeholder={props.firstLaunch ? 'Как тебя зовут?' : 'Сообщение для JARVIS…'}
-      />
-    </main>
-  );
+const QUICK_ACTIONS = [
+  { label: 'Система', icon: Gauge, command: 'покажи состояние системы' }, { label: 'Погода', icon: CloudSun, command: 'какая погода сейчас' },
+  { label: 'Музыка', icon: Headphones, command: 'поставь музыку' }, { label: 'Исследовать', icon: Search, command: 'помоги провести исследование' },
+  { label: 'Файлы', icon: FileSearch, command: 'покажи мои файлы' },
+];
+function CommandDock({ props, compact = false }: { props: Props; compact?: boolean }) {
+  return <footer className={`commandDock ${compact ? 'compact' : ''}`}>{!compact && <nav>{QUICK_ACTIONS.map(({ label, icon: Icon, command }) => <button key={label} onClick={() => props.onSend(command)}><Icon size={16} /><span>{label}</span></button>)}</nav>}<CommandInput props={props} compact={compact} />{!compact && <button className="voiceMode" onClick={props.onVoiceListen}><Radio size={17} /><span>Голос</span></button>}</footer>;
 }
 
-function StepRail({ mission }: { mission: OperatorMission }) {
-  return (
-    <div className="stepRail" aria-label="Этапы миссии">
-      {mission.steps.map((step) => (
-        <div className="missionStep" data-state={step.state} key={step.id}>
-          <span>{step.state === 'complete' ? <Check size={15} /> : step.state === 'failed' ? <X size={15} /> : <i />}</span>
-          <strong>{step.label}</strong>
-        </div>
-      ))}
-    </div>
-  );
+const PRESETS: Array<{ id: string; name: string; palette: Partial<AppSettings>; preview: string }> = [
+  { id: 'spectra', name: 'Spectra', preview: 'linear-gradient(90deg,#43d9ff,#9b6cff,#ff4fa3,#ff9f43)', palette: { primaryAccent: '#43d9ff', secondaryAccent: '#9b6cff', tertiaryAccent: '#ff4fa3', energyAccent: '#ff9f43', successAccent: '#62e6a7', errorAccent: '#ff526d', backgroundBase: '#05060b', panelTint: '#111522' } },
+  { id: 'reactor', name: 'Reactor', preview: 'linear-gradient(90deg,#68ffd5,#3388ff,#ffb340,#ff5c7a)', palette: { primaryAccent: '#68ffd5', secondaryAccent: '#3388ff', tertiaryAccent: '#ff5c7a', energyAccent: '#ffb340', successAccent: '#70f0a8', errorAccent: '#ff4b5f', backgroundBase: '#03080a', panelTint: '#0c1b20' } },
+  { id: 'royal', name: 'Royal', preview: 'linear-gradient(90deg,#7cb7ff,#7557ff,#e251ff,#ff7a45)', palette: { primaryAccent: '#7cb7ff', secondaryAccent: '#7557ff', tertiaryAccent: '#e251ff', energyAccent: '#ff7a45', successAccent: '#66e3b4', errorAccent: '#ff5078', backgroundBase: '#06050d', panelTint: '#171127' } },
+  { id: 'ember', name: 'Ember', preview: 'linear-gradient(90deg,#ffca58,#ff7a45,#ff436c,#9b65ff)', palette: { primaryAccent: '#ffca58', secondaryAccent: '#ff7a45', tertiaryAccent: '#ff436c', energyAccent: '#9b65ff', successAccent: '#7ee6a7', errorAccent: '#ff405b', backgroundBase: '#090604', panelTint: '#21150f' } },
+];
+const COLOR_FIELDS: Array<[keyof AppSettings, string]> = [['primaryAccent', 'Основной'], ['secondaryAccent', 'Вторичный'], ['tertiaryAccent', 'Маджента'], ['energyAccent', 'Энергия'], ['successAccent', 'Успех'], ['errorAccent', 'Ошибка'], ['backgroundBase', 'Фон'], ['panelTint', 'Стекло']];
+function ThemeEngine({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { settings, setTheme, setPalette, setGlowIntensity, setSaturation, setContrast } = useTheme(); if (!open) return null;
+  return <section className="themeEngine glassPanel"><header><div><span>Внешний вид</span><strong>Цветовая система</strong></div><button onClick={onClose}><X size={16} /></button></header><div className="presetGrid">{PRESETS.map((preset) => <button key={preset.id} onClick={() => setPalette(preset.palette)} data-active={settings.primaryAccent === preset.palette.primaryAccent}><i style={{ background: preset.preview }} /><span>{preset.name}</span></button>)}</div><div className="colorGrid">{COLOR_FIELDS.map(([key, label]) => <label key={key}><input type="color" value={String(settings[key])} onChange={(event) => setPalette({ [key]: event.target.value })} /><span>{label}</span></label>)}</div>{[['Свечение', settings.glowIntensity, 0, 1, setGlowIntensity], ['Насыщенность', settings.saturation, .7, 1.5, setSaturation], ['Контраст', settings.contrast, .85, 1.25, setContrast]].map(([label, value, min, max, setter]) => <label className="rangeField" key={String(label)}><span>{String(label)} <em>{Math.round(Number(value) * 100)}%</em></span><input type="range" min={Number(min)} max={Number(max)} step=".01" value={Number(value)} onChange={(event) => (setter as (value: number) => void)(Number(event.target.value))} /></label>)}<select value={settings.theme} onChange={(event) => setTheme(event.target.value as ThemeName)}><option value="olympus">Graphite space</option><option value="midnight">Black glass</option><option value="glass">Holographic glass</option><option value="personal">Personal background</option></select></section>;
+}
+function Diagnostics({ open, data, onClose }: { open: boolean; data: Record<string, unknown>; onClose: () => void }) {
+  if (!open) return null; return <section className="diagnosticPanel glassPanel"><header><strong>Диагностика</strong><button onClick={onClose}><X size={15} /></button></header>{Object.entries(data).map(([key, value]) => <p key={key}><span>{key.replaceAll('_', ' ')}</span><b>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</b></p>)}</section>;
 }
 
-function MissionPanel({ mission, confirmation, onConfirm }: {
-  mission: OperatorMission;
-  confirmation: PendingConfirmation | null;
-  onConfirm: (approved: boolean) => void;
-}) {
-  return (
-    <section className="missionPanel" data-phase={mission.phase}>
-      <div className="panelHeading"><div><span className="eyebrow">АКТИВНАЯ МИССИЯ</span><h1>{mission.title}</h1></div><span className="missionId">{mission.id.slice(-8)}</span></div>
-      <StepRail mission={mission} />
-      <div className="activityList">
-        {mission.activities.map((activity) => (
-          <article className="activityRow" data-status={activity.status} key={activity.id}>
-            <span className="activityIcon">{activity.status === 'complete' ? <Check size={15} /> : activity.status === 'failed' ? <X size={15} /> : <Download size={15} />}</span>
-            <div><strong>{activity.label}</strong>{activity.detail && <small>{activity.detail}</small>}</div>
-            <time>{CLOCK.format(new Date(activity.timestamp))}</time>
-          </article>
-        ))}
-      </div>
-      {confirmation && (
-        <div className="confirmationBar" role="alert">
-          <span className="confirmationIcon">!</span>
-          <div><strong>Требуется подтверждение</strong><small>{confirmation.prompt}</small>{confirmation.tool && <code>{confirmation.tool}</code>}</div>
-          <button className="confirmPrimary" onClick={() => onConfirm(true)}>ПОДТВЕРДИТЬ</button>
-          <button className="confirmSecondary" onClick={() => onConfirm(false)}>ОТМЕНА</button>
-        </div>
-      )}
-      {mission.verified && (
-        <div className="verifiedActions">
-          <span><ShieldCheck size={18} /> Результат подтверждён</span>
-          <button>ПОКАЗАТЬ ДЕТАЛИ</button>
-        </div>
-      )}
-    </section>
-  );
+function StatusItem({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone?: string }) { return <span className="statusItem" data-tone={tone}><i>{icon}</i><span>{label}</span><strong>{value}</strong></span>; }
+function TopBar({ props, onTheme, onDiagnostics }: { props: Props; onTheme: () => void; onDiagnostics: () => void }) {
+  const clock = useClock(); const meta = visualMeta(props); const runtime = (props.runtimeDiagnostics.runtime && typeof props.runtimeDiagnostics.runtime === 'object') ? props.runtimeDiagnostics.runtime as Record<string, unknown> : {};
+  const provider = String(runtime.provider ?? props.runtimeDiagnostics.backend ?? 'runtime'); const model = String(props.runtimeDiagnostics.model ?? '').split('/').at(-1) || 'model'; const latency = typeof runtime.probe_latency_ms === 'number' ? `${Math.round(runtime.probe_latency_ms)} ms` : '';
+  return <header className="topBar" data-tauri-drag-region><div className="brandMark"><span>J</span><div><strong>JARVIS</strong><small>AI OPERATING SYSTEM</small></div></div><div className="realStatus"><StatusItem icon={<Activity size={13} />} label="Состояние" value={meta.label} tone={meta.state} /><StatusItem icon={<Layers3 size={13} />} label="Мозг" value={model} /><StatusItem icon={<Globe2 size={13} />} label="Связь" value={props.connected ? provider : 'нет'} tone={props.connected ? 'success' : 'error'} />{latency && <StatusItem icon={<Zap size={13} />} label="Ответ" value={latency} />}</div><div className="windowTools"><time>{clock}</time><button onClick={onDiagnostics} aria-label="Диагностика"><Settings2 size={15} /></button><button onClick={onTheme} aria-label="Тема"><Palette size={15} /></button><button onClick={() => props.onModeChange('presence')} aria-label="Presence Mode"><Minimize2 size={15} /></button><button onClick={() => windowAction('minimize')} aria-label="Свернуть"><span>—</span></button><button onClick={() => windowAction('maximize')} aria-label="Развернуть"><Square size={12} /></button><button className="close" onClick={() => windowAction('close')} aria-label="Закрыть"><X size={15} /></button></div></header>;
 }
+function Confirmation({ props }: { props: Props }) { if (!props.confirmation) return null; return <div className="confirmationBar"><div><strong>Подтвердить действие</strong><span>{props.confirmation.prompt}</span></div><button onClick={() => props.onConfirm(true)}><Check size={14} /> Разрешить</button><button onClick={() => props.onConfirm(false)}><X size={14} /> Отмена</button></div>; }
 
-function EvidenceRail({ mission, confirmation }: { mission: OperatorMission | null; confirmation: PendingConfirmation | null }) {
-  const items = mission?.evidence.length ? mission.evidence : [
-    { label: 'Состояние', value: mission ? 'Собираю доказательства' : 'Ожидание задачи', tone: 'neutral' as const },
-    { label: 'Риск', value: confirmation ? String(confirmation.risk.level ?? 'HIGH').toUpperCase() : 'LOW', tone: confirmation ? 'amber' as const : 'cyan' as const },
-    { label: 'Приватность', value: 'Локальный runtime', tone: 'cyan' as const },
-  ];
-  return (
-    <aside className="evidenceRail">
-      <span className="railTitle">{mission?.verified ? 'ИТОГ МИССИИ' : confirmation ? 'ДОКАЗАТЕЛЬСТВА' : 'КОНТЕКСТ МИССИИ'}</span>
-      {items.slice(0, 3).map((item, index) => (
-        <article className="evidenceCard" data-tone={item.tone} key={`${item.label}-${index}`}>
-          <span>{index === 0 ? <Globe2 size={20} /> : <ShieldCheck size={20} />}</span>
-          <div><small>{item.label}</small><strong>{item.value}</strong></div>
-        </article>
-      ))}
-      {mission && !mission.verified && (
-        <article className="nextStepCard"><small>Следующий шаг</small><strong>{mission.phase === 'verify' ? 'Проверить разрешение' : mission.phase === 'install' ? 'Наблюдать установку' : 'Проверить результат'}</strong></article>
-      )}
-    </aside>
-  );
+function Workspace(props: Props) {
+  const [theme, setTheme] = useState(false); const [diagnostics, setDiagnostics] = useState(false); const meta = visualMeta(props); const hasContext = props.signals.length > 0;
+  return <main className="aiosWorkspace" data-state={meta.state}><div className="ambientLayers"><i /><i /><i /></div><TopBar props={props} onTheme={() => setTheme((value) => !value)} onDiagnostics={() => setDiagnostics((value) => !value)} /><section className="workspaceGrid" data-context={hasContext}><ConversationPane props={props} /><CoreDeck props={props} /><ContextCards signals={props.signals} /></section><CommandDock props={props} /><Confirmation props={props} /><ThemeEngine open={theme} onClose={() => setTheme(false)} /><Diagnostics open={diagnostics} data={props.runtimeDiagnostics} onClose={() => setDiagnostics(false)} /></main>;
 }
-
-function Sidebar({ messages, mission, onNewSession }: { messages: PresenceMessage[]; mission: OperatorMission | null; onNewSession: () => void }) {
-  const [query, setQuery] = useState('');
-  const [settings, setSettings] = useState(false);
-  const sessions = useMemo(() => {
-    const commands = messages.filter((message) => message.role === 'user').slice(-6).reverse();
-    const rows = commands.map((message) => ({ id: message.id, title: message.text, time: CLOCK.format(new Date(message.timestamp)) }));
-    if (mission && rows.length === 0) {
-      rows.unshift({ id: mission.id, title: mission.title, time: 'сейчас' });
-    }
-    return rows.filter((row) => row.title.toLowerCase().includes(query.toLowerCase()));
-  }, [messages, mission, query]);
-  return (
-    <aside className="operatorSidebar">
-      <div className="sideBrand"><strong>JARVIS</strong><span>LOCAL OPERATOR</span></div>
-      <button className="newSession" onClick={onNewSession}><Plus size={17} /> Новая сессия</button>
-      <label className="sessionSearch"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск сессий" /></label>
-      <span className="sideSection">НЕДАВНИЕ СЕССИИ</span>
-      <div className="sessionList">
-        {sessions.map((session, index) => <article className={`sessionRow ${index === 0 ? 'active' : ''}`} key={session.id}><span><SignalCore tone="cyan" compact /></span><div><strong>{session.title}</strong><time>{session.time}</time></div></article>)}
-        {sessions.length === 0 && <p className="noSessions">История появится после первой команды.</p>}
-      </div>
-      <button className="settingsButton" onClick={() => setSettings((value) => !value)}><Settings size={17} /> Настройки</button>
-      {settings && <div className="quickSettings"><strong>Интерфейс</strong><span>Obsidian Operator</span><small>Данные и вычисления остаются локальными.</small></div>}
-    </aside>
-  );
-}
-
-function CommandCenter(props: Props) {
-  const clock = useClock();
-  const tone = shellTone(props);
-  const label = statusLabel(props.state, props.mission, props.confirmation, props.connected, props.runtimeState);
-  return (
-    <main className="commandShell">
-      <Sidebar messages={props.messages} mission={props.mission} onNewSession={props.onNewSession} />
-      <section className="operatorMain">
-        <header className="operatorTitlebar" data-tauri-drag-region>
-          <button className="iconButton quiet mobileMenu" aria-label="Меню"><Menu size={18} /></button>
-          <SignalCore tone={tone} compact /><span className="technicalLabel" data-tone={tone}>{label}</span>
-          <span className="operatorClock">{clock}</span><span className="titleStatusDot" data-tone={tone} />
-          <button className="iconButton quiet" onClick={() => props.onModeChange('presence')} aria-label="Компактный режим"><Shrink size={17} /></button>
-          <button className="iconButton quiet" onClick={() => windowAction('minimize')} aria-label="Свернуть"><Minus size={17} /></button>
-          <button className="iconButton quiet" onClick={() => windowAction('maximize')} aria-label="Развернуть"><Square size={13} /></button>
-          <button className="iconButton quiet closeButton" onClick={() => windowAction('close')} aria-label="Закрыть"><X size={17} /></button>
-        </header>
-        <div className="operatorContent">
-          <MessageTimeline messages={props.messages} />
-          {props.mission ? <MissionPanel mission={props.mission} confirmation={props.confirmation} onConfirm={props.onConfirm} /> : (
-            <section className="welcomeMission"><SignalCore tone={tone} /><h1>Готов к следующей задаче</h1><p>Диалог остаётся главным. Миссия, инструменты и доказательства появятся только когда они действительно нужны.</p></section>
-          )}
-        </div>
-        <Composer onSend={props.onSend} onInterrupt={props.onInterrupt} onVoiceListen={props.onVoiceListen} busy={props.state === 'thinking'} placeholder={props.firstLaunch ? 'Как тебя зовут?' : 'Сообщение для JARVIS…'} />
-      </section>
-      <EvidenceRail mission={props.mission} confirmation={props.confirmation} />
-    </main>
-  );
+function Presence(props: Props) {
+  const [theme, setTheme] = useState(false); const meta = visualMeta(props);
+  return <main className="aiosPresence" data-state={meta.state}><div className="presenceGlow" /><header data-tauri-drag-region><div className="presenceBrand"><i /><strong>JARVIS</strong><span>{props.connected ? 'на связи' : 'нет связи'}</span></div><nav><button onClick={() => setTheme((value) => !value)}><Palette size={15} /></button><button onClick={() => props.onModeChange('command_center')}><Maximize2 size={15} /></button><button onClick={() => windowAction('close')}><X size={15} /></button></nav></header><section className="presenceCore"><AICore state={meta.state} compact /><div className="presenceState"><strong>{meta.label}</strong><span>{meta.detail}</span></div></section><MessageList messages={props.messages} compact /><div className="presenceQuick"><button onClick={props.onVoiceListen}><Mic size={15} /> Слушать</button><button onClick={() => props.onSend('покажи состояние системы')}><Gauge size={15} /> Система</button><button onClick={() => props.onSend('поставь музыку')}><Music2 size={15} /> Музыка</button></div><CommandDock props={props} compact /><ThemeEngine open={theme} onClose={() => setTheme(false)} /></main>;
 }
 
 export function OperatorShell(props: Props) {
   useEffect(() => syncWindowMode(props.mode), [props.mode]);
-  useEffect(() => {
-    const hotkey = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.shiftKey && event.code === 'Space') {
-        event.preventDefault();
-        props.onModeChange(props.mode === 'presence' ? 'command_center' : 'presence');
-      }
-    };
-    window.addEventListener('keydown', hotkey);
-    return () => window.removeEventListener('keydown', hotkey);
-  }, [props]);
-  return props.mode === 'presence' ? <CompactPresence {...props} /> : <CommandCenter {...props} />;
+  useEffect(() => { const handler = (event: KeyboardEvent) => { if (event.ctrlKey && event.shiftKey && event.code === 'Space') { event.preventDefault(); props.onModeChange(props.mode === 'presence' ? 'command_center' : 'presence'); } }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [props]);
+  return props.mode === 'presence' ? <Presence {...props} /> : <Workspace {...props} />;
 }

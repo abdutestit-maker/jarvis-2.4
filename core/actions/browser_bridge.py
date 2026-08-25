@@ -1,6 +1,9 @@
 """ToolRegistry adapter for the policy-aware BrowserBridge."""
 from __future__ import annotations
 
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
@@ -21,10 +24,20 @@ class BrowserBridgeTool(Tool):
 
     def __init__(self, bridge: BrowserBridge | None = None) -> None:
         self._bridge = bridge
+        # Playwright's sync API binds its greenlet to the creating thread.
+        # Tool calls arrive from arbitrary executor workers, so every browser
+        # operation must cross one stable worker for the lifetime of the tool.
+        self._worker = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="jarvis-browser-bridge",
+        )
 
     def _get_bridge(self) -> BrowserBridge:
         if self._bridge is None:
-            self._bridge = BrowserBridge()
+            # Production HANDS uses a visible browser.  The existing
+            # BrowserBridge still owns DOM grounding, policy and verification.
+            from core.platform.browser import BrowserAutomationProvider
+            self._bridge = BrowserBridge(provider=BrowserAutomationProvider(headless=False))
         return self._bridge
 
     @property
@@ -47,7 +60,7 @@ class BrowserBridgeTool(Tool):
                 "action": {
                     "type": "string",
                     "enum": [
-                        "open", "navigate", "inspect_dom", "find", "click", "type",
+                        "open", "navigate", "inspect_dom", "find", "click", "type", "press",
                         "read", "wait", "extract", "download", "observe", "close",
                     ],
                 },
@@ -55,6 +68,7 @@ class BrowserBridgeTool(Tool):
                 "selector": {"type": ["string", "object", "integer"]},
                 "index": {"type": "integer"},
                 "text": {"type": "string"},
+                "key": {"type": "string"},
                 "timeout": {"type": "number", "minimum": 0},
                 "directory": {"type": "string"},
                 "confirm": {"type": "boolean"},
@@ -85,6 +99,35 @@ class BrowserBridgeTool(Tool):
         return None
 
     @staticmethod
+    def _approved_grant(
+        bridge: BrowserBridge,
+        action: str,
+        target: Any,
+        context: ToolContext,
+    ) -> tuple[Any, ConfirmationGrant | None, bool]:
+        """Bind Agent confirmation to the exact live DOM target.
+
+        A boolean approval never crosses the BrowserBridge policy boundary by
+        itself.  The target is resolved against the current DOM and converted
+        into the same selector fingerprint that BrowserPolicy validates.
+        """
+        grant = BrowserBridgeTool._grant(context)
+        if grant is not None:
+            return target, grant, False
+        if not bool(context.extra.get("confirmation_approved")):
+            return target, None, False
+        resolved = bridge.find(target)
+        if not resolved.found or resolved.selector is None or bridge.session is None:
+            return target, None, False
+        return resolved, ConfirmationGrant(
+            grant_id=uuid.uuid4().hex,
+            action=action,
+            session_id=bridge.session.session_id,
+            selector_fingerprint=resolved.fingerprint_for(bridge.session.session_id),
+            expires_at=time.time() + 30.0,
+        ), True
+
+    @staticmethod
     def _result(args: Dict[str, Any], result: BrowserActionResult) -> ActionResult:
         return ActionResult(
             tool="browser_bridge",
@@ -94,7 +137,26 @@ class BrowserBridgeTool(Tool):
             error=result.error,
         )
 
+    @staticmethod
+    def _download_directory(context: ToolContext, value: Any) -> Path:
+        settings = getattr(context, "settings", None)
+        documents_dir = getattr(settings, "documents_dir", None)
+        if documents_dir is None:
+            raise ValueError("download directory is unavailable")
+        root = Path(documents_dir).expanduser().resolve() / "downloads"
+        requested = Path(str(value)).expanduser()
+        target = (root / requested if not requested.is_absolute() else requested).resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        if target != root and root not in target.parents:
+            raise ValueError("download directory must stay inside documents_dir/downloads")
+        return target
+
     def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
+        return self._worker.submit(self._run_on_browser_thread, args, context).result()
+
+    def _run_on_browser_thread(
+        self, args: Dict[str, Any], context: ToolContext,
+    ) -> ActionResult:
         bridge = context.extra.get("browser_bridge") if isinstance(context.extra, dict) else None
         if not isinstance(bridge, BrowserBridge):
             bridge = self._get_bridge()
@@ -118,11 +180,15 @@ class BrowserBridgeTool(Tool):
                 session_id = bridge.session.session_id if bridge.session else ""
                 return ActionResult(self.name, args, result.found, output=result.to_dict(session_id=session_id))
             if action == "click":
+                target, grant, fresh_resolution = self._approved_grant(
+                    bridge, "click", self._target(args), context,
+                )
                 result = bridge.click(
-                    self._target(args),
+                    target,
                     confirm=bool(args.get("confirm", False)),
-                    confirmation_grant=self._grant(context),
+                    confirmation_grant=grant,
                     expected_state=args.get("expected_state"),
+                    fresh_resolution=fresh_resolution,
                 )
                 return self._result(args, result)
             if action == "type":
@@ -132,6 +198,24 @@ class BrowserBridgeTool(Tool):
                     self._target(args),
                     str(args["text"]),
                     confirmation_grant=self._grant(context),
+                    expected_state=args.get("expected_state"),
+                )
+                return self._result(args, result)
+            if action == "press":
+                if "key" not in args:
+                    return ActionResult(self.name, args, False, error="press requires key")
+                target_value = (
+                    self._target(args)
+                    if "selector" in args or "index" in args
+                    else {"css": ":focus"}
+                )
+                target, grant, _ = self._approved_grant(
+                    bridge, "press", target_value, context,
+                )
+                result = bridge.press(
+                    target,
+                    str(args["key"]),
+                    confirmation_grant=grant,
                     expected_state=args.get("expected_state"),
                 )
                 return self._result(args, result)
@@ -145,11 +229,15 @@ class BrowserBridgeTool(Tool):
             if action == "download":
                 if "directory" not in args:
                     return ActionResult(self.name, args, False, error="download requires directory")
+                target, grant, fresh_resolution = self._approved_grant(
+                    bridge, "download", self._target(args), context,
+                )
                 result = bridge.download(
-                    self._target(args),
-                    directory=Path(str(args["directory"])),
+                    target,
+                    directory=self._download_directory(context, args["directory"]),
                     confirm=bool(args.get("confirm", False)),
-                    confirmation_grant=self._grant(context),
+                    confirmation_grant=grant,
+                    fresh_resolution=fresh_resolution,
                 )
                 return self._result(args, result)
             if action == "close":

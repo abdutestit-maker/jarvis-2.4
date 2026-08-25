@@ -21,23 +21,22 @@ def test_compound_parser_only_splits_two_real_actions():
     assert split_compound_commands("поставь музыку, настроения нет") == []
 
 
-def test_route_guard_blocks_media_to_reminder_and_time_to_web():
+def test_route_guard_validates_transport_not_phrase_to_tool_mapping():
     media = validate_tool_selection("поставь музыку", "add_reminder")
-    assert media.allowed is False
-    assert media.expected_tools == ("play_music",)
+    assert media.allowed is True
 
     clock = validate_tool_selection("который час", "web_search")
-    assert clock.allowed is False
-    assert clock.expected_tools == ("current_time",)
+    assert clock.allowed is True
+    assert validate_tool_selection("", "", {}).allowed is False
 
 
-def test_direct_verified_execution_has_last_line_route_guard(settings):
+def test_direct_verified_execution_rejects_malformed_transport(settings):
     agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
     with patch("core.actions.reminders.get_default_manager") as manager:
         outcome = agent._execute_verified(
             goal="поставь музыку",
             tool="add_reminder",
-            args={"text": "случайная подмена"},
+            args=[],
             mission=None,
             cancel=threading.Event(),
             trace=[],

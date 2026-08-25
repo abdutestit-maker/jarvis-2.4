@@ -101,6 +101,22 @@ def _new_dom_selector(**values: Any) -> Any:
     return _dom_selector_type()(**values)
 
 
+_CSS_SELECTOR_RE = re.compile(
+    r"^(?:[#.\[]|(?:a|button|input|textarea|select|form|main|nav|article|section)"
+    r"(?:[#.\[:]|$))",
+    re.IGNORECASE,
+)
+
+
+def _coerce_dom_target(value: Any) -> Any:
+    """Interpret unambiguous CSS strings as CSS, ordinary strings as text."""
+    if isinstance(value, str):
+        clean = value.strip()
+        if _CSS_SELECTOR_RE.search(clean) or "," in clean or " > " in clean:
+            return {"css": clean}
+    return value
+
+
 def canonical_selector_value(selector: Any) -> dict[str, Any]:
     """Return a deterministic, JSON-safe semantic selector representation."""
     if _is_dom_selector(selector):
@@ -528,7 +544,7 @@ class BrowserBridge:
         if isinstance(target, int) and not isinstance(target, bool):
             return self._find_index(target, observed)
         try:
-            selector = _dom_selector_type().from_value(target)
+            selector = _dom_selector_type().from_value(_coerce_dom_target(target))
             matches = list(self.provider.find(selector))
         except Exception as exc:
             raise BrowserBridgeError(str(exc)) from exc
@@ -574,6 +590,60 @@ class BrowserBridge:
             "dom_hash": observed.get("dom_hash"),
             "node_count": len(observed.get("nodes", [])),
         }
+
+    def _observe_after_action(
+        self,
+        *,
+        timeout: float = 5.0,
+        previous: Mapping[str, Any] | None = None,
+        require_change: bool = False,
+    ) -> dict[str, Any]:
+        """Observe a stable post-action state, tolerating navigation races."""
+        deadline = time.monotonic() + max(0.1, timeout)
+        last_error: Exception | None = None
+        latest: dict[str, Any] | None = None
+        stable_signature: tuple[Any, ...] | None = None
+        stable_count = 0
+        before = (
+            previous.get("url"), previous.get("title"), previous.get("dom_hash")
+        ) if previous is not None else None
+        settle = getattr(self.provider, "settle", None)
+        if callable(settle):
+            try:
+                settle(timeout=timeout)
+            except Exception as exc:
+                last_error = exc
+        while time.monotonic() < deadline:
+            try:
+                observed = self.observe()
+            except BrowserBridgeError as exc:
+                last_error = exc
+                time.sleep(0.1)
+                continue
+            latest = observed
+            signature = (
+                observed.get("url"), observed.get("title"), observed.get("dom_hash")
+            )
+            changed = before is None or signature != before
+            if not require_change or changed:
+                if signature == stable_signature:
+                    stable_count += 1
+                else:
+                    stable_signature = signature
+                    stable_count = 1
+                if stable_count >= 2:
+                    return observed
+            time.sleep(0.1)
+        if latest is not None:
+            signature = (
+                latest.get("url"), latest.get("title"), latest.get("dom_hash")
+            )
+            if not require_change or before is None or signature != before:
+                return latest
+            raise BrowserBridgeError("browser action produced no observable page change")
+        if last_error is not None:
+            raise last_error
+        return self.observe()
 
     @staticmethod
     def _verify(expected: Mapping[str, Any] | None, observed: Mapping[str, Any], *, method: str) -> dict[str, Any]:
@@ -633,14 +703,25 @@ class BrowserBridge:
         confirm: bool = False,
         confirmation_grant: ConfirmationGrant | Mapping[str, Any] | None = None,
         expected_state: Mapping[str, Any] | None = None,
+        fresh_resolution: bool = False,
     ) -> BrowserActionResult:
         del confirm  # compatibility hint; policy/grant is authoritative
         session = self._require_session()
+        supplied_result = isinstance(target, FindResult)
         resolved = self._resolve(target)
-        current = self.observe()
-        stale = self._stale(resolved, current)
-        if stale is not None:
-            return stale
+        if supplied_result and not fresh_resolution:
+            current = self.observe()
+            stale = self._stale(resolved, current)
+            if stale is not None:
+                return stale
+        else:
+            current = {
+                "session_id": session.session_id,
+                "url": self._session.url,
+                "title": self._session.title,
+                "dom_hash": resolved.dom_hash,
+                "nodes": [],
+            }
         decision = self._authorize("click", resolved, confirmation_grant)
         if not decision.allowed:
             return self._blocked(decision)
@@ -662,8 +743,85 @@ class BrowserBridge:
                 str(raw.get("error", "click was not executed")) if isinstance(raw, Mapping) else "click was not executed",
                 session.session_id,
             )
-        observed = self.observe()
-        verification = self._verify(expected_state, observed, method="post_click_observation")
+        page_changed = True
+        try:
+            observed = self._observe_after_action(previous=current, require_change=True)
+        except BrowserBridgeError as exc:
+            if "no observable page change" not in str(exc):
+                raise
+            page_changed = False
+            observed = self._observe_after_action(previous=current, require_change=False)
+        if expected_state is not None:
+            verification = self._verify(expected_state, observed, method="post_click_observation")
+        else:
+            postcondition = raw.get("postcondition", {}) if isinstance(raw, Mapping) else {}
+            semantic_change = bool(
+                page_changed
+                or postcondition.get("focused")
+                or postcondition.get("checked_changed")
+                or postcondition.get("url_changed")
+            )
+            verification = {
+                "ok": semantic_change,
+                "method": "post_click_observation" if page_changed else "semantic_click_postcondition",
+                "detail": (
+                    "page state changed after click" if page_changed
+                    else "clicked element received focus or changed state" if semantic_change
+                    else "click was sent but no target postcondition was observed"
+                ),
+            }
+        return BrowserActionResult(
+            bool(verification["ok"]), True, decision.requires_confirmation, None,
+            self._compact_observation(observed), verification, None, session.session_id,
+        )
+
+    def press(
+        self,
+        target: FindResult | DOMSelector | Mapping[str, Any] | str | int,
+        key: str,
+        *,
+        confirmation_grant: ConfirmationGrant | Mapping[str, Any] | None = None,
+        expected_state: Mapping[str, Any] | None = None,
+    ) -> BrowserActionResult:
+        session = self._require_session()
+        resolved = self._resolve(target)
+        current = {
+            "session_id": session.session_id,
+            "url": self._session.url,
+            "title": self._session.title,
+            "dom_hash": resolved.dom_hash,
+            "nodes": [],
+        }
+        decision = self._authorize("press", resolved, confirmation_grant)
+        if not decision.allowed:
+            return self._blocked(decision)
+        try:
+            raw = self.provider.press(
+                target if isinstance(target, int) and not isinstance(target, bool) else resolved.selector,
+                str(key),
+            )
+        except Exception as exc:
+            return BrowserActionResult(
+                False, False, decision.requires_confirmation, None,
+                self._compact_observation(current), None, str(exc), session.session_id,
+            )
+        taken = bool(raw.get("action_taken", raw.get("ok", False))) if isinstance(raw, Mapping) else bool(raw)
+        if not taken:
+            return BrowserActionResult(
+                False, False, decision.requires_confirmation, "EXECUTION_FAILED",
+                self._compact_observation(current), {"ok": False, "method": "execute"},
+                "key press was not executed", session.session_id,
+            )
+        try:
+            observed = self._observe_after_action(previous=current, require_change=True)
+        except BrowserBridgeError as exc:
+            return BrowserActionResult(
+                False, True, decision.requires_confirmation, None,
+                self._compact_observation(current),
+                {"ok": False, "method": "post_key_observation", "detail": str(exc)},
+                str(exc), session.session_id,
+            )
+        verification = self._verify(expected_state, observed, method="post_key_observation")
         return BrowserActionResult(
             bool(verification["ok"]), True, decision.requires_confirmation, None,
             self._compact_observation(observed), verification, None, session.session_id,
@@ -678,11 +836,21 @@ class BrowserBridge:
         expected_state: Mapping[str, Any] | None = None,
     ) -> BrowserActionResult:
         session = self._require_session()
+        supplied_result = isinstance(target, FindResult)
         resolved = self._resolve(target)
-        current = self.observe()
-        stale = self._stale(resolved, current)
-        if stale is not None:
-            return stale
+        if supplied_result:
+            current = self.observe()
+            stale = self._stale(resolved, current)
+            if stale is not None:
+                return stale
+        else:
+            current = {
+                "session_id": session.session_id,
+                "url": self._session.url,
+                "title": self._session.title,
+                "dom_hash": resolved.dom_hash,
+                "nodes": [],
+            }
         decision = self._authorize("type", resolved, confirmation_grant)
         if not decision.allowed:
             return self._blocked(decision)
@@ -703,7 +871,7 @@ class BrowserBridge:
                 self._compact_observation(current), {"ok": False, "method": "execute"},
                 "type was not executed", session.session_id,
             )
-        observed = self.observe()
+        observed = self._observe_after_action(previous=current, require_change=True)
         if expected_state is not None:
             verification = self._verify(expected_state, observed, method="post_type_observation")
         else:
@@ -732,7 +900,7 @@ class BrowserBridge:
             result = self.provider.read_page()
         except Exception as exc:
             raise BrowserBridgeError(str(exc)) from exc
-        observed = self.observe()
+        observed = self._observe_after_action()
         payload = dict(result) if isinstance(result, Mapping) else {"text": result}
         return {**_redact_mapping(payload), **self._compact_observation(observed)}
 
@@ -772,14 +940,25 @@ class BrowserBridge:
         directory: Path | str,
         confirm: bool = False,
         confirmation_grant: ConfirmationGrant | Mapping[str, Any] | None = None,
+        fresh_resolution: bool = False,
     ) -> BrowserActionResult:
         del confirm
         session = self._require_session()
+        supplied_result = isinstance(target, FindResult)
         resolved = self._resolve(target)
-        current = self.observe()
-        stale = self._stale(resolved, current)
-        if stale is not None:
-            return stale
+        if supplied_result and not fresh_resolution:
+            current = self.observe()
+            stale = self._stale(resolved, current)
+            if stale is not None:
+                return stale
+        else:
+            current = {
+                "session_id": session.session_id,
+                "url": self._session.url,
+                "title": self._session.title,
+                "dom_hash": resolved.dom_hash,
+                "nodes": [],
+            }
         decision = self._authorize("download", resolved, confirmation_grant)
         if not decision.allowed:
             return self._blocked(decision)
@@ -795,7 +974,7 @@ class BrowserBridge:
                 self._compact_observation(current), None, str(exc), session.session_id,
             )
         taken = bool(raw.get("action_taken", raw.get("ok", False))) if isinstance(raw, Mapping) else bool(raw)
-        observed = self.observe()
+        observed = self._observe_after_action()
         verification = {"ok": taken, "method": "download_exists", "detail": "download completed" if taken else "download failed"}
         return BrowserActionResult(
             bool(taken), taken, decision.requires_confirmation, None if taken else "EXECUTION_FAILED",

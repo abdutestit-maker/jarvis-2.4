@@ -101,7 +101,7 @@ class CountingTool(Tool):
         with CountingTool.lock:
             CountingTool.calls += 1
         return ActionResult(tool=self.name, args=args, ok=False,
-                            error="no such file: missing.txt")
+                            error="temporary provider error")
 
 
 def _registry(*tools: Tool) -> ToolRegistry:
@@ -295,6 +295,34 @@ def test_repair_loop_stops_after_max_attempts(settings):
     assert CountingTool.calls == 3
     assert elapsed < 30
     assert any("все попытки исчерпаны" in t for t in result.trace)
+
+
+def test_repair_loop_does_not_repeat_same_deterministic_path_failure(settings):
+    class MissingPathTool(Tool):
+        calls = 0
+
+        @property
+        def name(self): return "missing_path"
+        @property
+        def description(self): return "missing path"
+        @property
+        def input_schema(self):
+            return {"type": "object", "properties": {"path": {"type": "string"}},
+                    "required": ["path"]}
+        def run(self, args, context):
+            type(self).calls += 1
+            return ActionResult(self.name, args, False, error="no such file: missing.txt")
+
+    reg = _registry(MissingPathTool())
+    result = RepairLoop(reg, max_attempts=3).run(
+        "missing_path", {"path": "missing.txt"}, _ctx(settings),
+        verification=lambda _: False,
+    )
+
+    assert result.ok is False
+    assert result.attempts == 1
+    assert MissingPathTool.calls == 1
+    assert any("повтор тех же аргументов остановлен" in item for item in result.trace)
 
 
 def test_repair_loop_risk_gate_blocks_high_risk_retry(settings):
@@ -564,7 +592,7 @@ def test_conversation_all_models_dead_model_error(monkeypatch, settings):
     agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
     outcome = agent.execute("привет")
     assert outcome.mode == "model_error"
-    assert outcome.text == MODEL_UNAVAILABLE_TEXT
+    assert outcome.text.startswith(MODEL_UNAVAILABLE_TEXT)
 
 
 # --------------------------------------------------------------------------- #

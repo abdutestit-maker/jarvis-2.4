@@ -104,6 +104,7 @@ def test_p1_no_local_heavy_escalation(monkeypatch):
     from core.llm.tiers import Tier
 
     settings = load_config()
+    settings.offline_mode = True
     # tier_providers — pydantic-модель, не dict: прописываем провайдера
     # для coder = 'local' через setattr (симуляция старой/сломанной конфигурации).
     monkeypatch.setattr(settings.tier_providers, "coder", "local")

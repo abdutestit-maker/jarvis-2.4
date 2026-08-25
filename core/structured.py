@@ -394,7 +394,9 @@ def validate_tool_call(
             f"Доступные: {', '.join(known_tools) if known_tools else '(нет)'}"
         )
 
-    # Проверка обязательных аргументов по реальной схеме инструмента.
+    # Проверка аргументов по полной реальной JSON Schema инструмента. Раньше
+    # здесь проверялся только required, поэтому enum/additionalProperties/type
+    # ошибки модели доходили до executor и бессмысленно съедали repair budget.
     if schema_lookup is not None:
         schema = schema_lookup(decision.tool)
         if schema:
@@ -405,6 +407,21 @@ def validate_tool_call(
                 return None, (
                     f"для '{decision.tool}' не заданы обязательные аргументы {missing}. "
                     f"Доступные аргументы: {props}"
+                )
+            try:
+                from jsonschema import Draft202012Validator
+
+                error = next(
+                    iter(Draft202012Validator(schema).iter_errors(decision.arguments)),
+                    None,
+                )
+            except Exception as exc:
+                return None, f"схема аргументов '{decision.tool}' невалидна: {exc}"
+            if error is not None:
+                location = ".".join(str(part) for part in error.absolute_path) or "корень"
+                return None, (
+                    f"аргументы '{decision.tool}' не соответствуют schema "
+                    f"({location}): {error.message}"
                 )
 
     return decision, ""

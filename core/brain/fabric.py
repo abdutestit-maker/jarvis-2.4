@@ -281,6 +281,27 @@ class BrainFabricBackend:
             from core.llm.backend import BackendUnavailable
             raise BackendUnavailable(str(exc)) from exc
 
+    def chat_with_tools(self, messages, tools, system: str | None = None,
+                        tool_choice: str | dict | None = "auto",
+                        max_tokens: int | None = None,
+                        temperature: float | None = None):
+        provider = self.fabric._provider_for(self.route, self.route.primary)
+        call = getattr(provider, "chat_with_tools", None)
+        if not callable(call):
+            from core.llm.backend import ToolsNotSupportedError
+            raise ToolsNotSupportedError("selected brain provider has no native tool calling")
+        try:
+            request = self._request(messages, system, max_tokens, temperature)
+            return call(
+                request,
+                tools,
+                model=self.route.primary.model,
+                tool_choice=tool_choice or "auto",
+            )
+        except Exception as exc:
+            from core.llm.backend import BackendUnavailable
+            raise BackendUnavailable(str(exc)) from exc
+
     def streaming(self, messages, system: str | None = None,
                   max_tokens: int | None = None, temperature: float | None = None):
         try:

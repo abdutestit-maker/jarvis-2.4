@@ -1,4 +1,4 @@
-"""Файловая система (filesystem) — операции в пределах documents_dir.
+"""Файловая система (filesystem) — scoped user-document operations.
 
 Инструменты для чтения/записи/поиска файлов в безопасной директории
 (``settings.paths.documents_dir``). Доступ ко всей ФС НЕ предоставляется.
@@ -73,6 +73,32 @@ def resolve_docs_path(path: str, settings: Settings) -> Path:
     return target
 
 
+def _scope_root(scope: str, settings: Settings) -> Path:
+    normalized = str(scope or "documents").strip().casefold()
+    if normalized == "documents":
+        root = settings.paths.resolved("documents_dir")
+    elif normalized == "downloads":
+        root = Path.home() / "Downloads"
+    else:
+        raise ValueError(f"Неизвестная область файлов: {scope}")
+    root = root.expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def resolve_read_path(path: str, settings: Settings, scope: str = "documents") -> Path:
+    """Resolve a read-only path inside documents_dir or the user's Downloads."""
+    requested = Path(str(path)).expanduser()
+    target = requested.resolve() if requested.is_absolute() else (_scope_root(scope, settings) / requested).resolve()
+    allowed_roots = (
+        _scope_root("documents", settings),
+        _scope_root("downloads", settings),
+    )
+    if not any(target == root or root in target.parents for root in allowed_roots):
+        raise ValueError(f"Путь '{path}' выходит за пределы разрешённых пользовательских документов")
+    return target
+
+
 def list_files(dir_path: str, settings: Settings, recursive: bool = False) -> List[str]:
     """Возвращает список файлов в директории.
 
@@ -106,7 +132,8 @@ def list_files(dir_path: str, settings: Settings, recursive: bool = False) -> Li
     return sorted(files)
 
 
-def read_file(path: str, settings: Settings, max_size: int = _MAX_READ_SIZE) -> str:
+def read_file(path: str, settings: Settings, max_size: int = _MAX_READ_SIZE,
+              scope: str = "documents") -> str:
     """Читает текстовый файл.
 
     Args:
@@ -120,7 +147,7 @@ def read_file(path: str, settings: Settings, max_size: int = _MAX_READ_SIZE) -> 
     Raises:
         ValueError: если файл слишком большой или не найден.
     """
-    target = resolve_docs_path(path, settings)
+    target = resolve_read_path(path, settings, scope)
     if not target.is_file():
         raise ValueError(f"Файл не найден: {path}")
 
@@ -128,6 +155,9 @@ def read_file(path: str, settings: Settings, max_size: int = _MAX_READ_SIZE) -> 
     if size > max_size:
         raise ValueError(f"Файл слишком большой: {size} байт (лимит {max_size})")
 
+    if target.suffix.casefold() in {".pdf", ".docx", ".xlsx", ".pptx", ".text", ".md"}:
+        from core.memory.document_rag import read_document
+        return read_document(target)
     try:
         return target.read_text(encoding="utf-8")
     except UnicodeDecodeError:
@@ -205,6 +235,8 @@ def search_files(
     settings: Settings,
     dir_path: str = "",
     max_results: int = _MAX_SEARCH_RESULTS,
+    scope: str = "documents",
+    sort_by: str = "path",
 ) -> List[str]:
     """Ищет файлы по имени или содержимому (простой текстовый поиск).
 
@@ -220,23 +252,22 @@ def search_files(
     if not query or not query.strip():
         return []
 
-    base = resolve_docs_path(dir_path, settings)
+    root = _scope_root(scope, settings)
+    base = resolve_read_path(dir_path, settings, scope)
     if not base.exists():
         return []
 
     query_lower = query.lower()
-    results: List[str] = []
+    matches: List[Path] = []
 
     for p in base.rglob("*"):
-        if len(results) >= max_results:
-            break
         if not p.is_file():
             continue
 
         # Поиск по имени
         if query_lower in p.name.lower():
             try:
-                results.append(str(p.relative_to(settings.paths.resolved("documents_dir"))))
+                matches.append(p)
                 continue
             except ValueError:
                 pass
@@ -250,11 +281,17 @@ def search_files(
         try:
             text = p.read_text(encoding="utf-8", errors="ignore")
             if query_lower in text.lower():
-                results.append(str(p.relative_to(settings.paths.resolved("documents_dir"))))
+                matches.append(p)
         except Exception:
             pass
-
-    return results
+    if str(sort_by).casefold() == "modified_desc":
+        matches.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    else:
+        matches.sort(key=lambda item: str(item).casefold())
+    limited = matches[:max_results]
+    if str(scope).casefold() == "downloads":
+        return [str(item) for item in limited]
+    return [str(item.relative_to(root)) for item in limited]
 
 
 # --------------------------------------------------------------------------- #
@@ -342,6 +379,12 @@ class ReadFileTool(Tool):
                     "type": "string",
                     "description": "Относительный путь к файлу внутри documents_dir.",
                 },
+                "scope": {
+                    "type": "string",
+                    "enum": ["documents", "downloads"],
+                    "default": "documents",
+                    "description": "Область чтения: documents или папка Downloads пользователя.",
+                },
             },
             "required": ["path"],
             "additionalProperties": False,
@@ -350,7 +393,7 @@ class ReadFileTool(Tool):
     def run(self, args: Dict[str, Any], context: ToolContext) -> ActionResult:
         path = args["path"]
         try:
-            content = read_file(path, context.settings)
+            content = read_file(path, context.settings, scope=args.get("scope", "documents"))
             # §22 — содержимое файла это внешние ДАННЫЕ, не команды.
             # Оборачиваем на границе инструмент→модель.
             from core.safety import wrap_untrusted
@@ -419,7 +462,8 @@ class SearchFilesTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Ищет файлы в documents_dir по имени или текстовому содержимому. "
+            "Ищет файлы в documents_dir или пользовательской Downloads по имени/содержимому. "
+            "Может сортировать по времени изменения, чтобы найти последний файл. "
             "По содержимому ищет только в текстовых файлах (.txt, .md, .py, .json и др.) до 1 МБ."
         )
 
@@ -444,6 +488,16 @@ class SearchFilesTool(Tool):
                     "minimum": 1,
                     "maximum": 200,
                 },
+                "scope": {
+                    "type": "string",
+                    "enum": ["documents", "downloads"],
+                    "default": "documents",
+                },
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["path", "modified_desc"],
+                    "default": "path",
+                },
             },
             "required": ["query"],
             "additionalProperties": False,
@@ -454,7 +508,12 @@ class SearchFilesTool(Tool):
         dir_path = args.get("dir_path", "")
         max_results = args.get("max_results", _MAX_SEARCH_RESULTS)
 
-        results = search_files(query, context.settings, dir_path, max_results)
+        scope = args.get("scope", "documents")
+        sort_by = args.get("sort_by", "path")
+        results = search_files(
+            query, context.settings, dir_path, max_results,
+            scope=scope, sort_by=sort_by,
+        )
 
         if not results:
             return ActionResult(
@@ -464,9 +523,12 @@ class SearchFilesTool(Tool):
                 output=f"Файлы по запросу «{query}» не найдены.",
             )
 
-        lines = [f"Найдено файлов по «{query}» ({len(results)}):"]
+        lines = [f"Найдено файлов по «{query}» ({len(results)}), scope={scope}, sort={sort_by}:"]
         for f in results:
-            lines.append(f"  📄 {f}")
+            target = resolve_read_path(f, context.settings, scope)
+            lines.append(
+                f"  FILE {target} | modified={target.stat().st_mtime_ns} | size={target.stat().st_size}"
+            )
         return ActionResult(
             tool=self.name,
             args=args,

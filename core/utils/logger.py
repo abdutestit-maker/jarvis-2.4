@@ -117,7 +117,11 @@ def setup_logging(
     numeric_level = _coerce_level(level)
     root = logging.getLogger(ROOT_LOGGER_NAME)
     root.setLevel(numeric_level)
-    root.propagate = False
+    # Keep the project logger visible to standard logging observers (pytest,
+    # host applications, and structured log collectors).  The project
+    # handlers remain authoritative; external handlers decide whether to
+    # forward the record further.
+    root.propagate = True
 
     for handler in list(root.handlers):
         root.removeHandler(handler)

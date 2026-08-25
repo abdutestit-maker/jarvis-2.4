@@ -58,10 +58,9 @@ class BrowserAutomationProvider:
         page = getattr(self.engine, "_page", None)
         if page is None:
             return self.open(url)
-        if str(url).startswith(("http://", "https://")):
-            from core.network_guard import assert_safe_url
-            assert_safe_url(str(url))
-        page.goto(url, wait_until="load")
+        from core.network_guard import assert_safe_url
+        safe_url = assert_safe_url(str(url))
+        page.goto(safe_url, wait_until="load")
         return {"ok": True, "url": page.url, "title": page.title()}
 
     def inspect(self) -> list[dict[str, Any]]:
@@ -154,9 +153,18 @@ class BrowserAutomationProvider:
         if requires and not confirm:
             return {"ok": True, "requires_confirmation": True,
                     "action_taken": False, "element": metadata}
+        before_url = str(self._page.url or "")
+        before_checked = locator.first.evaluate("el => 'checked' in el ? !!el.checked : null")
         locator.first.click(no_wait_after=True)
+        focused = bool(locator.first.evaluate("el => document.activeElement === el"))
+        after_checked = locator.first.evaluate("el => 'checked' in el ? !!el.checked : null")
         return {"ok": True, "requires_confirmation": requires,
-                "action_taken": True, "element": metadata}
+                "action_taken": True, "element": metadata,
+                "postcondition": {
+                    "focused": focused,
+                    "checked_changed": before_checked != after_checked,
+                    "url_changed": before_url != str(self._page.url or ""),
+                }}
 
     def type(self, target: int | DOMSelector | dict[str, Any] | str, text: str) -> dict[str, Any]:
         if isinstance(target, int):
@@ -164,6 +172,26 @@ class BrowserAutomationProvider:
         locator = self._locator(target)
         locator.first.fill(text)
         return {"ok": True, "action_taken": True, "value": locator.first.input_value()}
+
+    def press(self, target: int | DOMSelector | dict[str, Any] | str, key: str) -> dict[str, Any]:
+        if isinstance(target, int):
+            elements = self.engine.list_elements()
+            if target < 0 or target >= len(elements):
+                raise IndexError(f"element index out of range: {target}")
+            automation_id = str(elements[target].get("automation_id") or "")
+            if not automation_id:
+                raise LookupError("indexed element has no stable automation_id")
+            target = DOMSelector(automation_id=automation_id)
+        locator = self._locator(target).first
+        before_url = str(self._page.url or "")
+        locator.press(str(key))
+        self.settle()
+        return {
+            "ok": True,
+            "action_taken": True,
+            "key": str(key),
+            "postcondition": {"url_changed": before_url != str(self._page.url or "")},
+        }
 
     def read_page(self) -> dict[str, Any]:
         return self.engine.read()
@@ -176,6 +204,21 @@ class BrowserAutomationProvider:
         locator = self._locator(target)
         locator.first.wait_for(state="visible", timeout=max(0, float(timeout)) * 1000)
         return {"ok": True, "found": True, "element": self._metadata(locator)}
+
+    def settle(self, *, timeout: float = 5.0) -> None:
+        """Let a click-triggered navigation reach a readable DOM boundary."""
+        page = self._page
+        page.wait_for_timeout(150)
+        try:
+            page.wait_for_load_state(
+                "domcontentloaded",
+                timeout=max(100, int(float(timeout) * 1000)),
+            )
+        except Exception:
+            # Observation below remains authoritative and reports a real
+            # navigation failure if the page never becomes readable.
+            pass
+        page.wait_for_timeout(100)
 
     def extract(self, target: int | DOMSelector | dict[str, Any] | str | None = None) -> dict[str, Any]:
         if target is None or isinstance(target, int):
@@ -199,7 +242,12 @@ class BrowserAutomationProvider:
         download = download_info.value
         target_dir = Path(directory or Path.cwd() / "downloads").resolve()
         target_dir.mkdir(parents=True, exist_ok=True)
-        destination = target_dir / download.suggested_filename
+        filename = Path(str(download.suggested_filename or "download")).name
+        if not filename or filename in {".", ".."}:
+            filename = "download"
+        destination = (target_dir / filename).resolve()
+        if destination.parent != target_dir:
+            raise BrowserAutomationError("download filename escapes destination directory")
         download.save_as(str(destination))
         return {"ok": destination.is_file(), "path": str(destination),
                 "suggested_filename": download.suggested_filename,

@@ -135,6 +135,14 @@ class RealInputBackend(ComputerBackend):
         if action in {"click", "left_click"}:
             pyautogui.click(px, py)
             return {"ok": True, "action": "click", "px": px, "py": py}
+        if action == "move":
+            pyautogui.moveTo(px, py, duration=0.15)
+            observed = pyautogui.position()
+            return {
+                "ok": int(observed.x) == int(px) and int(observed.y) == int(py),
+                "action": "move", "px": px, "py": py,
+                "observed_x": int(observed.x), "observed_y": int(observed.y),
+            }
         if action in {"double_click"}:
             pyautogui.doubleClick(px, py)
             return {"ok": True, "action": "double_click", "px": px, "py": py}
@@ -142,8 +150,11 @@ class RealInputBackend(ComputerBackend):
             pyautogui.rightClick(px, py)
             return {"ok": True, "action": "right_click", "px": px, "py": py}
         if action == "type":
-            pyautogui.write(text)
+            pyautogui.write(text, interval=0.01)
             return {"ok": True, "action": "type"}
+        if action == "press":
+            pyautogui.press(str(text or ""))
+            return {"ok": True, "action": "press", "key": str(text or "")}
         if action == "scroll":
             pyautogui.scroll(int(text or "1"))
             return {"ok": True, "action": "scroll"}

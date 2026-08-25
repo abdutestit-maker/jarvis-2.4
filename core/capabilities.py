@@ -90,6 +90,8 @@ class Capability:
     examples: List[str] = field(default_factory=list)
     risk_level: RiskLevel = RiskLevel.MEDIUM
     permissions: List[str] = field(default_factory=list)
+    requirements: List[str] = field(default_factory=list)
+    required_any: List[str] = field(default_factory=list)
     speed: Speed = Speed.FAST
     cost: str = "free"                 # free | cheap | paid
     internet_required: bool = False
@@ -125,6 +127,8 @@ class Capability:
             "examples": list(self.examples),
             "risk_level": self.risk_level.value,
             "permissions": list(self.permissions),
+            "requirements": list(self.requirements),
+            "required_any": list(self.required_any),
             "speed": self.speed.value,
             "cost": self.cost,
             "internet_required": self.internet_required,
@@ -187,11 +191,17 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
         tags=["system", "время", "час", "дата", "clock", "time"],
     ),
     "play_music": dict(
-        description="Открывает локальный трек или явно разрешённый медиасервис.",
+        description=(
+            "Запускает указанную музыку через локальный путь/URI или выбранный "
+            "источник. Поиск исполнителя/трека требует query, source=spotify "
+            "либо youtube и allow_network=true."
+        ),
         examples=["поставь музыку", "включи трек", "открой песню"],
         risk_level=RiskLevel.LOW,
         speed=Speed.FAST,
         success_check="медиаточка открыта launcher-ом",
+        requirements=["конкретный трек, исполнитель, настроение или URI/путь"],
+        required_any=["query", "mood", "uri", "path"],
         tags=["media", "музыка", "трек", "песня", "spotify", "youtube", "плеер"],
     ),
     "web_search": dict(
@@ -224,8 +234,8 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
         tags=["file", "файлы", "папка", "каталог", "список"],
     ),
     "read_file": dict(
-        description="Читает текстовый файл из documents_dir.",
-        examples=["прочитай файл notes.txt", "открой документ отчёт.md"],
+        description="Читает текстовые, PDF и Office-документы из documents_dir или Downloads.",
+        examples=["прочитай файл notes.txt", "расскажи о последнем PDF в загрузках"],
         risk_level=RiskLevel.LOW,
         speed=Speed.INSTANT,
         file_access="read",
@@ -244,8 +254,8 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
         tags=["file", "создай", "запиши", "сохрани", "файл", "документ"],
     ),
     "search_files": dict(
-        description="Ищет файлы по имени или содержимому в documents_dir.",
-        examples=["найди файл отчёт", "где лежит документ про бюджет"],
+        description="Ищет файлы по имени/содержимому в documents_dir или Downloads и умеет выбрать последний.",
+        examples=["найди файл отчёт", "найди последний PDF в загрузках"],
         risk_level=RiskLevel.LOW,
         speed=Speed.FAST,
         file_access="read",
@@ -331,6 +341,20 @@ _CAP_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
         fallbacks=["web_fetch"],
         tags=["browser", "automation", "сайт", "форма", "playwright", "клик"],
     ),
+    "browser_bridge": dict(
+        description=(
+            "Управляет видимым production-браузером через DOM: открывает страницы, "
+            "находит элементы, кликает, вводит текст, нажимает клавиши, читает и проверяет состояние после действия."
+        ),
+        examples=["открой сайт", "найди поле и введи текст", "нажми ссылку на странице"],
+        risk_level=RiskLevel.HIGH,
+        permissions=["browser_control"],
+        speed=Speed.SLOW,
+        internet_required=True,
+        success_check="конечный URL/DOM или post-action state фактически наблюдён",
+        fallbacks=["browser_automation", "computer_mouse", "computer_keyboard"],
+        tags=["browser", "automation", "dom", "visible", "web", "click", "type"],
+    ),
 }
 
 
@@ -400,6 +424,84 @@ class CapabilityRegistry:
     def fallbacks_map(self) -> Dict[str, List[str]]:
         """Карта tool -> fallbacks для ``RepairLoop`` (§11)."""
         return {c.name: list(c.fallbacks) for c in self.all() if c.fallbacks}
+
+    def resolve(self, names: Sequence[str]) -> List[Capability]:
+        """Resolve model-selected capability ids against the live registry.
+
+        IDs are accepted only when their underlying Tool is currently
+        registered.  This keeps discovery declarative: the model can inspect
+        the whole surface, while only real, live capabilities can become
+        executable schemas.
+        """
+        selected: List[Capability] = []
+        seen: set[str] = set()
+        for raw_name in names or ():
+            name = str(raw_name or "").strip()
+            if not name or name in seen or name not in self._tools:
+                continue
+            cap = self._caps.get(name)
+            if cap is not None:
+                selected.append(cap)
+                seen.add(name)
+        return selected
+
+    def discover(self, goal: str, selected_ids: Sequence[str] = (), *,
+                 top_k: int = 8,
+                 exclude_ids: Sequence[str] = ()) -> List[Capability]:
+        """Return a bounded, live schema set after a discovery decision.
+
+        ``selected_ids`` comes from the reasoning model after it receives the
+        compact surface catalogue.  Retrieval remains a recall backstop, not
+        a whitelist: it may add relevant real tools but never removes a
+        model-selected capability.
+        """
+        excluded = {str(name).strip() for name in exclude_ids if str(name).strip()}
+        selected = [cap for cap in self.resolve(selected_ids) if cap.name not in excluded]
+        seen = {cap.name for cap in selected}
+        for cap in self.retrieve(goal, top_k=max(1, int(top_k)),
+                                 use_embedding=True):
+            if cap.name not in seen and cap.name not in excluded:
+                selected.append(cap)
+                seen.add(cap.name)
+            if len(selected) >= top_k:
+                break
+        return selected[:top_k]
+
+    def surface_summary(self) -> str:
+        """Compact complete capability catalogue for model-led discovery.
+
+        Schemas deliberately stay out of this turn.  They are loaded only
+        after the model selects a few IDs via :meth:`discover`.
+        """
+        category_tags = (
+            ("computer", {"computer", "mouse", "keyboard", "screenshot", "vision", "screen"}),
+            ("applications", {"app", "launch", "close", "program"}),
+            ("browser", {"browser", "automation", "playwright", "dom"}),
+            ("web", {"web", "search", "url", "weather", "research"}),
+            ("filesystem", {"file", "files", "document", "folder"}),
+            ("system", {"system", "time", "volume", "status"}),
+            ("media", {"media", "music", "track", "player"}),
+            ("reminders", {"reminder", "alarm", "timer"}),
+        )
+        groups: Dict[str, List[Capability]] = {name: [] for name, _ in category_tags}
+        groups["other"] = []
+        for cap in self.all():
+            tags = {str(tag).casefold() for tag in cap.tags}
+            category = next(
+                (name for name, markers in category_tags if tags & markers),
+                "other",
+            )
+            groups[category].append(cap)
+        lines: List[str] = []
+        for category, caps in groups.items():
+            if not caps:
+                continue
+            items = "; ".join(
+                f"{cap.name}: {cap.description[:140]} [risk={cap.risk_level.value}]"
+                for cap in sorted(caps, key=lambda item: item.name)
+            )
+            lines.append(f"{category}: {items}")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------ #
     #  Embedding-слой (Q01) — ленивый, с тихим фолбэком

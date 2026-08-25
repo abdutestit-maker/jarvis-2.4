@@ -256,6 +256,11 @@ class RepairLoop:
 
             # Исчерпали этот такт — если ещё есть попытки, повторяем как есть.
             if attempt < self._max:
+                if diag in {"invalid_args", "path_not_found", "path_is_directory"}:
+                    trace.append("детерминированная ошибка без нового патча — повтор тех же аргументов остановлен")
+                    return RepairResult(
+                        ok=False, attempts=attempt, final_result=last_result, trace=trace,
+                    )
                 trace.append("повтор без изменений")
                 continue
 

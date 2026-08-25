@@ -19,6 +19,24 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 struct BackendProcess(Mutex<Option<Child>>);
 
+fn stop_backend(app: &tauri::AppHandle) {
+    let state = app.state::<BackendProcess>();
+    let Ok(mut guard) = state.0.lock() else { return };
+    let Some(mut child) = guard.take() else { return };
+    #[cfg(windows)]
+    {
+        use std::process::Stdio;
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 impl Drop for BackendProcess {
     fn drop(&mut self) {
         if let Ok(mut child) = self.0.lock() {
@@ -152,6 +170,16 @@ fn spawn_backend(settings: &LauncherSettings) -> Option<Child> {
         .map(PathBuf::from)
         .filter(|value| value.is_dir())
         .unwrap_or_else(|| root.clone());
+    let runtime_temp = std::env::var_os("JARVIS_RUNTIME_TEMP")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("runtime-temp"));
+    let _ = fs::create_dir_all(&runtime_temp);
+    let browser_runtime = [
+        root.join("runtime/playwright-browsers"),
+        root.join("jarvis/src-tauri/target/release/resources/jarvis-runtime/runtime/playwright-browsers"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.join("chromium-1234").is_dir());
     let mut builder = Command::new(program);
     builder
         .args(args)
@@ -159,7 +187,16 @@ fn spawn_backend(settings: &LauncherSettings) -> Option<Child> {
         .env("JARVIS_HOME", &root)
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUNBUFFERED", "1");
+        .env("PYTHONUNBUFFERED", "1")
+        // PyInstaller onefile extracts the bundled backend before Python
+        // starts. Keep that transient 214 MB payload beside the project so
+        // a full system TEMP volume cannot strand the GUI in STARTING.
+        .env("JARVIS_RUNTIME_TEMP", &runtime_temp)
+        .env("TEMP", &runtime_temp)
+        .env("TMP", &runtime_temp);
+    if let Some(browser_runtime) = browser_runtime {
+        builder.env("PLAYWRIGHT_BROWSERS_PATH", browser_runtime);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -249,6 +286,9 @@ fn main() {
             // `--hidden` startup entry stays tray-only.
             if hidden {
                 let _ = main.hide();
+            } else {
+                let _ = main.show();
+                let _ = main.set_focus();
             }
             WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("index.html".into()))
                 .title("JARVIS")
@@ -271,7 +311,10 @@ fn main() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" | "settings" | "debug" => show_main(app),
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        stop_backend(app);
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -307,9 +350,12 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    // Closing the native GUI is the application shutdown
+                    // boundary. Let Tauri exit so BackendProcess::drop kills
+                    // the bundled backend instead of leaving a hidden server.
+                    stop_backend(&window.app_handle());
+                    window.app_handle().exit(0);
                 }
             }
         })

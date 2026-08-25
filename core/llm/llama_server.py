@@ -340,6 +340,16 @@ class LlamaServerBackend(LocalQwenBackend):
     def warm_up(self) -> None:
         started = time.perf_counter()
         self._ensure_server()
+        # /health proves only that the HTTP process is alive. READY also
+        # requires one real inference through the configured GGUF.
+        probe = self.direct(
+            "Ответь одним словом: готов",
+            system="Не объясняй. Верни одно короткое слово.",
+            max_tokens=2,
+            temperature=0.0,
+        ).strip()
+        if not probe:
+            raise BackendUnavailable("llama-server warm-up вернул пустой ответ")
         self._warmup_ms = (time.perf_counter() - started) * 1000.0
         self._warmup_complete = True
 

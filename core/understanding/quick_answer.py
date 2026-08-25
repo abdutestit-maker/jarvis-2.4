@@ -330,8 +330,7 @@ class QuickAnswerEngine:
         backend = self._llm_backend()
         if backend is None:
             return QuickAnswerResult(
-                text="Сейчас у меня нет ни сети, ни модели, чтобы ответить точнее. "
-                     "Сформулируй иначе или повтори через минуту.",
+                text="Ошибка локальной модели: backend FAST недоступен.",
                 source="degraded", degraded=True,
                 error="no_network_and_no_local_model",
             )
@@ -342,12 +341,15 @@ class QuickAnswerEngine:
         except Exception as exc:  # noqa: BLE001
             log.warning("Быстрый ответ: генерация из головы упала: %s", exc)
             return QuickAnswerResult(
-                text="Не смог сформулировать ответ из головы. Попробуй спросить "
-                     "конкретнее — или дай мне секунду, проверю в сети.",
+                text=f"Ошибка локальной модели: {type(exc).__name__}: {exc}",
                 source="degraded", degraded=True, error=str(exc)[:200],
             )
         if not out:
-            out = "Отвечу, если уточнишь вопрос чуть конкретнее."
+            return QuickAnswerResult(
+                text="Ошибка локальной модели: backend FAST вернул пустой ответ.",
+                source="degraded", degraded=True,
+                error="empty_local_model_response",
+            )
         return QuickAnswerResult(text=out, source="quick_answer", searched=False,
                                  verified=True)
 
@@ -399,10 +401,7 @@ class QuickAnswerEngine:
         if backend is None:
             snippet = texts[0].strip()[:300] if texts else ""
             return QuickAnswerResult(
-                text=(
-                    "Нашёл в сети, но без локальной модели кратко не перескажу. "
-                    f"Выдержка: {snippet}"
-                ),
+                text=f"Ошибка локальной модели: backend FAST недоступен; источник получен: {snippet}",
                 source="search", searched=True, evidence=evidence, degraded=True,
             )
 
@@ -413,20 +412,34 @@ class QuickAnswerEngine:
             ).strip()
         except Exception as exc:  # noqa: BLE001
             log.warning("Быстрый ответ: сжатие упало: %s", exc)
-            snippet = texts[0].strip()[:300] if texts else ""
-            return QuickAnswerResult(
-                text=(
-                    "Нашёл материал, но не смог сжать кратко. Ближайшее по смыслу:\n"
-                    + snippet
-                ),
-                source="search", searched=True, evidence=evidence, degraded=True,
-                error=str(exc)[:200],
+            return self._local_answer_after_compress_failure(
+                question, evidence,
+                f"{type(exc).__name__}: {exc}",
             )
         if not out:
-            out = "Нашёл материал, но кратко сформулировать не вышло. Спроси точнее."
+            return self._local_answer_after_compress_failure(
+                question, evidence, "backend FAST вернул пустой ответ при сжатии",
+            )
         #  Дыра 4: удачное сжатие реального источника -> verified.
         return QuickAnswerResult(text=out, source="search", searched=True,
                                  evidence=evidence, verified=bool(evidence))
+
+    def _local_answer_after_compress_failure(
+        self, question: str, evidence: List[str], reason: str,
+    ) -> QuickAnswerResult:
+        """Keep a healthy local model on the user path when summarization fails.
+
+        This is a second real local generation, not a canned response.  The
+        compression failure remains in ``error`` for the GUI diagnostics.
+        """
+        head = self._answer_from_head(question)
+        head.source = "local_reasoning"
+        head.searched = True
+        head.evidence = list(evidence)
+        head.verified = False
+        head.degraded = True
+        head.error = f"source_compression_failed: {reason[:180]}"
+        return head
 
     # ------------------------------------------------------------------ #
     def _degraded_after_search_fail(self, question: str, why: str) -> QuickAnswerResult:

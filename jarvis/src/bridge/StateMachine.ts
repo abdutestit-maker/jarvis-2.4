@@ -1,11 +1,13 @@
-export type PresenceState = 'idle' | 'thinking' | 'speaking' | 'error' | 'proactive';
+export type PresenceState = 'idle' | 'listening' | 'thinking' | 'executing' | 'speaking' | 'error' | 'proactive';
 
 const ALLOWED: Record<PresenceState, PresenceState[]> = {
-  idle: ['thinking', 'speaking', 'error', 'proactive'],
-  thinking: ['idle', 'speaking', 'error'],
-  speaking: ['idle', 'thinking', 'error'],
-  error: ['idle', 'thinking'],
-  proactive: ['idle', 'speaking', 'thinking'],
+  idle: ['listening', 'thinking', 'executing', 'speaking', 'error', 'proactive'],
+  listening: ['idle', 'thinking', 'executing', 'speaking', 'error'],
+  thinking: ['idle', 'listening', 'executing', 'speaking', 'error'],
+  executing: ['idle', 'thinking', 'speaking', 'error'],
+  speaking: ['idle', 'listening', 'thinking', 'executing', 'error'],
+  error: ['idle', 'listening', 'thinking'],
+  proactive: ['idle', 'listening', 'speaking', 'thinking', 'executing'],
 };
 
 /** Small, UI-only state machine. It deliberately does not alter the WS protocol. */
@@ -21,7 +23,10 @@ export class StateMachine {
 }
 
 export function presenceFromTransport(state: string): PresenceState {
-  if (state === 'thinking' || state === 'executing' || state === 'streaming') return 'thinking';
+  if (state === 'listening') return 'listening';
+  if (state === 'executing') return 'executing';
+  if (state === 'streaming') return 'speaking';
+  if (state === 'thinking' || state === 'loading_model') return 'thinking';
   if (state === 'error') return 'error';
   return 'idle';
 }

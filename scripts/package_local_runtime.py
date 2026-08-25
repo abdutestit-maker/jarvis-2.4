@@ -1,9 +1,11 @@
 #!/usr/bin/env python
-"""Stage a portable local model/runtime for the Tauri installer.
+"""Stage the production runtime for the Tauri installer.
 
-The staged directory is intentionally ignored by Git: it contains the local
-GGUF and Vulkan DLLs.  The resulting installer can therefore ship a model
-without embedding a user's API keys or depending on a cloud provider.
+The conversational brain is DeepInfra/DeepSeek.  The owner credential is
+provisioned into a Windows DPAPI payload during production packaging; it is
+never written to tracked source/config files.  Only the backend, local Piper
+TTS and local Whisper/STT assets are staged; no GGUF or llama-server is part
+of the production bundle.
 """
 
 from __future__ import annotations
@@ -21,6 +23,30 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def _provision_packaged_credential(output: Path, *, dry_run: bool = False) -> Path:
+    """Create the owner credential payload without ever logging its value."""
+    target = output / "data" / "brain" / "provider-secrets.dpapi"
+    if dry_run:
+        return target
+    raw = (
+        os.environ.get("JARVIS_BUILD_DEEPINFRA_API_KEY", "").strip()
+        or os.environ.get("DEEPINFRA_API_KEY", "").strip()
+    )
+    if not raw:
+        raise RuntimeError(
+            "Production package requires the owner DeepInfra key in "
+            "JARVIS_BUILD_DEEPINFRA_API_KEY or DEEPINFRA_API_KEY; "
+            "the key is never read from Git or written to JSON."
+        )
+    from core.brain.secrets import DPAPISecretStore
+    target.parent.mkdir(parents=True, exist_ok=True)
+    store = DPAPISecretStore(target)
+    store.set("DEEPINFRA_API_KEY", raw)
+    if store.get("DEEPINFRA_API_KEY") != raw:
+        raise RuntimeError("Packaged DeepInfra credential verification failed")
+    return target
 
 
 def _sha256(path: Path) -> str:
@@ -96,6 +122,12 @@ def _build_backend_executable(*, output: Path, python: Path, dry_run: bool = Fal
         "--distpath", str(dist_root), "--workpath", str(work_root),
         "--specpath", str(spec_root), "--paths", str(ROOT),
         "--collect-submodules", "core", "--collect-submodules", "config",
+        "--collect-submodules", "chromadb",
+        "--collect-data", "chromadb",
+        "--hidden-import", "chromadb.execution",
+        "--hidden-import", "chromadb.execution.executor",
+        "--hidden-import", "chromadb.execution.executor.local",
+        "--collect-submodules", "chromadb.segment.impl.metadata",
         str(ROOT / "scripts" / "packaged_backend.py"),
     ]
     subprocess.run(command, cwd=ROOT, check=True)
@@ -112,21 +144,8 @@ def stage(*, output: Path, include_fallback: bool = False,
           backend_python: str | None = None, backend_executable: str | None = None,
           dry_run: bool = False) -> dict:
     from config import load_config
-    from core.llm.llama_server import find_llama_server
-
     settings = load_config()
-    model = settings.local_model.resolved_gguf_path
-    if model is None or not model.is_file():
-        raise FileNotFoundError(f"локальный GGUF не найден: {model}")
-    server = find_llama_server(settings.local_model.server_binary_path)
-    if server is None:
-        raise FileNotFoundError("llama-server не найден: установите официальный llama.cpp")
-
-    fallback = ROOT / "data" / "models" / "Qwen3-1.7B-Q6_K.gguf"
-    files = [model]
-    if include_fallback and fallback.is_file() and fallback.resolve() != model.resolve():
-        files.append(fallback)
-    dlls = sorted(server.parent.glob("*.dll"))
+    files: list[Path] = []
     configured_voice = getattr(settings.voice, "resolved_primary_piper_model", None)
     if configured_voice is None:
         configured_voice = getattr(settings.voice, "resolved_piper_model", None)
@@ -134,7 +153,25 @@ def stage(*, output: Path, include_fallback: bool = False,
         ROOT / "data" / "models" / "piper" / "ru_RU-denis-medium.onnx"
     )
     voice_config = voice_model.with_name(voice_model.name + ".json")
-    voice_runtime = ROOT / "data" / "runtime" / "piper"
+    stt_model_dir = ROOT / "data" / "models" / "stt" / "faster-whisper-small"
+    stt_model_files = sorted(
+        item for item in stt_model_dir.iterdir() if item.is_file()
+    ) if stt_model_dir.is_dir() else []
+    if not stt_model_files:
+        raise FileNotFoundError(
+            f"Локальная STT-модель не найдена: {stt_model_dir}"
+        )
+    embedding_source = Path.home() / ".cache" / "chroma" / "onnx_models" / "all-MiniLM-L6-v2"
+    if not (embedding_source / "onnx" / "model.onnx").is_file():
+        raise FileNotFoundError(f"Локальная embedding-модель ChromaDB не найдена: {embedding_source}")
+    voice_runtime_candidates = [
+        ROOT / "data" / "runtime" / "piper",
+        ROOT / "runtime" / "piper",
+    ]
+    voice_runtime = next(
+        (candidate for candidate in voice_runtime_candidates if (candidate / "piper.exe").is_file()),
+        voice_runtime_candidates[0],
+    )
     if not voice_model.is_file() or not voice_config.is_file():
         raise FileNotFoundError(
             f"Русский Piper voice не найден: {voice_model}(.json)"
@@ -156,26 +193,23 @@ def stage(*, output: Path, include_fallback: bool = False,
     manifest = {
         "format": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "offline": True,
-        "cloud_api": False,
+        "offline": False,
+        "cloud_api": True,
         # The manifest is shipped to another machine.  Keep it reproducible
         # without leaking the builder's drive, user profile, or workspace.
-        "server": {"source": "bundled llama.cpp", "filename": "runtime/llama-server.exe"},
+        "server": None,
         "backend": {"source": "bundled PyInstaller backend", "filename": "runtime/jarvis-backend.exe", "windowless": True},
         "voice": {"provider": "piper", "language": "ru", "model": f"data/models/piper/{voice_model.name}", "runtime": "runtime/piper/piper.exe"},
-        "model_family": str(getattr(settings, "model_family", "ministral") or "ministral"),
+        "brain": {
+            "provider": "deepinfra",
+            "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "credential": "data/brain/provider-secrets.dpapi",
+            "credential_backend": "windows_dpapi",
+        },
+        "model_family": "deepseek",
         "models": [],
         "files": [],
     }
-    for item in files:
-        manifest["models"].append({
-            "filename": f"data/models/{item.name}",
-            "size_bytes": item.stat().st_size,
-            "sha256": _sha256(item),
-            "source": "official Ministral GGUF",
-        })
-    for item in [server, *dlls]:
-        manifest["files"].append({"filename": f"runtime/{item.name}", "size_bytes": item.stat().st_size, "sha256": _sha256(item)})
     manifest["files"].append({
         "filename": "runtime/jarvis-backend.exe",
         "size_bytes": backend.stat().st_size if backend.is_file() else 0,
@@ -187,6 +221,19 @@ def stage(*, output: Path, include_fallback: bool = False,
             "size_bytes": item.stat().st_size,
             "sha256": _sha256(item),
         })
+    for item in stt_model_files:
+        manifest["files"].append({
+        "filename": f"data/models/stt/faster-whisper-small/{item.name}",
+            "size_bytes": item.stat().st_size,
+            "sha256": _sha256(item),
+        })
+    for item in sorted(embedding_source.rglob("*")):
+        if item.is_file():
+            manifest["files"].append({
+                "filename": f"data/models/embeddings/all-MiniLM-L6-v2/{item.relative_to(embedding_source).as_posix()}",
+                "size_bytes": item.stat().st_size,
+                "sha256": _sha256(item),
+            })
     for item in voice_runtime.rglob("*"):
         if item.is_file():
             manifest["files"].append({
@@ -201,43 +248,80 @@ def stage(*, output: Path, include_fallback: bool = False,
 
     (output / "data" / "models" / "piper").mkdir(parents=True, exist_ok=True)
     (output / "runtime").mkdir(parents=True, exist_ok=True)
-    for item in files:
-        shutil.copy2(item, output / "data" / "models" / item.name)
-    for item in [server, *dlls]:
-        shutil.copy2(item, output / "runtime" / item.name)
+    credential = _provision_packaged_credential(output)
+    manifest["files"].append({
+        "filename": "data/brain/provider-secrets.dpapi",
+        "size_bytes": credential.stat().st_size,
+        "sha256": _sha256(credential),
+    })
+    manifest["total_bytes"] = sum(
+        int(item["size_bytes"]) for item in manifest["models"] + manifest["files"]
+    )
     backend_target = output / "runtime" / "jarvis-backend.exe"
     if backend.resolve() != backend_target.resolve():
         shutil.copy2(backend, backend_target)
     shutil.copy2(voice_model, output / "data" / "models" / "piper" / voice_model.name)
     shutil.copy2(voice_config, output / "data" / "models" / "piper" / voice_config.name)
+    stt_target = output / "data" / "models" / "stt" / "faster-whisper-small"
+    stt_target.mkdir(parents=True, exist_ok=True)
+    for item in stt_model_files:
+        shutil.copy2(item, stt_target / item.name)
+    shutil.copytree(
+        embedding_source,
+        output / "data" / "models" / "embeddings" / "all-MiniLM-L6-v2",
+        dirs_exist_ok=True,
+    )
     shutil.copytree(voice_runtime, output / "runtime" / "piper", dirs_exist_ok=True)
 
-    # Include the small Python application tree beside the model.  The GGUF
-    # is large; the orchestration source is not, and a packaged resource must
-    # not point back to this developer's E: drive.
-    for source_name in ("core", "config", "persona"):
+    # The PyInstaller archive owns executable Python modules. Shipping a
+    # loose core tree beside the executable puts it ahead of the archive on
+    # sys.path and silently runs stale source after an incremental package.
+    # Only non-executable resources are staged here.
+    for source_name in ("config", "persona"):
         source = ROOT / source_name
         if source.is_dir():
             shutil.copytree(source, output / source_name, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "settings.json"))
+    external_core = output / "core"
+    if external_core.exists():
+        shutil.rmtree(external_core)
     notices = ROOT / "THIRD_PARTY_NOTICES.txt"
     if notices.is_file():
         shutil.copy2(notices, output / notices.name)
 
     config = json.loads((ROOT / "config" / "settings.example.json").read_text(encoding="utf-8"))
-    config["offline_mode"] = True
+    config["offline_mode"] = False
     config["auto_download_models"] = False
-    config["model_family"] = "ministral"
-    config["model_tiers"] = {key: "Ministral-3-3B-Reasoning-2512" for key in ("fast", "analyst", "coder", "architect", "research")}
-    config["tier_providers"] = {key: "local" for key in ("fast", "analyst", "coder", "architect", "research")}
-    config["local_model"].update({
-        "gguf_path": f"data/models/{model.name}",
-        "runtime_backend": "llama-server",
-        "server_binary_path": "runtime/llama-server.exe",
-        "server_start_timeout_sec": 90.0,
-        "n_gpu_layers": -1,
+    config["deepseek_brain_mode"] = True
+    config["deepseek_provider"] = "deepinfra"
+    config["deepseek_model"] = "deepseek-ai/DeepSeek-V4-Flash-0731"
+    config["model_tiers"] = {key: "deepseek-ai/DeepSeek-V4-Flash-0731" for key in ("fast", "analyst", "coder", "architect", "research")}
+    config["tier_providers"] = {key: "deepinfra" for key in ("fast", "analyst", "coder", "architect", "research")}
+    config.setdefault("api_endpoints", {})["deepinfra"] = "https://api.deepinfra.com/v1/openai"
+    config.setdefault("api_keys", {})["deepinfra"] = ""
+    config["credential_store"] = {
+        "provider": "deepinfra",
+        "reference": "DEEPINFRA_API_KEY",
+        "backend": "dpapi",
+        "path": "data/brain/provider-secrets.dpapi",
+        "required_in_production": True,
+    }
+    config["warmup_local_on_start"] = False
+    config.setdefault("brain_policy", {}).update({
+        "mode": "QUALITY",
+        "prefer_local": False,
+        "allow_cloud": True,
+        "allow_sensitive_cloud": True,
+        "background_allow_cloud": True,
+        "max_fallbacks": 0,
     })
-    config["local_coder_model"]["gguf_path"] = f"data/models/{model.name}"
+    config["local_model"].update({
+        "gguf_path": "",
+        "runtime_backend": "disabled",
+        "server_binary_path": "",
+        "server_start_timeout_sec": 1.0,
+    })
+    config["local_coder_model"]["gguf_path"] = ""
     config.setdefault("launcher", {}).update({
         "backend_command": ["runtime/jarvis-backend.exe"],
         "backend_workdir": "",
@@ -262,6 +346,13 @@ def stage(*, output: Path, include_fallback: bool = False,
         "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
         "primary_piper_model_path": f"data/models/piper/{voice_model.name}",
         "piper_binary_path": "runtime/piper/piper.exe",
+        "stt_enabled": True,
+    })
+    config.setdefault("stt", {}).update({
+        "enabled": True,
+        "model": "data/models/stt/faster-whisper-small",
+        "language": "ru",
+        "hotkey_mode": "toggle_ctrl_space",
     })
     (output / "config").mkdir(parents=True, exist_ok=True)
     (output / "config" / "settings.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -288,7 +379,7 @@ def main() -> int:
         "output": str(args.output),
         "dry_run": args.dry_run,
         "total_bytes": manifest["total_bytes"],
-        "models": manifest["models"],
+        "models": [],
         "server": manifest["server"],
         "backend": manifest["backend"],
         "voice": manifest["voice"],

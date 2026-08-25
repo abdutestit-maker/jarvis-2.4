@@ -32,6 +32,8 @@ config/settings.json
 config/settings.local.json
 .env
 .env.*
+data/brain/provider-secrets.dpapi
+jarvis/src-tauri/resources/jarvis-runtime/data/brain/provider-secrets.dpapi
 *.log
 
 # python env

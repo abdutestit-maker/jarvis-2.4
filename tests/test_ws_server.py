@@ -57,6 +57,13 @@ class FakeOrchestrator:
     def answer_confirmation(self, confirmation_id: str, approved: bool):
         self.confirms.append((confirmation_id, approved))
         self._output_callback(f"Подтверждение {confirmation_id}: {approved}")
+        return {
+            "response": "Действие подтверждено",
+            "assistant_output": {"display_text": "Действие подтверждено", "debug": {}},
+            "tool": "test_tool",
+            "verified": True,
+            "mode": "capability",
+        }
 
     def subscribe_events(self, callback):
         self._subscribers.append(callback)
@@ -118,6 +125,15 @@ def test_ws_command_roundtrip_and_confirmation():
                         "confirmation_id": cid,
                         "approve": True,
                     }))
+                    deadline2 = time.time() + 5
+                    while time.time() < deadline2:
+                        try:
+                            followup = json.loads(await asyncio.wait_for(ws.recv(), timeout=1))
+                        except asyncio.TimeoutError:
+                            continue
+                        received.append(followup)
+                        if followup.get("type") == "assistant_output":
+                            break
                     break
 
         server.shutdown()
@@ -138,3 +154,8 @@ def test_ws_command_roundtrip_and_confirmation():
         "HIGH-risk подтверждение дошло до клиента"
     assert ("cid-123", True) in result["confirms"], \
         "confirm перенаправлен в answer_confirmation"
+    assert any(
+        m.get("type") == "assistant_output"
+        and m.get("output", {}).get("display_text") == "Действие подтверждено"
+        for m in result["received"]
+    ), "результат подтверждённого действия возвращён в тот же WebSocket"

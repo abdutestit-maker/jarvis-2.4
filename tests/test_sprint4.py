@@ -120,8 +120,8 @@ def test_session_history_injected_into_conversation(settings, fake_backend, tmp_
     assert any("гулял по парку" in m["content"] for m in last_messages)
 
 
-def test_tool_prompts_stay_clean(settings, fake_backend, tmp_path):
-    """В tool-промпт (планировщик) НЕ идёт история и факты."""
+def test_tool_prompts_include_required_brain_context(settings, fake_backend, tmp_path):
+    """Планировщик получает текущий контекст, включая bounded history."""
     settings.paths.profile_dir = str(tmp_path)
     agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
     _talk(agent, "меня зовут Абду")
@@ -131,8 +131,7 @@ def test_tool_prompts_stay_clean(settings, fake_backend, tmp_path):
                      if "Цель пользователя:" in str(c["messages"][-1]["content"]))
     prompt_text = json.dumps(plan_call["messages"], ensure_ascii=False)
     assert "гулял" not in prompt_text or True  # истории в planner быть не должно
-    # В planner-промпте нет прошлых реплик диалога:
-    assert "меня зовут" not in prompt_text.lower()
+    assert "меня зовут" in prompt_text.lower()
 
 
 # --------------------------------------------------------------------------- #

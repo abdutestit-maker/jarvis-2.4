@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 from typing import List
+from pathlib import Path
 
 from core.utils.logger import get_logger
+from core.utils.paths import PROJECT_ROOT
 
 __all__ = ["Embedder"]
 
@@ -46,12 +48,20 @@ class Embedder:
         # чтобы не зависеть от минорной версии.
         embedding_fn = None
         try:
-            from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
-            embedding_fn = DefaultEmbeddingFunction()
+            # Import the concrete implementation, not only Chroma's lazy
+            # factory.  The factory references ONNXMiniLM_L6_V2 by a module
+            # global, which PyInstaller can omit from a frozen backend.
+            from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import (
+                ONNXMiniLM_L6_V2,
+            )
+            bundled_model = PROJECT_ROOT / "data" / "models" / "embeddings" / "all-MiniLM-L6-v2"
+            if (bundled_model / "onnx" / "model.onnx").is_file():
+                ONNXMiniLM_L6_V2.DOWNLOAD_PATH = Path(bundled_model)
+            embedding_fn = ONNXMiniLM_L6_V2()
         except (ImportError, AttributeError):
             try:
-                from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
-                embedding_fn = ONNXMiniLM_L6_V2()
+                from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+                embedding_fn = DefaultEmbeddingFunction()
             except (ImportError, AttributeError):
                 if hasattr(chromadb, "DefaultEmbeddingFunction"):
                     embedding_fn = chromadb.DefaultEmbeddingFunction()

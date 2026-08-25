@@ -20,6 +20,11 @@
   --accent-green:  #4ADE80;
   --accent-red:    #F87171;
   --accent-amber:  #FBBF24;
+  --accent-primary: var(--accent-cyan);
+  --accent-secondary: var(--accent-gold);
+  --glow-intensity: .72;
+  --ui-saturation: 1.12;
+  --ui-contrast: 1.04;
 
   --border-glass:  rgba(255, 255, 255, 0.05);
   --border-strong: rgba(255, 255, 255, 0.09);

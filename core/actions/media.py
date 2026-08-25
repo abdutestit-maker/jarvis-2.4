@@ -101,7 +101,12 @@ class PlayMusicTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Открывает локальный трек или явно разрешённый источник музыки; не создаёт напоминаний."
+        return (
+            "Запускает указанную музыку через локальный путь/URI или выбранный "
+            "источник. Для поиска по исполнителю или названию передай query, "
+            "source=spotify либо youtube и allow_network=true. Результат поиска "
+            "сам по себе не считается подтверждённым воспроизведением."
+        )
 
     @property
     def input_schema(self) -> Dict[str, Any]:

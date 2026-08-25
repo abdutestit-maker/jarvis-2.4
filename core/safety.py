@@ -126,11 +126,26 @@ def assess_risk(goal: str = "", tool: Optional[str] = None,
         if why and why not in reasons:
             reasons.append(why)
 
-    # 1) Паспорт инструмента.
+    # 1) Паспорт инструмента.  UI/browser capabilities publish their maximum
+    # risk in the registry, but Risk Gate evaluates the concrete action.  Safe
+    # observation/navigation must not require the same grant as a blind click.
     if tool:
         cap = CAPABILITIES.get(tool)
         if cap is not None:
-            bump(cap.risk_level, f"инструмент '{tool}' имеет risk={cap.risk_level.value}")
+            action = str((arguments or {}).get("action", "")).casefold()
+            dynamic_level = cap.risk_level
+            if tool == "browser_bridge":
+                if action in {"open", "navigate", "inspect_dom", "find", "read", "wait", "extract", "observe", "close", "type"}:
+                    dynamic_level = RiskLevel.LOW
+                elif action in {"click", "press", "download"}:
+                    dynamic_level = RiskLevel.HIGH
+            elif tool == "computer_screenshot":
+                dynamic_level = RiskLevel.LOW
+            elif tool == "computer_mouse" and action == "move":
+                dynamic_level = RiskLevel.LOW
+            elif tool == "computer_keyboard" and action == "focus_window":
+                dynamic_level = RiskLevel.LOW
+            bump(dynamic_level, f"действие '{tool}:{action or 'default'}' имеет risk={dynamic_level.value}")
         else:
             bump(RiskLevel.MEDIUM, f"инструмент '{tool}' без паспорта возможностей")
 
@@ -215,17 +230,34 @@ def sanitize_untrusted(content: str) -> str:
     if not content:
         return ""
     cleaned = content.replace("<|im_start|>", "<im_start>").replace("<|im_end|>", "<im_end>")
-    cleaned = re.sub(r"</?(system|assistant)\s*>", r"[\g<0>]", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"(?<!\[)</?(system|assistant|user)\s*>(?!\])",
+        r"[\g<0>]",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     return cleaned
+
+
+def _escape_envelope_markers(content: str) -> str:
+    """Не даёт входным данным закрыть или вложить защитный конверт."""
+    replacements = {
+        UNTRUSTED_HEADER: "[МАРКЕР ЗАГОЛОВКА НЕДОВЕРЕННЫХ ДАННЫХ]",
+        "--- НАЧАЛО ДАННЫХ ---": "[МАРКЕР НАЧАЛА ДАННЫХ]",
+        "--- КОНЕЦ ДАННЫХ ---": "[МАРКЕР КОНЦА ДАННЫХ]",
+    }
+    for marker, replacement in replacements.items():
+        content = content.replace(marker, replacement)
+    return content
 
 
 def wrap_untrusted(content: str, source: str = "внешний источник",
                    max_chars: int = 8000) -> str:
     """Оборачивает недоверенный контент в защитный конверт (§22).
 
-    Идемпотентен: если контент уже обёрнут (содержит маркер конца),
-    возвращается без изменений — повторный вызов (напр. из research.py
-    поверх вывода web_fetch) НЕ создаёт вложенных конвертов.
+    Идемпотентен для корректно сформированного собственного конверта.
+    Произвольный текст с похожим маркером сначала санитизируется и
+    получает новый конверт, поэтому данные не могут отключить §22.
 
     Args:
         content: сырой текст из веба/файла/письма.
@@ -237,11 +269,16 @@ def wrap_untrusted(content: str, source: str = "внешний источник"
     """
     if content is None:
         return content
-    # Идемпотентность: уже обёрнут — не дублируем конверт.
-    if "--- КОНЕЦ ДАННЫХ ---" in (content or ""):
-        return content
+    raw = content or ""
+    # Возвращаем только структурно корректный и уже безопасный собственный
+    # конверт. Подстрока маркера внутри обычного текста не является конвертом.
+    if raw.startswith(UNTRUSTED_HEADER) and raw.endswith("--- КОНЕЦ ДАННЫХ ---"):
+        if (raw.count("--- НАЧАЛО ДАННЫХ ---") == 1
+                and raw.count("--- КОНЕЦ ДАННЫХ ---") == 1
+                and sanitize_untrusted(raw) == raw):
+            return raw
 
-    body = sanitize_untrusted(content or "")
+    body = _escape_envelope_markers(sanitize_untrusted(raw))
     if len(body) > max_chars:
         body = body[:max_chars] + f"\n… [усечено, всего {len(content)} символов]"
 

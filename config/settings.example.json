@@ -1,34 +1,39 @@
 {
-  "_comment": "Скопируйте этот файл в config/settings.json и заполните ключи. Пустой ключ = тир недоступен, совет мудрецов его пропустит.",
+  "_comment": "DeepSeek brain через DeepInfra. Credential приходит из production DPAPI payload; ключ не хранится в Git.",
   "api_keys": {
     "deepseek": "",
+    "deepinfra": "",
     "kimi": "",
     "claude": "",
     "openrouter": ""
   },
   "api_endpoints": {
     "deepseek": "https://api.deepseek.com/v1",
+    "deepinfra": "https://api.deepinfra.com/v1/openai",
     "kimi": "https://api.moonshot.ai/v1",
     "claude": "https://api.anthropic.com/v1",
     "openrouter": "https://openrouter.ai/api/v1"
   },
   "model_tiers": {
-    "fast": "Ministral-3-3B-Reasoning-2512",
-    "analyst": "Ministral-3-3B-Reasoning-2512",
-    "coder": "Ministral-3-3B-Reasoning-2512",
-    "architect": "Ministral-3-3B-Reasoning-2512",
-    "research": "Ministral-3-3B-Reasoning-2512"
+    "fast": "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "analyst": "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "coder": "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "architect": "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "research": "deepseek-ai/DeepSeek-V4-Flash-0731"
   },
   "tier_providers": {
-    "fast": "local",
-    "analyst": "local",
-    "coder": "local",
-    "architect": "local",
-    "research": "local"
+    "fast": "deepinfra",
+    "analyst": "deepinfra",
+    "coder": "deepinfra",
+    "architect": "deepinfra",
+    "research": "deepinfra"
   },
   "primary_brain": "fast",
-  "offline_mode": true,
-  "warmup_local_on_start": true,
+  "offline_mode": false,
+  "deepseek_brain_mode": true,
+  "deepseek_provider": "deepinfra",
+  "deepseek_model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+  "warmup_local_on_start": false,
   "auto_download_models": false,
   "local_model": {
     "gguf_path": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
@@ -74,7 +79,7 @@
     "language": "ru",
     "voice": "ru_RU-denis-medium",
     "fallback": "none",
-    "stt_enabled": false,
+    "stt_enabled": true,
     "piper_model_path": "data/models/piper/ru_RU-dmitri-medium.onnx",
     "piper_binary_path": "piper",
     "speed": 1.0,
@@ -149,8 +154,8 @@
     "background_enqueue_p95_ms": 100
   },
   "stt": {
-    "enabled": false,
-    "model": "faster-whisper-small",
+    "enabled": true,
+    "model": "data/models/stt/faster-whisper-tiny",
     "vad": "webrtc",
     "language": "auto",
     "hotkey_mode": "hold_ctrl_space"
@@ -167,12 +172,12 @@
     "code_model_path": "data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf"
   },
   "brain_policy": {
-    "mode": "BALANCED",
-    "prefer_local": true,
-    "allow_cloud": false,
-    "allow_sensitive_cloud": false,
-    "background_allow_cloud": false,
-    "max_fallbacks": 2,
+    "mode": "QUALITY",
+    "prefer_local": false,
+    "allow_cloud": true,
+    "allow_sensitive_cloud": true,
+    "background_allow_cloud": true,
+    "max_fallbacks": 0,
     "failure_timeout_seconds": 3.0,
     "max_cost_tier": 3,
     "providers_path": "data/brain/providers.json"
@@ -184,5 +189,12 @@
     "max_bytes": 5242880,
     "backup_count": 5
   },
-  "model_family": "ministral"
+  "model_family": "deepseek",
+  "credential_store": {
+    "provider": "deepinfra",
+    "reference": "DEEPINFRA_API_KEY",
+    "backend": "dpapi",
+    "path": "data/brain/provider-secrets.dpapi",
+    "required_in_production": true
+  }
 }

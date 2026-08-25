@@ -4,8 +4,6 @@
   "version": "4.0.0",
   "identifier": "com.jarvis.oracle",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../../dist"
   },

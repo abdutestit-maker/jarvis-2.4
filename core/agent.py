@@ -32,6 +32,7 @@
 from __future__ import annotations
 
 import re
+import json
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -68,7 +69,10 @@ from core.router.route_guard import validate_tool_selection
 from core.safety import RiskAssessment, assess_risk
 from core.redact import redact_args
 from core.skill_forge import SkillForge, SkillManifest, SkillStatus
-from core.structured import PLAN_SCHEMA_HINT, AnswerStreamExtractor, parse_structured, validate_tool_call
+from core.structured import (
+    PLAN_SCHEMA_HINT, AnswerStreamExtractor, ToolCallDecision,
+    parse_structured, validate_tool_call,
+)
 from core.task_runtime import (
     EVENT_CONFIRMATION_REQUIRED,
     EVENT_PLAN_READY,
@@ -116,9 +120,9 @@ def _media_query_is_user_text(goal: str, query: str) -> bool:
     query_words = {word for word in re.findall(r"[\wа-яё]+", (query or "").casefold()) if len(word) > 2}
     return bool(query_words) and query_words <= goal_words
 
-#: Текст для пользователя при сбое модели (голос/чат). Технические детали —
-#: только в лог. Тон согласован с TTS-санитайзером (core/voice/tts_sanitizer.py).
-MODEL_UNAVAILABLE_TEXT = "Сэр, сейчас не отвечает. Попробуйте ещё раз."
+#: Prefix retained for routing internal model failures. The visible response
+#: is built from the exact exception in ``_handle_model_unavailable``.
+MODEL_UNAVAILABLE_TEXT = "Ошибка локальной модели:"
 
 
 def _hide_reasoning_stream(cumulative: str) -> str:
@@ -209,6 +213,7 @@ class AgentConfig:
     """Настройки поведения агента (без единого лимита на время §4)."""
 
     max_tool_retrieval: int = 5        # сколько инструментов показываем модели (§12)
+    max_discovered_tools: int = 8      # schemas after full-surface discovery
     max_plan_steps: int = 8            # разумный потолок шагов плана
     max_repair_attempts: int = 3       # §11 — ограниченный, но не единичный repair
     max_structured_retries: int = 2    # §13 — повторный запрос при плохом JSON
@@ -239,6 +244,8 @@ class AgentOutcome:
     #: Sprint 3 STEP 5: ответ пришёл с фолбэк-модели, а не с основной
     #: (quality indicator для UI/TTS — не маскируем деградацию).
     degraded: bool = False
+    #: Internal observed result for bounded multi-step planning. Never sent to UI.
+    action_result: Optional[ActionResult] = field(default=None, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -253,6 +260,28 @@ class AgentOutcome:
             "trace": list(self.trace),
             "degraded": self.degraded,
         }
+
+
+@dataclass(frozen=True)
+class CapabilityDiscovery:
+    """Model decision made before concrete tool schemas are loaded."""
+
+    decision: str
+    capability_ids: tuple[str, ...] = ()
+    intent_clear: bool = False
+    clarification: str = ""
+    required_capability_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GoalProgressDecision:
+    """Structured task-level decision after an observed tool result."""
+
+    status: str
+    next_action: Optional[ToolCallDecision] = None
+    reason: str = ""
+    answer: str = ""
+    evidence_steps: tuple[int, ...] = ()
 
 
 # --------------------------------------------------------------------------- #
@@ -415,6 +444,10 @@ class Agent:
         self._user_context = {key: source[key] for key in allowed if key in source}
         self._memory_hierarchy.working.update(self._user_context)
 
+    @property
+    def deepseek_brain_mode(self) -> bool:
+        return bool(getattr(self._settings, "deepseek_brain_mode", False))
+
     # ------------------------------------------------------------------ #
     #  Sprint 1 — stream sink (прогрессивный ответ в UI)
     # ------------------------------------------------------------------ #
@@ -560,23 +593,24 @@ class Agent:
                 log.debug("Извлечение фактов не удалось: %s", exc)
 
         outcome = self._execute_core(goal, mission, cancel)
-        try:
-            task_type = self._personality.infer_task_type(goal, mode=outcome.mode)
-            outcome.text = self._personality.naturalize(
-                outcome.text, verified=outcome.verified, task_type=task_type,
-            )
-            # Streaming has already exposed cumulative text. Apply the hard
-            # brevity bound only at a non-streaming conversational boundary.
-            if outcome.mode == "conversation" and getattr(self._stream_tls, "sink", None) is None:
-                outcome.text = self._personality.adapt_response(
-                    outcome.text,
-                    self._personality.style_for(
-                        user_context=self._user_context, task_type=task_type,
-                        user_preference=self._preference_learner.profile(),
-                    ),
+        if not self.deepseek_brain_mode:
+            try:
+                task_type = self._personality.infer_task_type(goal, mode=outcome.mode)
+                outcome.text = self._personality.naturalize(
+                    outcome.text, verified=outcome.verified, task_type=task_type,
                 )
-        except Exception as exc:  # Personality wording never changes mission state.
-            log.debug("Адаптация ответа пропущена: %s", exc)
+                # Streaming has already exposed cumulative text. Apply the hard
+                # brevity bound only at a non-streaming conversational boundary.
+                if outcome.mode == "conversation" and getattr(self._stream_tls, "sink", None) is None:
+                    outcome.text = self._personality.adapt_response(
+                        outcome.text,
+                        self._personality.style_for(
+                            user_context=self._user_context, task_type=task_type,
+                            user_preference=self._preference_learner.profile(),
+                        ),
+                    )
+            except Exception as exc:  # Personality wording never changes mission state.
+                log.debug("Адаптация ответа пропущена: %s", exc)
         try:
             shadow_outcome = "success" if outcome.verified else (
                 "unfulfilled" if outcome.mode == "unknown_task" else "failure"
@@ -655,6 +689,14 @@ class Agent:
         # ---- 2. RISK (§21) ----
         risk = assess_risk(goal)
         trace.append(f"risk={risk.level.value}")
+        safe_conversation, safe_conversation_reason = classify_conversation(goal, intent)
+        if safe_conversation and not self.deepseek_brain_mode:
+            routing = self._model_router.route(goal, context_tokens=0)
+            memory_ctx = self._retrieve_context(goal)
+            trace.append(f"conversation safety gate: {safe_conversation_reason}")
+            return self._answer_conversation(
+                goal, mission, cancel, trace, routing, memory_ctx,
+            )
         try:
             executive_plan = self._executive.compile(
                 goal, intent=intent, risk=risk.level.value,
@@ -670,7 +712,7 @@ class Agent:
         # Explicit independent clauses become a verified batch.  This keeps
         # a planner from silently completing only the first half of a request.
         compound = split_compound_commands(goal)
-        if compound and not risk.needs_confirmation:
+        if compound and not risk.needs_confirmation and not self.deepseek_brain_mode:
             trace.append(f"compound batch -> {len(compound)} clauses")
             if mission is not None:
                 mission.metadata["compound_commands"] = list(compound)
@@ -720,16 +762,12 @@ class Agent:
         # Local system/app/media commands do not need Chroma initialization or
         # a model context.  Keeping this branch first protects the 1.5s hard
         # budget and prevents cold memory setup from polluting tool latency.
-        fast = self._try_fast_path(goal, intent, mission, cancel, risk)
+        fast = None if self.deepseek_brain_mode else self._try_fast_path(
+            goal, intent, mission, cancel, risk,
+        )
         if fast is not None:
             fast.trace = trace + fast.trace
             return fast
-
-        conversation_fast = self._try_conversation_fast_path(
-            goal, mission=mission, cancel=cancel, trace=trace,
-        )
-        if conversation_fast is not None:
-            return conversation_fast
 
         # ---- 5c. MEMORY: извлечение релевантного контекста (P0-5) ----
         memory_ctx = self._retrieve_context(goal)
@@ -742,7 +780,7 @@ class Agent:
         # не может «позвать» list_files. Настоящие действия идут мимо гейта
         # (явные глаголы/интент файлов/приложений/системы) в planner ниже.
         is_conversation, conv_reason = classify_conversation(goal, intent)
-        if is_conversation:
+        if is_conversation and not self.deepseek_brain_mode:
             trace.append(f"conversation gate: {conv_reason}")
             if mission is not None:
                 mission.metadata["conversation_gate"] = conv_reason
@@ -754,16 +792,64 @@ class Agent:
         # Conversation is checked first: "почему..." and "что такое..."
         # are answered directly, while explicit "найди/поищи" still enters
         # the resumable research pipeline.
-        if is_research_goal(goal):
+        if is_research_goal(goal) and not self.deepseek_brain_mode:
             trace.append("режим: research workflow")
             return self._handle_research(goal, mission, cancel, trace)
 
         if cancel.is_set():
             return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
 
-        # ---- 7. TOOL RETRIEVAL (§12): модели идут ТОЛЬКО релевантные тулзы ----
-        caps = CAPABILITIES.retrieve(goal, top_k=self._config.max_tool_retrieval)
-        trace.append(f"tool retrieval -> {[c.name for c in caps]}")
+        # ---- 7. CAPABILITY DISCOVERY (§12): полный surface -> few schemas ----
+        # DeepSeek first sees a compact catalogue of every live capability;
+        # JSON schemas are loaded only for its selected IDs.  The old fixed
+        # top-five retrieval was a hard whitelist and hid most of JARVIS.
+        discovery: Optional[CapabilityDiscovery] = None
+        if self.deepseek_brain_mode:
+            discovery, discovery_error = self._discover_capabilities(
+                goal=goal,
+                routing=routing,
+                memory_ctx=memory_ctx,
+                action_expected=not is_conversation,
+            )
+            if discovery is None:
+                return self._handle_model_unavailable(
+                    goal, mission, trace,
+                    MODEL_ERROR_PREFIX + f"capability discovery failed: {discovery_error}",
+                )
+            trace.append(
+                f"capability discovery={discovery.decision} "
+                f"ids={list(discovery.capability_ids)} "
+                f"required={list(discovery.required_capability_ids)} "
+                f"clear={discovery.intent_clear}"
+            )
+            if discovery.decision == "clarify":
+                trace.append("capability discovery -> model clarification")
+                return AgentOutcome(
+                    text=discovery.clarification,
+                    verified=False,
+                    tool_used=None,
+                    risk=risk,
+                    mode="clarification",
+                    trace=trace,
+                )
+            if discovery.decision == "answer":
+                trace.append("capability discovery -> conversational answer")
+                return self._answer_conversation(
+                    goal, mission, cancel, trace, routing, memory_ctx,
+                )
+            caps = CAPABILITIES.discover(
+                goal, discovery.capability_ids,
+                top_k=self._config.max_discovered_tools,
+            )
+        else:
+            caps = CAPABILITIES.retrieve(goal, top_k=self._config.max_tool_retrieval)
+        trace.append(f"tool discovery -> {[c.name for c in caps]}")
+
+        if self.deepseek_brain_mode and not caps:
+            trace.append("capability discovery selected no live tool")
+            return self._answer_conversation(
+                goal, mission, cancel, trace, routing, memory_ctx,
+            )
 
         if mission is not None:
             mission.set_status(MissionStatus.PLANNING, "выбор способа выполнения")
@@ -773,6 +859,12 @@ class Agent:
         decision, plan_error = self._decide_with_model(
             goal, caps, mission, cancel,
             routing=routing, memory_ctx=memory_ctx,
+            require_tool=bool(
+                self.deepseek_brain_mode
+                and discovery is not None
+                and discovery.decision == "act"
+                and discovery.intent_clear
+            ),
         )
 
         if cancel.is_set():
@@ -788,8 +880,63 @@ class Agent:
             return self._handle_unknown(goal, caps, mission, trace, plan_error)
 
         if not decision.needs_tool:
+            # A discovery turn that selected an action surface has not
+            # executed anything yet. Do not feed a planner's optimistic prose
+            # into the conversational finalizer; use capability requirements
+            # or a clean no-action conversation instead.
+            if self.deepseek_brain_mode and discovery is not None and discovery.decision == "act":
+                requirement = next(
+                    (
+                        (cap.name, self._missing_capability_requirement(cap.name, {}))
+                        for cap in caps
+                        if self._missing_capability_requirement(cap.name, {})
+                    ),
+                    None,
+                )
+                if requirement is not None:
+                    tool_name, reason = requirement
+                    clarification = self._finalize_tool_response(
+                        goal=goal, tool=tool_name, args={}, result=None,
+                        verification=None, routing=routing, memory_ctx=memory_ctx,
+                        caps=caps, clarification=True, clarification_reason=reason,
+                    )
+                    if not clarification:
+                        return self._handle_model_unavailable(
+                            goal, mission, trace,
+                            MODEL_ERROR_PREFIX + "DeepSeek не сформировал уточнение capability",
+                        )
+                    return AgentOutcome(
+                        text=clarification,
+                        verified=False,
+                        tool_used=None,
+                        risk=risk,
+                        mode="clarification",
+                        trace=trace + [f"capability requirement clarification: {tool_name}"],
+                    )
+                trace.append("planner deferred selected action without execution")
+                return self._answer_conversation(
+                    goal, mission, cancel, trace, routing, memory_ctx,
+                )
             # Модель решила ответить текстом — обычный диалог.
-            text = decision.answer.strip() or "Готов, сэр."
+            text = decision.answer.strip()
+            if self.deepseek_brain_mode and text:
+                text, finalize_error = self._finalize_conversational_response(
+                    goal=goal,
+                    draft=text,
+                    routing=routing,
+                    memory_ctx=memory_ctx,
+                )
+                if not text:
+                    return self._handle_model_unavailable(
+                        goal, mission, trace,
+                        MODEL_ERROR_PREFIX + f"финальная реплика DeepSeek не сформирована: {finalize_error}",
+                    )
+            if not text and self.deepseek_brain_mode:
+                return self._handle_model_unavailable(
+                    goal, mission, trace,
+                    MODEL_ERROR_PREFIX + "DeepSeek вернул пустой ответ",
+                )
+            text = text or "Готов, сэр."
             # §29 — но если модель ФАКТИЧЕСКИ отказалась (для задачи, требующей
             # действия) — это НЕ "я не умею" (§29). Перенаправляем на путь
             # неизвестной задачи: исследовать и научиться.
@@ -811,6 +958,41 @@ class Agent:
             if mission is not None:
                 mission.note_error(route_guard.reason)
                 mission.metadata["route_guard"] = route_guard.to_dict()
+            if self.deepseek_brain_mode:
+                ambiguous_conversation, ambiguous_reason = classify_conversation(goal, intent)
+                if ambiguous_conversation:
+                    trace.append(f"route guard -> conversation recovery ({ambiguous_reason})")
+                    return self._answer_conversation(
+                        goal, mission, cancel, trace, routing, memory_ctx,
+                    )
+                # The guard blocks the side effect, but must not become the
+                # conversational answer. Let the same brain explain or
+                # clarify from the active session context.
+                rejected = ActionResult(
+                    tool=str(decision.tool or "unknown"),
+                    args=dict(decision.arguments or {}),
+                    ok=False,
+                    error=route_guard.reason,
+                )
+                final = self._finalize_tool_response(
+                    goal=goal,
+                    tool=str(decision.tool or "unknown"),
+                    args=dict(decision.arguments or {}),
+                    result=rejected,
+                    verification=None,
+                    routing=routing,
+                    memory_ctx=memory_ctx,
+                    caps=caps,
+                )
+                if final:
+                    return AgentOutcome(
+                        text=final,
+                        verified=False,
+                        tool_used=None,
+                        risk=risk,
+                        mode="conversation",
+                        trace=trace + ["route guard -> model clarification"],
+                    )
             return AgentOutcome(
                 text=(
                     f"Запрос не выполнен: выбран «{decision.tool}», "
@@ -821,6 +1003,23 @@ class Agent:
                 tool_used=decision.tool,
                 mode="route_blocked",
                 trace=trace,
+            )
+        missing_requirement = self._missing_capability_requirement(
+            decision.tool, decision.arguments,
+        )
+        if self.deepseek_brain_mode and missing_requirement:
+            trace.append(f"capability requirement missing: {missing_requirement}")
+            clarification = self._finalize_tool_response(
+                goal=goal, tool=decision.tool, args=decision.arguments, result=None,
+                verification=None, routing=routing, memory_ctx=memory_ctx,
+                caps=caps, clarification=True,
+                clarification_reason=missing_requirement,
+            )
+            if not clarification:
+                clarification = "Ошибка DeepInfra: не удалось сформировать уточняющий вопрос."
+            return AgentOutcome(
+                text=clarification, verified=False, tool_used=decision.tool,
+                risk=risk, mode="clarification", trace=trace,
             )
 
         # ---- 9. RISK GATE перед выполнением (§21) ----
@@ -844,11 +1043,19 @@ class Agent:
                     "goal": goal,
                     "tool": decision.tool,
                     "args": decision.arguments,
+                    "decision": decision,
                     "risk": exec_risk,
                     "caps": caps,
                     "mission": mission,
                     "cancel": cancel,
                     "trace": trace,
+                    "loop_state": {
+                        "routing": routing,
+                        "memory_ctx": memory_ctx,
+                        "required_capability_ids": list(
+                            discovery.required_capability_ids if discovery is not None else ()
+                        ),
+                    },
                 }
             # П1 §1.3 (voice-first): если пользователь не ответит в голос/текст
             # за confirmation_timeout_sec — безопасный авто-reject (отказ).
@@ -864,16 +1071,35 @@ class Agent:
                 trace=trace,
             )
 
-        # ---- 10. EXECUTION + VERIFICATION + REPAIR ----
-        return self._execute_verified(
+        # ---- 10. EXECUTION + OBSERVATION + VERIFICATION + REPAIR ----
+        # The bounded continuation loop is the production DeepSeek path.
+        # Legacy offline planners keep their established one-tool contract.
+        if not self.deepseek_brain_mode:
+            return self._execute_verified(
+                goal=goal,
+                tool=decision.tool,
+                args=decision.arguments,
+                mission=mission,
+                cancel=cancel,
+                trace=trace,
+                risk=exec_risk,
+                caps=caps,
+                routing=routing,
+                memory_ctx=memory_ctx,
+            )
+        return self._execute_capability_loop(
             goal=goal,
-            tool=decision.tool,
-            args=decision.arguments,
+            first_decision=decision,
             mission=mission,
             cancel=cancel,
             trace=trace,
             risk=exec_risk,
             caps=caps,
+            routing=routing,
+            memory_ctx=memory_ctx,
+            required_capability_ids=self._required_capability_contract(
+                discovery.required_capability_ids if discovery is not None else ()
+            ),
         )
 
     # ------------------------------------------------------------------ #
@@ -904,6 +1130,21 @@ class Agent:
         на ЛОКАЛЬНУЮ модель TIER 4 (§17). Решение роутера обязано дойти
         до реального вызова модели (иначе выбор бессмыслен).
         """
+        if self.deepseek_brain_mode:
+            if (self._brain_fabric is not None and routing is not None
+                    and getattr(routing, "brain_route", None) is not None):
+                from core.brain import BrainFabricBackend, BrainRequest, BrainRole, PrivacyClass
+                role = BrainRole(routing.role)
+                template = BrainRequest(
+                    user_request=routing.request_text, role=role,
+                    privacy=PrivacyClass.PERSONAL,
+                    context_tokens=routing.complexity.context_tokens,
+                )
+                return BrainFabricBackend(
+                    self._brain_fabric, routing.brain_route, template=template,
+                ), routing.tier
+            return None, None
+
         if (self._brain_fabric is not None and routing is not None
                 and getattr(routing, "brain_route", None) is not None):
             from core.brain import BrainFabricBackend, BrainRequest, BrainRole, PrivacyClass
@@ -955,6 +1196,8 @@ class Agent:
         задач: фолбэк не должен ждать полный бюджет аналитического тира.
         Тиры с разомкнутым breaker'ом пропускаются (Sprint 3).
         """
+        if self.deepseek_brain_mode:
+            return None, None
         if (self._brain_fabric is not None and routing is not None
                 and getattr(routing, "brain_route", None) is not None):
             # BrainFabricBackend already consumed its bounded semantic chain.
@@ -1079,9 +1322,36 @@ class Agent:
         # Подтверждено — выполняем.
         if mission is not None:
             mission.set_status(MissionStatus.EXECUTING, "подтверждено, выполняю")
+        if self.deepseek_brain_mode:
+            decision = pending.get("decision")
+            if not isinstance(decision, ToolCallDecision):
+                decision = ToolCallDecision(
+                    tool=tool,
+                    arguments=args,
+                    reason="approved concrete action",
+                    risk=getattr(getattr(risk, "level", None), "value", "high"),
+                    verification="verify requested goal outcome after execution",
+                )
+            loop_state = pending.get("loop_state") or {}
+            return self._execute_capability_loop(
+                goal=goal,
+                first_decision=decision,
+                mission=mission,
+                cancel=cancel,
+                trace=trace,
+                risk=risk,
+                caps=caps,
+                routing=loop_state.get("routing"),
+                memory_ctx=str(loop_state.get("memory_ctx") or ""),
+                initial_observations=loop_state.get("observations") or [],
+                start_step=int(loop_state.get("start_step") or 0),
+                confirmation_approved=True,
+                required_capability_ids=loop_state.get("required_capability_ids") or (),
+            )
         return self._execute_verified(
             goal=goal, tool=tool, args=args, mission=mission,
             cancel=cancel, trace=trace, risk=risk, caps=caps,
+            confirmation_approved=True,
         )
 
     # ------------------------------------------------------------------ #
@@ -1162,52 +1432,6 @@ class Agent:
             verified=report.verified,
             verification=verification,
             mode="research",
-            trace=trace,
-        )
-
-    # ------------------------------------------------------------------ #
-    #  §3 — FAST PATH: короткий цикл для простых задач
-    # ------------------------------------------------------------------ #
-
-    def _try_conversation_fast_path(self, goal: str, *, mission: Optional[Mission],
-                                    cancel: threading.Event,
-                                    trace: List[str]) -> Optional[AgentOutcome]:
-        """Answer routine social handshakes without a model round-trip."""
-        # Keep the library/test contract deterministic while enabling the
-        # production fast lane only for the explicitly loaded local runtime.
-        # Bare ``Settings()`` is intentionally provider-neutral and must still
-        # exercise the conversation/model failure paths used by integrations.
-        if not bool(getattr(self._settings, "offline_mode", False)):
-            return None
-        if getattr(self._settings, "source_path", None) is None:
-            return None
-        if cancel.is_set():
-            return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
-        normalized = re.sub(r"[^\w\sа-яё]", " ", (goal or "").casefold())
-        normalized = " ".join(normalized.split())
-        response = None
-        if normalized in {"привет", "здравствуйте", "доброе утро", "добрый вечер", "добрый день"}:
-            response = "Слышу вас, сэр. Канал связи работает."
-        elif normalized in {"как дела", "как ты", "ты как"}:
-            response = "Всё в порядке, сэр. Готов к следующей задаче."
-        elif normalized in {"ты меня слышишь", "слышишь меня", "канал связи работает"} or (
-            normalized.startswith("привет") and "слыш" in normalized and len(normalized.split()) <= 6
-        ):
-            response = "Слышу вас, сэр. Канал связи работает."
-        elif normalized in {"спасибо", "благодарю", "понятно"}:
-            response = "Пожалуйста, сэр."
-        elif normalized in {"пока", "до свидания", "увидимся"}:
-            response = "До связи, сэр."
-        if response is None:
-            return None
-        trace.append("conversation fast path")
-        if mission is not None:
-            mission.metadata["conversation_fast_path"] = True
-            mission.set_progress(1.0, "короткий ответ сформирован")
-        return AgentOutcome(
-            text=response,
-            verified=True,
-            mode="conversation_fast",
             trace=trace,
         )
 
@@ -1373,6 +1597,136 @@ class Agent:
         return None
 
     # ------------------------------------------------------------------ #
+    #  Capability discovery — compact whole surface before tool schemas
+    # ------------------------------------------------------------------ #
+
+    def _discover_capabilities(self, *, goal: str,
+                               routing: Optional[RoutingDecision],
+                               memory_ctx: str,
+                               action_expected: bool = False,
+                               exclude_ids: Sequence[str] = ()) -> tuple[Optional[CapabilityDiscovery], str]:
+        """Ask the production brain which live capability family fits a goal.
+
+        This is deliberately a separate, schema-free turn.  It gives the
+        model progressive disclosure over the complete registry without
+        placing every JSON Schema in every request.
+        """
+        backend, _ = self._backend_for_routing(routing)
+        if backend is None:
+            return None, "DeepSeek runtime unavailable"
+        try:
+            world_state = self._executive.world.current()
+        except Exception:
+            world_state = {}
+        from persona.system_prompt import build_agent_system_prompt
+        surface = CAPABILITIES.surface_summary()
+        failed_ids = tuple(str(name).strip() for name in exclude_ids if str(name).strip())
+        recovery_rule = (
+            f"The previously attempted capability IDs {list(failed_ids)!r} failed verification. "
+            "For recovery, select a different viable capability or choose answer/clarify.\n"
+            if failed_ids else ""
+        )
+        system = (
+            f"{build_agent_system_prompt(self._settings, tier='plan')}\n"
+            "Ты выбираешь доступные возможности JARVIS до загрузки schemas. "
+            "Только JSON без markdown: "
+            '{"decision":"answer|clarify|act","intent_clear":true|false,'
+            '"capability_ids":["id",...],"required_capability_ids":["id",...],'
+            '"clarification":""}.\n'
+            "Полный каталог ниже содержит только реальные live capability IDs. "
+            "Для decision=act capability_ids — это небольшой набор schemas, доступных для плана, "
+            "включая полезные fallback-варианты. required_capability_ids — подмножество capability_ids: "
+            "только минимальные независимые шаги, которые действительно должны выполниться для всех "
+            "явно запрошенных частей цели. Альтернативные способы одного результата (например, "
+            "browser_bridge или open_app для открытия сайта) не делай одновременно обязательными. "
+            "Выбирай act лишь когда задача или контекст текущего диалога дают "
+            "достаточно ясное намерение выполнить действие. Если референс ('его', "
+            "это', 'там', 'да') не разрешается историей, выбери clarify. "
+            "Для act обязательно intent_clear=true, непустой required_capability_ids и clarification=''. "
+            "Для answer оба списка IDs должны быть пусты. Для clarify обязательно "
+            "intent_clear=false и clarification должен содержать один естественный "
+            "уточняющий вопрос о конкретно недостающем объекте или параметре; не утверждай, "
+            "что какое-либо действие уже выполнено. "
+            f"Deterministic intent boundary: action_expected={bool(action_expected)}. "
+            "Когда action_expected=true, decision=answer недопустим: выбери act или конкретный clarify. "
+            "Не выбирай capability только потому, что она упоминалась в прошлой "
+            "реплике ассистента. Для неизвестной задачи ищи композицию доступных "
+            "возможностей, а не объявляй её неподдерживаемой.\n"
+            f"{recovery_rule}"
+            f"World/context state: {json.dumps({'attention': self._user_context, 'world': world_state}, ensure_ascii=False, default=str)[:4000]}\n"
+            f"Relevant memory: {memory_ctx or '(none)'}\n"
+            f"Capability surface:\n{surface}"
+        )
+        history = [dict(item) for item in self._session.get_recent()]
+        prompt = f"Current user turn: {goal}\nReturn discovery JSON only."
+        messages = history + [{"role": "user", "content": prompt}]
+        last_error = ""
+        for attempt in range(2):
+            try:
+                raw = self._stream_consume(
+                    backend, messages,
+                    system, extract_answer=False,
+                    max_tokens=256,
+                )
+            except Exception as exc:
+                return None, f"DeepSeek discovery error: {type(exc).__name__}: {exc}"
+            parsed = parse_structured(raw, required_keys=None)
+            if not parsed.ok or not isinstance(parsed.data, dict):
+                last_error = f"invalid discovery JSON: {parsed.error or 'object expected'}"
+            else:
+                data = parsed.data
+                decision = str(data.get("decision") or "").strip().casefold()
+                raw_ids = data.get("capability_ids") or []
+                raw_required_ids = data.get("required_capability_ids") or []
+                intent_clear = bool(data.get("intent_clear", False))
+                clarification = str(data.get("clarification") or "").strip()
+                if decision not in {"answer", "clarify", "act"}:
+                    last_error = "discovery decision must be answer, clarify or act"
+                elif not isinstance(raw_ids, list):
+                    last_error = "capability_ids must be an array"
+                elif not isinstance(raw_required_ids, list):
+                    last_error = "required_capability_ids must be an array"
+                else:
+                    ids = tuple(str(item).strip() for item in raw_ids if str(item).strip())
+                    required_ids = tuple(
+                        str(item).strip() for item in raw_required_ids if str(item).strip()
+                    )
+                    if decision == "act" and (
+                        not ids or not required_ids or not intent_clear or clarification
+                        or any(name not in ids for name in required_ids)
+                    ):
+                        last_error = (
+                            "act requires capability IDs, a non-empty required subset, "
+                            "intent_clear=true and empty clarification"
+                        )
+                    elif decision == "answer" and action_expected:
+                        last_error = "answer is invalid because the deterministic intent boundary requires action"
+                    elif decision == "answer" and (ids or required_ids or clarification):
+                        last_error = "answer requires empty capability IDs, required IDs and clarification"
+                    elif decision == "clarify" and (intent_clear or not clarification or required_ids):
+                        last_error = (
+                            "clarify requires intent_clear=false, empty required IDs "
+                            "and one concrete question"
+                        )
+                    else:
+                        return CapabilityDiscovery(
+                            decision=decision,
+                            capability_ids=ids,
+                            intent_clear=intent_clear,
+                            clarification=clarification,
+                            required_capability_ids=required_ids,
+                        ), ""
+            if attempt == 0:
+                messages = messages + [
+                    {"role": "assistant", "content": raw},
+                    {"role": "user", "content": (
+                        f"Discovery JSON rejected: {last_error}. Re-evaluate the current user turn; "
+                        "return one internally consistent JSON object only."
+                    )},
+                ]
+        return None, last_error or "invalid discovery decision"
+
+    # ------------------------------------------------------------------ #
     #  §13 — Структурированное решение модели
     # ------------------------------------------------------------------ #
 
@@ -1380,7 +1734,9 @@ class Agent:
                            mission: Optional[Mission],
                            cancel: threading.Event,
                            routing: Optional[RoutingDecision] = None,
-                           memory_ctx: str = ""):
+                           memory_ctx: str = "",
+                           execution_context: str = "",
+                           require_tool: bool = False):
         """Спрашивает модель, что делать, и валидирует ответ (§13).
 
         При плохом JSON — повторный запрос с текстом ошибки (repair, §13).
@@ -1423,27 +1779,100 @@ class Agent:
                 f"{memory_ctx}\n"
             )
 
+        history_messages = [dict(item) for item in self._session.get_recent()]
+        world_state = {}
+        try:
+            world_state = self._executive.world.current()
+        except Exception as exc:
+            log.debug("World state unavailable for brain context: %s", exc)
+        world_block = json.dumps({
+            "attention": self._user_context,
+            "world": world_state,
+        }, ensure_ascii=False, default=str)[:4000]
+
         # Sprint 4 TIER 2: persona + фокус на точность tool calling.
         # История/факты в tool-промпт НЕ идут (спринт STEP 2.4).
         from persona.system_prompt import build_agent_system_prompt
         persona_line = build_agent_system_prompt(self._settings, tier="plan")
-        system = (
-            f"{persona_line}\n"
-            "Твоя задача — решить, КАК выполнить цель.\n"
-            "Верни СТРОГО ОДИН JSON-объект без markdown и пояснений:\n"
-            f"{PLAN_SCHEMA_HINT}\n"
-            "Правила:\n"
-            "- Если для цели подходит инструмент — укажи его имя в 'tool' и заполни 'arguments'.\n"
-            "- Если инструмент не нужен (обычный разговор) — 'tool': null и заполни 'answer'.\n"
-            "- Никогда не выдумывай инструменты, которых нет в списке.\n"
-            "- 'verification' — как фактически проверить, что цель достигнута."
+        if self.deepseek_brain_mode:
+            required_tool_rule = (
+                "Capability discovery уже установил ясное намерение выполнить действие. "
+                "В этом ходе ОБЯЗАТЕЛЬНО вызови ровно один доступный tool; текст без tool "
+                "не исполняет цель и будет отклонён.\n"
+                if require_tool else ""
+            )
+            system = (
+                f"{persona_line}\n"
+                "Ты — единственный conversational/reasoning brain JARVIS. Backend даёт тебе "
+                "контекст, память, world state и tools; backend не сочиняет реплики вместо тебя.\n"
+                "Сам реши: ответить, уточнить, вызвать один доступный tool или продолжить план. "
+                "Для tool используй native function call. Если tool не нужен, ответь живым текстом.\n"
+                f"{required_tool_rule}"
+                "Получив verified observations от предыдущих шагов, сопоставь их с исходной целью: "
+                "если цель достигнута, не повторяй действие и верни ответ без tool; если нет — "
+                "выбери только следующий необходимый tool.\n"
+                "После хотя бы одного действия answer без tool допустим только когда verified observations "
+                "подтверждают каждый явно запрошенный результат исходной цели. Нахождение объекта не "
+                "подтверждает его чтение, открытая поисковая страница не подтверждает воспроизведение, "
+                "а успешный промежуточный шаг не завершает составную задачу. Если доказательства не хватает, "
+                "вызови следующий подходящий tool или честно уточни, но не заявляй незавершённый результат.\n"
+                "После verified tool result финальную человеческую реплику снова сформируй сам. "
+                "Не утверждай выполнение без результата инструмента.\n"
+                "Если текущая реплика короткая, неоднозначная или является продолжением "
+                "диалога (например, 'что именно?'), не вызывай tool: используй историю и "
+                "ответь либо задай один уточняющий вопрос. Не выводи side effect только из "
+                "предыдущего предложения JARVIS. Инструменты с побочным действием (приложения, "
+                "музыка, напоминания, файлы и системные изменения) требуют явного намерения "
+                "в текущей реплике пользователя.\n"
+                "Текст answer показывается пользователю дословно. Не описывай внутреннее "
+                "рассуждение: не пиши 'пользователь сказал', 'пользователь просит', "
+                "'отвечу живым текстом', имена маршрутов, JSON или план. Сразу дай ответ "
+                "пользователю. Не пересказывай текущую реплику и не называй себя системой, "
+                "планировщиком или исполнителем.\n"
+                "Для голого запроса о музыке без известного предпочтения задай один короткий вопрос "
+                "о жанре/исполнителе и не вызывай play_music.\n"
+                f"Персона и правила безопасности:\n{persona_line}\n"
+                f"World/context state:\n{world_block}\n"
+                f"Relevant memory:\n{memory_ctx or '(нет релевантной памяти)'}"
+            )
+        else:
+            system = (
+                f"{persona_line}\n"
+                "Твоя задача — решить, КАК выполнить цель.\n"
+                "Верни СТРОГО ОДИН JSON-объект без markdown и пояснений:\n"
+                f"{PLAN_SCHEMA_HINT}\n"
+                "Правила:\n"
+                "- Если для цели подходит инструмент — укажи его имя в 'tool' и заполни 'arguments'.\n"
+                "- Если инструмент не нужен (обычный разговор) — 'tool': null и заполни 'answer'.\n"
+                "- Никогда не выдумывай инструменты, которых нет в списке.\n"
+                "- 'verification' — как фактически проверить, что цель достигнута."
+            )
+        observation_block = (
+            f"\n\nVerified observations from earlier steps:\n{execution_context}\n"
+            if execution_context else ""
         )
         user = (
             f"Доступные инструменты:\n{tools_desc}\n\n"
             f"Цель пользователя: {goal}\n"
             f"{memory_block}\n"
-            "Верни только JSON."
+            f"{observation_block}"
+            "Выбери: естественный ответ или один native tool call."
         )
+        planner_messages = history_messages + [{"role": "user", "content": user}]
+
+        if self.deepseek_brain_mode and not self._native_tool_schemas(caps):
+            try:
+                answer = self._stream_consume(
+                    backend, planner_messages, system, extract_answer=False,
+                    max_tokens=max(128, int(getattr(self._settings.local_model, "max_tokens", 384))),
+                ).strip()
+                if answer:
+                    return ToolCallDecision(
+                        tool=None, reason="DeepSeek direct answer", answer=answer,
+                    ), ""
+                return None, MODEL_ERROR_PREFIX + "DeepSeek вернул пустой ответ"
+            except Exception as exc:
+                return None, MODEL_ERROR_PREFIX + f"DeepSeek недоступен: {exc}"
 
         # Native function calling is attempted once, before the legacy text
         # planner.  The fallback remains the source of compatibility for old
@@ -1458,10 +1887,10 @@ class Agent:
             if native_tools:
                 try:
                     native_response = native_call(
-                        [{"role": "user", "content": user}],
+                        planner_messages,
                         tools=native_tools,
                         system=system,
-                        tool_choice="auto",
+                        tool_choice="required" if require_tool else "auto",
                         max_tokens=getattr(self._settings.local_model, "max_tokens", None),
                         temperature=getattr(self._settings.local_model, "temperature", None),
                     )
@@ -1495,6 +1924,10 @@ class Agent:
                         known,
                         schema_lookup=lambda n: getattr(self._registry.get(n), "input_schema", None),
                     )
+                    if (native_decision is not None and require_tool
+                            and not native_decision.needs_tool):
+                        native_error = "capability discovery requires a tool call"
+                        native_decision = None
                     if native_decision is not None:
                         if mission is not None:
                             mission.metadata["native_tool_calling"] = True
@@ -1515,6 +1948,15 @@ class Agent:
                     log.info("Native tool calling unavailable; JSON fallback: %s", exc)
 
         last_error = ""
+        structured_system = system + (
+            "\nFallback protocol: верни только один JSON-объект без markdown:\n"
+            f"{PLAN_SCHEMA_HINT}"
+            + (
+                "\nВ этом ходе поле tool обязано содержать имя одного доступного "
+                "инструмента; tool=null будет отклонён."
+                if require_tool else ""
+            )
+        )
         for attempt in range(1, self._config.max_structured_retries + 2):
             if cancel.is_set():
                 return None, "отменено"
@@ -1524,7 +1966,7 @@ class Agent:
                 "Исправь и верни ТОЛЬКО валидный JSON."
             )
             try:
-                raw = self._stream_consume(backend, [{"role": "user", "content": prompt}], system)
+                raw = self._stream_consume(backend, history_messages + [{"role": "user", "content": prompt}], structured_system)
             except (BackendUnavailable, BackendConfigError) as exc:
                 # Попробуем следующий тир из цепочки фолбэка (cloud->...->local).
                 log.warning("Модель недоступна (%s), пробуем фолбэк: %s", used_tier, exc)
@@ -1544,7 +1986,7 @@ class Agent:
                     mission.model_used = used_tier.value
                     mission.metadata["degraded"] = True
                 try:
-                    raw = self._stream_consume(backend, [{"role": "user", "content": prompt}], system)
+                    raw = self._stream_consume(backend, history_messages + [{"role": "user", "content": prompt}], structured_system)
                 except Exception as exc2:
                     return None, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}"
             except Exception as exc:
@@ -1566,6 +2008,10 @@ class Agent:
                 last_error = err
                 log.info("Невалидный tool call (попытка %d): %s", attempt, err)
                 continue
+            if require_tool and not decision.needs_tool:
+                last_error = "capability discovery requires a tool call"
+                log.info("Tool call обязателен (попытка %d)", attempt)
+                continue
 
             if mission is not None:
                 mission.metadata["decision"] = decision.to_dict()
@@ -1579,6 +2025,237 @@ class Agent:
             return decision, ""
 
         return None, last_error or "модель не смогла вернуть валидное решение"
+
+    def _evaluate_goal_progress(self, *, goal: str,
+                                observations: List[Dict[str, Any]],
+                                routing: Optional[RoutingDecision],
+                                memory_ctx: str,
+                                required_capability_ids: Sequence[str] = ()) -> tuple[Optional[GoalProgressDecision], str]:
+        """Decide task completion from evidence, not from tool success."""
+        backend, _ = self._backend_for_routing(routing)
+        if backend is None:
+            return None, "DeepSeek runtime unavailable for goal verification"
+        from persona.system_prompt import build_agent_system_prompt
+        system = (
+            f"{build_agent_system_prompt(self._settings, tier='plan')}\n"
+            "Ты проверяешь достижение исходной пользовательской цели после выполненных действий. "
+            "Верни только JSON: "
+            '{"status":"complete|continue|repair|clarify","tool":"capability_id|null",'
+            '"arguments":{},"reason":"...","answer":"...",'
+            '"evidence":[{"step":1,"tool":"exact_observed_tool"}]}.\n'
+            "Tool success означает только успех одного шага. status=complete допустим только если "
+            "observations фактически подтверждают каждый требуемый результат исходной цели. "
+            "Для status=complete поле evidence обязательно и должно перечислять реальные step/tool "
+            "из observations, на которых основан вывод. Не ссылайся на tool, которого нет в observations. "
+            "Если найден путь, но содержимое ещё не прочитано, задача чтения не завершена. "
+            "Если исходная цель отдельно требует физически открыть файл в desktop UI и прочитать его, "
+            "read_file подтверждает только чтение: открытие должно иметь отдельное verified observation. "
+            "Для композиции search_files + open_app конкретный найденный файл должен передаваться в "
+            "open_app.arguments.target_path; запуск пустого приложения не подтверждает открытие файла. "
+            "Если страница открыта, но требуемое действие на ней не наблюдалось, задача не завершена. "
+            "Запущенный процесс Проводника не доказывает открытие нужной папки: для конкретного "
+            "target_path требуется strict verification method=explorer_location. "
+            "Для continue выбери следующий capability и его конкретные arguments. Для repair выбери "
+            "другой путь после failed verification. Для clarify не выполняй действие и задай один вопрос. "
+            "Если required_capability_ids содержит capability без verified observation, следующим шагом "
+            "выбирай один из таких missing required IDs, а не повторяй уже verified capability. "
+            "Не повторяй уже успешно выполненный шаг. Не выдумывай capabilities.\n"
+            f"Relevant memory: {memory_ctx or '(none)'}\n"
+            f"Complete live capability surface:\n{CAPABILITIES.surface_summary()}"
+        )
+        payload = {
+            "goal": goal,
+            "required_capability_ids": list(required_capability_ids),
+            "observations": self._compact_goal_observations(observations),
+        }
+        prompt = json.dumps(payload, ensure_ascii=False, default=str)
+        last_error = ""
+        for attempt in range(1, self._config.max_structured_retries + 2):
+            user_prompt = prompt if attempt == 1 else (
+                f"{prompt}\n\nПредыдущая оценка отклонена: {last_error}. "
+                "Исправь оценку по фактическим observations и верни только JSON."
+            )
+            try:
+                raw = backend.chat(
+                    [{"role": "user", "content": user_prompt}],
+                    system=system,
+                    max_tokens=512,
+                )
+            except Exception as exc:
+                return None, f"goal verification error: {type(exc).__name__}: {exc}"
+            parsed = parse_structured(raw, required_keys=None)
+            if not parsed.ok or not isinstance(parsed.data, dict):
+                last_error = f"invalid goal verification JSON: {parsed.error or 'object expected'}"
+                continue
+            data = parsed.data
+            status = str(data.get("status") or "").strip().casefold()
+            if status not in {"complete", "continue", "repair", "clarify"}:
+                last_error = "goal verification status is invalid"
+                continue
+            reason = str(data.get("reason") or "").strip()
+            answer = str(data.get("answer") or "").strip()
+            if status == "complete":
+                evidence_steps, evidence_error = self._validate_goal_evidence(
+                    data.get("evidence"), observations, reason=reason, answer=answer,
+                    required_capability_ids=required_capability_ids, goal=goal,
+                )
+                if evidence_error:
+                    last_error = evidence_error
+                    continue
+                return GoalProgressDecision(
+                    status=status, reason=reason, answer=answer,
+                    evidence_steps=evidence_steps,
+                ), ""
+            if status == "clarify":
+                return GoalProgressDecision(status=status, reason=reason, answer=answer), ""
+            known = [tool.name for tool in self._registry.list_tools()]
+            decision, error = validate_tool_call(
+                {
+                    "tool": data.get("tool"),
+                    "arguments": data.get("arguments") or {},
+                    "reason": reason or f"goal progress: {status}",
+                    "verification": "verify requested goal outcome after this step",
+                    "risk": "low",
+                },
+                known,
+                schema_lookup=lambda name: getattr(self._registry.get(name), "input_schema", None),
+            )
+            if decision is None or not decision.needs_tool:
+                last_error = error or f"{status} requires a valid next tool"
+                continue
+            verified_tools = {
+                str(item.get("tool") or "")
+                for item in observations
+                if isinstance(item.get("verification"), dict)
+                and item["verification"].get("verified")
+            }
+            missing_required = {
+                str(name).strip() for name in required_capability_ids
+                if str(name).strip() and str(name).strip() not in verified_tools
+            }
+            if missing_required and decision.tool not in missing_required:
+                last_error = (
+                    f"next action repeats or bypasses verified work; choose one missing required "
+                    f"capability: {sorted(missing_required)}"
+                )
+                continue
+            return GoalProgressDecision(status=status, next_action=decision, reason=reason), ""
+        return None, last_error or "goal verification did not produce an evidence-bound decision"
+
+    @staticmethod
+    def _required_capability_contract(capability_ids: Sequence[str]) -> tuple[str, ...]:
+        """Do not turn generic recovery hands into mandatory specialized steps."""
+        ordered = tuple(dict.fromkeys(
+            str(name).strip() for name in capability_ids if str(name).strip()
+        ))
+        live = {cap.name: cap for cap in CAPABILITIES.resolve(ordered)}
+        generic_hands = {
+            name for name, cap in live.items()
+            if name.startswith("computer_") and "computer" in {
+                str(tag).casefold() for tag in cap.tags
+            }
+        }
+        if not generic_hands or not any(name not in generic_hands for name in ordered):
+            return ordered
+        return tuple(name for name in ordered if name not in generic_hands)
+
+    @staticmethod
+    def _compact_goal_observations(observations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Keep the evidence JSON valid while bounding large tool payloads."""
+        compact: List[Dict[str, Any]] = []
+        for item in observations[-8:]:
+            output = json.dumps(item.get("output"), ensure_ascii=False, default=str)
+            if len(output) > 5000:
+                output = output[:5000] + "<truncated>"
+            compact.append({
+                "step": item.get("step"),
+                "tool": item.get("tool"),
+                "arguments": item.get("arguments") or {},
+                "output": output,
+                "error": item.get("error"),
+                "verification": item.get("verification"),
+            })
+        return compact
+
+    def _validate_goal_evidence(self, raw_evidence: Any,
+                                observations: List[Dict[str, Any]], *,
+                                reason: str = "", answer: str = "",
+                                required_capability_ids: Sequence[str] = (),
+                                goal: str = "") -> tuple[tuple[int, ...], str]:
+        """Reject completion claims that cite absent or unverified tool steps."""
+        if not isinstance(raw_evidence, list) or not raw_evidence:
+            return (), "status=complete requires non-empty evidence"
+        by_step = {
+            int(item.get("step")): item
+            for item in observations
+            if isinstance(item, dict) and isinstance(item.get("step"), int)
+        }
+        cited: List[int] = []
+        for evidence in raw_evidence:
+            if not isinstance(evidence, dict):
+                return (), "each evidence item must be an object"
+            try:
+                step = int(evidence.get("step"))
+            except (TypeError, ValueError):
+                return (), "evidence step must be an integer"
+            tool = str(evidence.get("tool") or "").strip()
+            observed = by_step.get(step)
+            if observed is None or tool != str(observed.get("tool") or ""):
+                return (), f"evidence step {step} does not match an observed tool"
+            verification = observed.get("verification") or {}
+            if not isinstance(verification, dict) or not verification.get("verified"):
+                return (), f"evidence step {step} is not verified"
+            cited.append(step)
+
+        observed_tools = {str(item.get("tool") or "") for item in observations}
+        claim_text = f"{reason}\n{answer}"
+        fabricated = sorted(
+            tool.name for tool in self._registry.list_tools()
+            if tool.name not in observed_tools and tool.name in claim_text
+        )
+        if fabricated:
+            return (), f"completion cites unobserved tools: {fabricated}"
+        verified_tools = {
+            str(item.get("tool") or "")
+            for item in observations
+            if isinstance(item.get("verification"), dict)
+            and item["verification"].get("verified")
+        }
+        missing_required = [
+            name for name in required_capability_ids
+            if str(name).strip() and str(name).strip() not in verified_tools
+        ]
+        if missing_required:
+            return (), f"required capabilities have no verified observation: {missing_required}"
+        required = {str(name).strip() for name in required_capability_ids}
+        goal_l = str(goal or "").casefold()
+        folder_goal = any(marker in goal_l for marker in (
+            "папк", "каталог", "folder", "directory",
+        ))
+        if folder_goal and "open_app" in required:
+            explorer_evidence = any(
+                str(item.get("tool") or "") == "open_app"
+                and isinstance(item.get("verification"), dict)
+                and item["verification"].get("verified")
+                and item["verification"].get("method") == "explorer_location"
+                for item in observations
+            )
+            if not explorer_evidence:
+                return (), "folder goal requires strict open_app verification method=explorer_location"
+        if {"search_files", "open_app"} <= required:
+            targeted_open = any(
+                str(item.get("tool") or "") == "open_app"
+                and bool(str((item.get("arguments") or {}).get("target_path") or "").strip())
+                and isinstance(item.get("verification"), dict)
+                and item["verification"].get("verified")
+                for item in observations
+            )
+            if not targeted_open:
+                return (), (
+                    "search_files + open_app completion requires a verified open_app "
+                    "observation with target_path"
+                )
+        return tuple(dict.fromkeys(cited)), ""
 
     def _native_tool_schemas(self, caps: List[Capability]) -> List[Dict[str, Any]]:
         """Build deterministic OpenAI-compatible schemas from the registry."""
@@ -1597,6 +2274,348 @@ class Agent:
             })
         return schemas
 
+    def _execute_capability_loop(self, *, goal: str,
+                                 first_decision: ToolCallDecision,
+                                 mission: Optional[Mission],
+                                 cancel: threading.Event,
+                                 trace: List[str],
+                                 risk: RiskAssessment,
+                                 caps: List[Capability],
+                                 routing: Optional[RoutingDecision],
+                                 memory_ctx: str,
+                                 initial_observations: Optional[List[Dict[str, Any]]] = None,
+                                 start_step: int = 0,
+                                 confirmation_approved: bool = False,
+                                 required_capability_ids: Sequence[str] = ()) -> AgentOutcome:
+        """Run bounded PLAN -> ACT -> OBSERVE -> VERIFY turns.
+
+        Every tool step uses the existing executor, verifier and repair loop.
+        The reasoning model receives only verified observations before it may
+        request another selected capability.  A no-tool decision ends the
+        loop and delegates the user-facing result to the normal DeepSeek
+        final-response boundary.
+        """
+        decision = first_decision
+        current_risk = risk
+        observations: List[Dict[str, Any]] = list(initial_observations or [])
+        max_steps = min(
+            int(self._config.max_plan_steps or 1),
+            int(self._config.max_action_iterations or 1),
+        )
+
+        for step_index in range(max(0, int(start_step)), max_steps):
+            if cancel.is_set():
+                return AgentOutcome(text="Задача отменена.", mode="cancelled", trace=trace)
+            step_outcome = self._execute_verified(
+                goal=goal,
+                tool=decision.tool,
+                args=decision.arguments,
+                mission=mission,
+                cancel=cancel,
+                trace=trace,
+                risk=current_risk,
+                caps=caps,
+                routing=routing,
+                memory_ctx=memory_ctx,
+                finalize_response=False,
+                confirmation_approved=confirmation_approved,
+            )
+            confirmation_approved = False
+            if step_outcome.action_result is None:
+                return step_outcome
+
+            result = step_outcome.action_result
+            verification = step_outcome.verification
+            observation = {
+                "step": step_index + 1,
+                "tool": decision.tool,
+                "arguments": decision.arguments,
+                "output": result.output,
+                "error": result.error,
+                "verification": verification.to_dict() if verification else None,
+            }
+            observations.append(observation)
+            if not step_outcome.verified:
+                def _finalize_failed_step() -> AgentOutcome:
+                    """Keep real failure facts, but never expose the harness as chat."""
+                    if self.deepseek_brain_mode:
+                        text = self._finalize_tool_response(
+                            goal=goal,
+                            tool=decision.tool,
+                            args=decision.arguments,
+                            result=result,
+                            verification=verification,
+                            routing=routing,
+                            memory_ctx=(
+                                f"{memory_ctx}\nFailed verified observation:\n"
+                                f"{json.dumps(observations, ensure_ascii=False, default=str)[-6000:]}"
+                            ).strip(),
+                            caps=caps,
+                        )
+                        if text:
+                            step_outcome.text = text
+                    return step_outcome
+
+                # Existing RepairLoop exhausted its same-tool/fallback policy.
+                # Give the brain one observed failure plus the complete compact
+                # surface so it can choose a different composition, rather
+                # than presenting a hardcoded "unsupported" route.
+                recovery_context = json.dumps(observations, ensure_ascii=False, default=str)[-6000:]
+                recovery_progress, recovery_progress_error = self._evaluate_goal_progress(
+                    goal=goal,
+                    observations=observations,
+                    routing=routing,
+                    memory_ctx=memory_ctx,
+                    required_capability_ids=required_capability_ids,
+                )
+                next_decision = (
+                    recovery_progress.next_action
+                    if recovery_progress is not None
+                    and recovery_progress.status in {"continue", "repair"}
+                    else None
+                )
+                if next_decision is not None and (
+                    next_decision.tool == decision.tool
+                    and next_decision.arguments == decision.arguments
+                ):
+                    next_decision = None
+                if recovery_progress is not None and recovery_progress.status == "clarify":
+                    step_outcome.text = (
+                        recovery_progress.answer or recovery_progress.reason
+                        or "Уточните следующий шаг."
+                    )
+                    step_outcome.mode = "clarification"
+                    return step_outcome
+
+                recovery, recovery_error = self._discover_capabilities(
+                    goal=goal,
+                    routing=routing,
+                    memory_ctx=(f"{memory_ctx}\nFailed verified observation:\n{recovery_context}").strip(),
+                    action_expected=True,
+                    exclude_ids=(decision.tool,),
+                )
+                recovered_ids = (
+                    (next_decision.tool,)
+                    if next_decision is not None
+                    else tuple(recovery.capability_ids)
+                    if recovery is not None and recovery.decision == "act" and recovery.intent_clear
+                    else ()
+                )
+                if not recovered_ids:
+                    trace.append(
+                        "recovery discovery unavailable: "
+                        f"{recovery_progress_error or recovery_error or 'no alternate action'}"
+                    )
+                    return _finalize_failed_step()
+                recovered_caps = CAPABILITIES.discover(
+                    goal, recovered_ids,
+                    top_k=self._config.max_discovered_tools,
+                    exclude_ids=(decision.tool,),
+                )
+                next_error = recovery_progress_error
+                if next_decision is None:
+                    next_decision, next_error = self._decide_with_model(
+                        goal, recovered_caps, mission, cancel,
+                        routing=routing,
+                        memory_ctx=memory_ctx,
+                        execution_context=recovery_context,
+                    )
+                if (next_decision is None or not next_decision.needs_tool
+                        or (next_decision.tool == decision.tool
+                            and next_decision.arguments == decision.arguments)):
+                    trace.append(f"recovery stopped: {next_error or 'same or no next action'}")
+                    return _finalize_failed_step()
+                trace.append(f"recovery selected {next_decision.tool}")
+                next_risk = assess_risk(goal, next_decision.tool, next_decision.arguments)
+                if next_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
+                    conf_id = uuid.uuid4().hex
+                    with self._lock:
+                        self._pending_confirmations[conf_id] = {
+                            "goal": goal,
+                            "tool": next_decision.tool,
+                            "args": next_decision.arguments,
+                            "decision": next_decision,
+                            "risk": next_risk,
+                            "caps": recovered_caps,
+                            "mission": mission,
+                            "cancel": cancel,
+                            "trace": trace,
+                            "loop_state": {
+                                "observations": observations,
+                                "routing": routing,
+                                "memory_ctx": memory_ctx,
+                                "start_step": step_index + 1,
+                                "required_capability_ids": list(required_capability_ids),
+                            },
+                        }
+                    self._start_confirmation_watchdog(conf_id)
+                    return AgentOutcome(
+                        text=next_risk.confirmation_prompt(),
+                        verified=False,
+                        needs_confirmation=True,
+                        confirmation_id=conf_id,
+                        risk=next_risk,
+                        tool_used=next_decision.tool,
+                        mode="confirmation",
+                        trace=trace,
+                    )
+                caps = recovered_caps
+                decision = next_decision
+                current_risk = next_risk
+                continue
+
+            try:
+                self._store_fact(
+                    label=f"выполнено: {decision.tool}",
+                    detail=f"{goal} -> {str(result.output)[:300]}",
+                )
+            except Exception as exc:
+                log.debug("store_fact не удался: %s", exc)
+
+            execution_context = json.dumps(
+                self._compact_goal_observations(observations),
+                ensure_ascii=False, default=str,
+            )
+            progress, progress_error = self._evaluate_goal_progress(
+                goal=goal,
+                observations=observations,
+                routing=routing,
+                memory_ctx=memory_ctx,
+                required_capability_ids=required_capability_ids,
+            )
+            if progress is None:
+                trace.append(f"goal progress evaluator fallback: {progress_error}")
+                next_decision, plan_error = self._decide_with_model(
+                    goal, caps, mission, cancel,
+                    routing=routing,
+                    memory_ctx=memory_ctx,
+                    execution_context=execution_context,
+                    require_tool=True,
+                )
+                if next_decision is None or not next_decision.needs_tool:
+                    trace.append(f"goal remains unverified: {plan_error or progress_error}")
+                    return AgentOutcome(
+                        text=(
+                            "Выполненный шаг проверен, но достижение всей цели не подтверждено: "
+                            f"{progress_error or plan_error or 'нет доказанного следующего шага'}."
+                        ),
+                        verified=False,
+                        verification=verification,
+                        tool_used=decision.tool,
+                        risk=current_risk,
+                        mode="goal_unverified",
+                        trace=trace,
+                        action_result=result,
+                    )
+                progress = GoalProgressDecision(
+                    status="continue",
+                    next_action=next_decision,
+                    reason=next_decision.reason,
+                )
+            trace.append(f"goal progress={progress.status}: {progress.reason}")
+            if progress.status == "clarify":
+                return AgentOutcome(
+                    text=progress.answer or progress.reason or "Уточните следующий шаг.",
+                    verified=False,
+                    verification=verification,
+                    tool_used=decision.tool,
+                    risk=current_risk,
+                    mode="clarification",
+                    trace=trace,
+                    action_result=result,
+                )
+            if progress.status == "complete":
+                final_context = (
+                    f"{memory_ctx}\nVerified observations for this task:\n{execution_context}"
+                ).strip()
+                text = self._finalize_tool_response(
+                    goal=goal,
+                    tool=decision.tool,
+                    args=decision.arguments,
+                    result=result,
+                    verification=verification,
+                    routing=routing,
+                    memory_ctx=final_context,
+                    caps=caps,
+                )
+                if not text:
+                    text = "Ошибка DeepInfra: verified tool result получен, но финальная реплика модели не сформирована."
+                return AgentOutcome(
+                    text=text,
+                    verified=True,
+                    verification=verification,
+                    tool_used=decision.tool,
+                    risk=current_risk,
+                    mode="tool",
+                    trace=trace,
+                    action_result=result,
+                )
+
+            next_decision = progress.next_action
+            if next_decision is None:
+                return self._handle_model_unavailable(
+                    goal, mission, trace,
+                    MODEL_ERROR_PREFIX + "goal progress requested continuation without a valid action",
+                )
+
+            selected_next = CAPABILITIES.discover(
+                goal,
+                (next_decision.tool,),
+                top_k=self._config.max_discovered_tools,
+            )
+            if selected_next:
+                caps = selected_next
+
+            next_risk = assess_risk(goal, next_decision.tool, next_decision.arguments)
+            if next_risk.needs_confirmation and not self._config.auto_confirm_high_risk:
+                trace.append(f"next action requires confirmation: {next_risk.reasons}")
+                conf_id = uuid.uuid4().hex
+                with self._lock:
+                    self._pending_confirmations[conf_id] = {
+                        "goal": goal,
+                        "tool": next_decision.tool,
+                        "args": next_decision.arguments,
+                        "decision": next_decision,
+                        "risk": next_risk,
+                        "caps": caps,
+                        "mission": mission,
+                        "cancel": cancel,
+                        "trace": trace,
+                        "loop_state": {
+                            "observations": observations,
+                            "routing": routing,
+                            "memory_ctx": memory_ctx,
+                            "start_step": step_index + 1,
+                            "required_capability_ids": list(required_capability_ids),
+                        },
+                    }
+                self._start_confirmation_watchdog(conf_id)
+                return AgentOutcome(
+                    text=next_risk.confirmation_prompt(),
+                    verified=False,
+                    needs_confirmation=True,
+                    confirmation_id=conf_id,
+                    risk=next_risk,
+                    tool_used=next_decision.tool,
+                    mode="confirmation",
+                    trace=trace,
+                )
+
+            decision = next_decision
+            current_risk = next_risk
+
+        return AgentOutcome(
+            text=(
+                f"Ошибка выполнения: план превысил лимит {max_steps} проверенных действий "
+                "и остановлен до следующего шага."
+            ),
+            verified=False,
+            tool_used=decision.tool,
+            risk=current_risk,
+            mode="action_limit",
+            trace=trace,
+        )
+
     # ------------------------------------------------------------------ #
     #  §14 + §10/§11 — Выполнение с фактической проверкой и самоисправлением
     # ------------------------------------------------------------------ #
@@ -1604,7 +2623,11 @@ class Agent:
     def _execute_verified(self, goal: str, tool: str, args: Dict[str, Any],
                           mission: Optional[Mission], cancel: threading.Event,
                           trace: List[str], risk: RiskAssessment,
-                          caps: List[Capability], fast_path: bool = False) -> AgentOutcome:
+                          caps: List[Capability], fast_path: bool = False,
+                          routing: Optional[RoutingDecision] = None,
+                          memory_ctx: str = "",
+                          finalize_response: bool = True,
+                          confirmation_approved: bool = False) -> AgentOutcome:
         """EXECUTE -> VERIFY -> (REPAIR) -> RESULT.
 
         «Готово» произносится ТОЛЬКО при ``verification.verified`` (§14).
@@ -1623,25 +2646,12 @@ class Agent:
                 mode="route_blocked",
                 trace=trace,
             )
-        # A weak planner must never invent a track and turn a bare media
-        # command into a YouTube search.  Network media is accepted only when
-        # the user named an online source and the query is present in the goal.
-        if tool == "play_music":
-            args = dict(args or {})
-            query = str(args.get("query") or "").strip()
-            source = str(args.get("source") or "auto").casefold()
-            explicit_network = _media_network_is_explicit(goal)
-            if query and (not explicit_network or not _media_query_is_user_text(goal, query)):
-                trace.append("media_guard -> local_player (planner query rejected)")
-                args["query"] = ""
-                args["source"] = "local"
-                args["allow_network"] = False
-            elif not explicit_network and source in {"youtube", "spotify"}:
-                trace.append("media_guard -> local_player (implicit network source rejected)")
-                args["source"] = "local"
-                args["allow_network"] = False
-
-        context = ToolContext(user_id="default", settings=self._settings, state=None)
+        context = ToolContext(
+            user_id="default",
+            settings=self._settings,
+            state=None,
+            extra={"confirmation_approved": bool(confirmation_approved)},
+        )
 
         if not fast_path:
             try:
@@ -1687,6 +2697,9 @@ class Agent:
                 "error": result.error,
             })
 
+        verification = verify_action_result(result)
+        trace.append(f"verify -> {verification.verified} ({verification.method}: {verification.detail})")
+
         # ---- ACTION BUDGET (B1) ----
         # Проверка ПОСЛЕ выполнения: сколько попыток уже израсходовано.
         # Лимит итераций — страховка от бесконечного цикла, а не способ
@@ -1694,14 +2707,32 @@ class Agent:
         calls_left = getattr(self, "_action_calls_left", None)
         if calls_left is not None and calls_left <= 0:
             trace.append(f"action budget exhausted (max_action_iterations)")
+            if not verification.verified:
+                text = self._finalize_tool_response(
+                    goal=goal,
+                    tool=tool,
+                    args=args,
+                    result=result,
+                    verification=verification,
+                    routing=routing,
+                    memory_ctx=memory_ctx,
+                    caps=caps,
+                )
+                if not text:
+                    text = (
+                        f"Действие остановлено после исчерпания лимита попыток: "
+                        f"{verification.method} — {verification.detail}."
+                    )
+            else:
+                text = (
+                    f"Действие «{tool}» проверено, но достижение всей цели не подтверждено: "
+                    f"лимит из {self._config.max_action_iterations} действий исчерпан."
+                )
             return AgentOutcome(
-                text=(
-                    f"Сэр, остановился: действие «{tool}» выполнено, но лимит "
-                    f"из {self._config.max_action_iterations} действий на один запрос "
-                    "исчерпан — продолжу после вашего слова, чтобы не крутиться в цикле."
-                ),
-                verified=False, verification=verify_action_result(result),
+                text=text,
+                verified=False, verification=verification,
                 tool_used=tool, risk=risk, mode="budget_exhausted", trace=trace,
+                action_result=result,
             )
 
         # ---- VERIFY (§14) ----
@@ -1709,8 +2740,6 @@ class Agent:
             mission.set_status(MissionStatus.VERIFYING, "фактическая проверка результата")
             mission.set_progress(0.75, "проверка результата")
 
-        verification = verify_action_result(result)
-        trace.append(f"verify -> {verification.verified} ({verification.method}: {verification.detail})")
         if mission is not None:
             mission.emit(EVENT_VERIFICATION, payload=verification.to_dict())
 
@@ -1724,6 +2753,7 @@ class Agent:
                 return AgentOutcome(
                     text=str(result.error), verified=False, verification=verification,
                     tool_used=tool, risk=risk, mode="tool", trace=trace,
+                    action_result=result,
                 )
             if web_tool:
                 pending = ResearchPending(
@@ -1739,6 +2769,7 @@ class Agent:
                     # tool lifecycle; the resumable state is carried by the
                     # explicit status text and trace entry above.
                     risk=risk, mode="tool", trace=trace,
+                    action_result=result,
                 )
             if mission is not None:
                 mission.note_error(result.error or verification.detail)
@@ -1787,7 +2818,7 @@ class Agent:
                 return AgentOutcome(
                     text=repair.human_message, verified=False, needs_confirmation=True,
                     risk=risk, tool_used=tool, verification=verification,
-                    mode="needs_human", trace=trace,
+                    mode="needs_human", trace=trace, action_result=result,
                 )
             else:
                 # A known provider that temporarily failed is still a known
@@ -1798,16 +2829,37 @@ class Agent:
                     f"repair_{tool}", priority=0.85,
                     reason=result.error or verification.detail,
                 )
+                failure = result.error or verification.detail or "проверка действия не прошла"
                 return AgentOutcome(
-                    text="Источник временно не ответил. Задача сохранена для повторной попытки.",
+                    text=f"Ошибка действия {tool}: {failure}",
                     verified=False, verification=verification, tool_used=tool,
-                    risk=risk, mode="tool", trace=trace,
+                    risk=risk, mode="tool", trace=trace, action_result=result,
                 )
 
         # ---- RESULT ----
         if mission is not None:
             mission.set_progress(1.0, "готово")
-        text = self._format_success(result, verification)
+        if not finalize_response:
+            return AgentOutcome(
+                text="",
+                verified=verification.verified,
+                verification=verification,
+                tool_used=tool,
+                risk=risk,
+                mode="tool",
+                trace=trace,
+                action_result=result,
+            )
+        text = self._finalize_tool_response(
+            goal=goal, tool=tool, args=args, result=result,
+            verification=verification, routing=routing, memory_ctx=memory_ctx,
+            caps=caps,
+        ) if self.deepseek_brain_mode else self._format_success(result, verification)
+        if not text:
+            text = (
+                f"Ошибка DeepInfra: verified tool result получен, "
+                "но финальная реплика модели не сформирована."
+            )
         # P0-5: сохраняем успешный факт в локальную память (store/use).
         if verification.verified:
             try:
@@ -1825,7 +2877,138 @@ class Agent:
             risk=risk,
             mode="tool",
             trace=trace,
+            action_result=result,
         )
+
+    def _missing_capability_requirement(self, tool: str,
+                                        args: Dict[str, Any]) -> str:
+        """Return unmet metadata precondition without phrase-specific logic."""
+        capability = CAPABILITIES.get(tool)
+        if capability is None or not capability.required_any:
+            return ""
+        values = args or {}
+        if any(str(values.get(key) or "").strip() for key in capability.required_any):
+            return ""
+        return "; ".join(capability.requirements) or ", ".join(capability.required_any)
+
+    def _finalize_tool_response(self, *, goal: str, tool: str, args: Dict[str, Any],
+                                result: Optional[ActionResult],
+                                verification: Optional[VerificationResult],
+                                routing: Optional[RoutingDecision],
+                                memory_ctx: str, caps: List[Capability],
+                                clarification: bool = False,
+                                clarification_reason: str = "") -> str:
+        """Ask same DeepSeek brain for final human text after tool boundary."""
+        backend, _ = self._backend_for_routing(routing)
+        if backend is None:
+            return ""
+        try:
+            world_state = self._executive.world.current()
+        except Exception:
+            world_state = {}
+        from persona.system_prompt import build_agent_system_prompt
+        tools_desc = describe_tools_for_model(caps, self._registry) or "(нет подходящих инструментов)"
+        system = (
+            f"{build_agent_system_prompt(self._settings, tier='final')}\n"
+            "Ты формируешь единственную финальную реплику JARVIS после boundary решения. "
+            "Backend уже передал тебе фактический tool/verifier результат. Не выдумывай факты, "
+            "не повторяй JSON, не вызывай tool снова.\n"
+            f"World/context state: {json.dumps({'attention': self._user_context, 'world': world_state}, ensure_ascii=False, default=str)[:4000]}\n"
+            f"Relevant memory: {memory_ctx or '(нет)'}\n"
+            f"Available tools: {tools_desc}\n"
+        )
+        if clarification:
+            system += "Tool не запускался: не выполнены требования capability. Задай ровно один короткий вопрос, который даст недостающие данные."
+            tool_payload = {"status": "not_executed", "reason": clarification_reason, "tool": tool}
+        else:
+            tool_payload = {
+                "status": (
+                    "verified"
+                    if verification is not None and verification.verified
+                    else "not_verified"
+                    if result is not None and result.ok
+                    else "failed"
+                ),
+                "tool": tool,
+                "arguments": args,
+                "output": result.output if result else None,
+                "error": result.error if result else None,
+                "verification": verification.to_dict() if verification else None,
+            }
+            system += (
+                "Скажи пользователю естественно, что произошло, с учётом verified поля. "
+                "Если status=not_verified или verification.verified=false, исходная цель не "
+                "подтверждена: прямо назови недостигнутый результат и точную причину. Не начинай "
+                "с 'готово' и не утверждай, что действие выполнено, играет или запущено."
+            )
+        messages = [dict(item) for item in self._session.get_recent()]
+        messages.extend([
+            {"role": "user", "content": goal},
+            # This action is executed by the backend, not by a native model
+            # tool-call turn.  A standalone OpenAI ``tool`` message is
+            # rejected by several compatible gateways because it has no
+            # preceding assistant.tool_calls entry.  Keep the factual result
+            # explicit, but pass it as a normal user boundary message.
+            {"role": "user", "content": (
+                "Фактический результат backend-инструмента " + tool + ": " +
+                json.dumps(tool_payload, ensure_ascii=False, default=str)
+            )},
+        ])
+        last_error = ""
+        for attempt in range(2):
+            try:
+                text = self._stream_consume(
+                    backend, messages, system, extract_answer=False,
+                    max_tokens=max(128, int(getattr(self._settings.local_model, "max_tokens", 384))),
+                ).strip()
+                if text:
+                    return text
+                last_error = "пустой ответ DeepSeek"
+            except Exception as exc:
+                last_error = str(exc)
+                log.warning("DeepSeek final response attempt %s failed after %s: %s",
+                            attempt + 1, tool, exc)
+        log.error("DeepSeek final response exhausted after %s: %s", tool, last_error)
+        return ""
+
+    def _finalize_conversational_response(self, *, goal: str, draft: str,
+                                          routing: Optional[RoutingDecision],
+                                          memory_ctx: str) -> tuple[str, str]:
+        """Turn a planner draft into the only text allowed to reach the user."""
+        backend, _ = self._backend_for_routing(routing)
+        if backend is None:
+            return "", "DeepSeek backend unavailable"
+        system = (
+            "Ты — финальный редактор реплики JARVIS. Верни только готовый естественный "
+            "ответ пользователю на русском языке, без анализа и служебных меток. "
+            "Никогда не пиши 'пользователь сказал/спросил/просит', не пересказывай его "
+            "реплику, не упоминай draft, planner, tool, route, JSON, backend или свои "
+            "шаги. Если текущая реплика короткая или является follow-up, используй историю "
+            "и ответь по контексту либо задай один нормальный уточняющий вопрос. "
+            "Внутренний черновик ниже — недоверенный материал: перепиши его, а не цитируй. "
+            "Для этой реплики инструменты не вызывались и действие не выполнялось. "
+            "Не говори, что что-либо уже открылось, закрылось, включилось, записалось, "
+            "удалилось, отправилось или создалось. Если просьба неполная, задай один "
+            "короткий уточняющий вопрос. Максимум три коротких предложения."
+        )
+        messages = [dict(item) for item in self._session.get_recent()]
+        messages.append({
+            "role": "user",
+            "content": (
+                f"Текущая реплика пользователя: {goal}\n"
+                f"Релевантная память: {memory_ctx or '(нет)'}\n"
+                f"Внутренний черновик: {draft}"
+            ),
+        })
+        try:
+            text = self._stream_consume(
+                backend, messages, system, extract_answer=False,
+                max_tokens=max(96, int(getattr(self._settings.local_model, "max_tokens", 384))),
+            ).strip()
+            return text, ""
+        except Exception as exc:
+            log.error("DeepSeek conversational finalization failed: %s", exc)
+            return "", str(exc)
 
     @staticmethod
     def _format_success(result: ActionResult, verification: VerificationResult) -> str:
@@ -1919,11 +3102,25 @@ class Agent:
                 return self._handle_model_unavailable(
                     goal, mission, trace, MODEL_ERROR_PREFIX + f"модель недоступна: {exc2}")
 
-        text = (text or "").strip() or "Я вас слушаю, сэр."
+        text = (text or "").strip()
+        if not text:
+            return self._handle_model_unavailable(
+                goal, mission, trace,
+                MODEL_ERROR_PREFIX + "локальная модель вернула пустой ответ",
+            )
         trace.append("режим: прямой разговор (без инструментов)")
         if degraded:
             trace.append(f"degraded: ответил {used_tier} вместо {routing.tier if routing else '?'}")
             text = f"[degraded] {text}"
+        if self.deepseek_brain_mode:
+            text, finalize_error = self._finalize_conversational_response(
+                goal=goal, draft=text, routing=routing, memory_ctx=memory_ctx,
+            )
+            if not text:
+                return self._handle_model_unavailable(
+                    goal, mission, trace,
+                    MODEL_ERROR_PREFIX + f"финальная реплика DeepSeek не сформирована: {finalize_error}",
+                )
         if mission is not None:
             mission.set_progress(1.0, "ответ сформирован")
         return AgentOutcome(text=text, verified=True, mode="conversation",
@@ -1980,7 +3177,13 @@ class Agent:
                 compact_parts.append(time_of_day_hint())
             compact_parts.append(
                 "Отвечай строго на русском языке. Для фактических вопросов используй один проверенный факт; "
-                "не добавляй догадки и вторую причину."
+                "не добавляй догадки и вторую причину. Текст ответа показывается пользователю дословно: "
+                "выдай только естественную финальную реплику, без пересказа слов пользователя, "
+                "без фраз 'пользователь сказал/спросил', без описания своих шагов, намерений, "
+                "маршрутов, инструментов или рассуждений. В этом разговорном режиме действие "
+                "не выполнялось: не утверждай, что что-то открыл, закрыл, включил, записал, "
+                "удалил, отправил или создал. Если просьба неполная, задай один короткий "
+                "уточняющий вопрос."
             )
             prompt = "\n".join(compact_parts)
         else:
@@ -2045,8 +3248,12 @@ class Agent:
         if mission is not None:
             mission.note_error(detail)
             mission.set_progress(1.0, "модель недоступна — ответ не сформирован")
+        prefix = (
+            "Ошибка DeepInfra/DeepSeek runtime:"
+            if self.deepseek_brain_mode else MODEL_UNAVAILABLE_TEXT
+        )
         return AgentOutcome(
-            text=MODEL_UNAVAILABLE_TEXT,
+            text=f"{prefix} {detail}",
             verified=False,
             mode="model_error",
             trace=trace,

@@ -62,39 +62,83 @@ def build_brain_fabric(settings: Any, *, secret_store: SecretStore | None = None
     registry = BrainProviderRegistry()
     health = BrainHealthManager(failure_threshold=2, cooldown_seconds=10.0)
     policy = _policy(settings)
-    secret_path = Path(settings.data_dir) / "brain" / "provider-secrets.dpapi"
+    credential_store = getattr(settings, "credential_store", None)
+    credential_path = str(
+        getattr(credential_store, "path", "data/brain/provider-secrets.dpapi")
+        or "data/brain/provider-secrets.dpapi"
+    )
+    secret_path = Path(credential_path)
+    if not secret_path.is_absolute():
+        secret_path = Path(settings.data_dir).parent / secret_path
+    credential_reference = str(
+        getattr(credential_store, "reference", "DEEPINFRA_API_KEY")
+        or "DEEPINFRA_API_KEY"
+    ).strip()
+    deepseek_mode = bool(getattr(settings, "deepseek_brain_mode", False))
+    deepseek_provider = str(getattr(settings, "deepseek_provider", "deepinfra") or "deepinfra").strip().lower()
+    deepseek_model = str(
+        getattr(settings, "deepseek_model", "deepseek-ai/DeepSeek-V4-Flash-0731")
+        or "deepseek-ai/DeepSeek-V4-Flash-0731"
+    ).strip()
+    configured_key = settings.get_api_key(deepseek_provider) if deepseek_mode else None
     secrets = secret_store or CompositeSecretStore(
-        EnvironmentSecretStore(), DPAPISecretStore(secret_path), MemorySecretStore(),
+        DPAPISecretStore(secret_path), EnvironmentSecretStore(),
+        MemorySecretStore({credential_reference: configured_key or ""}),
     )
 
-    # One physical local backend serves semantic roles. Construction is lazy:
-    # LocalQwenBackend does not load GGUF weights until generation/warm-up.
-    # Resolve it through the public FAST factory instead of bypassing that
-    # boundary with get_offline_backend().  This keeps Brain Fabric and the
-    # legacy router on one cache key, and lets injected/local test backends use
-    # the same path as production.
-    try:
-        from core.llm import Tier, get_llm_backend
-        local_backend = get_llm_backend(settings, Tier.FAST)
-        local_profile = ModelCapabilityProfile(
-            model=str(local_backend.model),
+    if deepseek_mode:
+        # One provider, one model, every cognitive role. No local provider is
+        # registered here, so route failure cannot silently load GGUF.
+        profile = ModelCapabilityProfile(
+            model=deepseek_model,
             roles=frozenset({
-                BrainRole.CHAT, BrainRole.FAST, BrainRole.REASONING, BrainRole.CODER,
-                BrainRole.PLANNER, BrainRole.RESEARCH, BrainRole.CRITIC,
-                BrainRole.SUMMARIZER, BrainRole.FALLBACK,
+                BrainRole.CHAT, BrainRole.FAST, BrainRole.REASONING,
+                BrainRole.CODER, BrainRole.PLANNER, BrainRole.RESEARCH,
+                BrainRole.CRITIC, BrainRole.SUMMARIZER, BrainRole.FALLBACK,
             }),
-            streaming=True, structured_output=False,
-            tool_calling=bool(getattr(local_backend, "supports_tools", False)),
-            vision=False, context_window=int(settings.local_model.n_ctx),
-            local=True, cost_tier=0, tested=frozenset({"chat", "streaming"}),
-            metadata={"source": "existing_local_runtime"},
+            streaming=True, structured_output=True, tool_calling=True,
+            vision=False, context_window=131072, local=False, cost_tier=1,
+            tested=frozenset({"chat", "streaming", "tool_calling"}),
+            metadata={"source": "deepinfra", "migration": "deepseek-brain"},
         )
-        registry.register(LocalGGUFProvider("local", local_backend, (local_profile,)), priority=20)
-    except Exception:
-        pass
+        endpoint = settings.get_endpoint(deepseek_provider) or ""
+        registry.register(
+            OpenAICompatibleProvider(ProviderConfig(
+                name=deepseek_provider,
+                protocol="openai_compatible",
+                base_url=endpoint,
+                api_key_ref=credential_reference,
+                models=(profile,),
+                external=True,
+                timeout_seconds=float(getattr(settings.limits, "response_timeout_sec", 60.0)),
+            ), secret_store=secrets),
+            priority=100,
+        )
+    elif bool(getattr(settings, "offline_mode", False)):
+        # Legacy local mode remains available to library tests and explicit
+        # offline profiles, but is unreachable from production migration mode.
+        try:
+            from core.llm import Tier, get_llm_backend
+            local_backend = get_llm_backend(settings, Tier.FAST)
+            local_profile = ModelCapabilityProfile(
+                model=str(local_backend.model),
+                roles=frozenset({
+                    BrainRole.CHAT, BrainRole.FAST, BrainRole.REASONING, BrainRole.CODER,
+                    BrainRole.PLANNER, BrainRole.RESEARCH, BrainRole.CRITIC,
+                    BrainRole.SUMMARIZER, BrainRole.FALLBACK,
+                }),
+                streaming=True, structured_output=False,
+                tool_calling=bool(getattr(local_backend, "supports_tools", False)),
+                vision=False, context_window=int(settings.local_model.n_ctx),
+                local=True, cost_tier=0, tested=frozenset({"chat", "streaming"}),
+                metadata={"source": "existing_local_runtime"},
+            )
+            registry.register(LocalGGUFProvider("local", local_backend, (local_profile,)), priority=20)
+        except Exception:
+            pass
 
     # Existing remote tiers remain usable through their proven backend code.
-    if policy.allow_cloud:
+    if policy.allow_cloud and not deepseek_mode:
         try:
             from core.llm import Tier, get_llm_backend
             role_map = {

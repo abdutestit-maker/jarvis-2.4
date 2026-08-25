@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import io
+import numbers
 import tempfile
 import time
 from typing import List, Optional, Tuple
@@ -99,9 +100,14 @@ class STTEngine:
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(STT_NEED_BACKEND_MSG) from exc
 
-        model_size = getattr(getattr(self._settings, "stt", None), "model", "") or getattr(getattr(self._settings, "voice", None), "stt_model", DEFAULT_WHISPER_MODEL)
+        stt_cfg = getattr(self._settings, "stt", None)
+        voice_cfg = getattr(self._settings, "voice", None)
+        model_size = getattr(stt_cfg, "model", "") or getattr(voice_cfg, "stt_model", DEFAULT_WHISPER_MODEL)
         if model_size.startswith("faster-whisper-"): model_size = model_size.removeprefix("faster-whisper-")
-        device = getattr(getattr(self._settings, "voice", None), "stt_device", "cpu") or "cpu"
+        device = getattr(voice_cfg, "stt_device", "cpu") or "cpu"
+        language = (getattr(stt_cfg, "language", "") or getattr(voice_cfg, "language", "ru") or "ru").strip().lower()
+        if language == "auto":
+            language = "ru"
 
         if self._model is None:
             log.info("STT: загрузка модели '%s' на %s...", model_size, device)
@@ -109,7 +115,21 @@ class STTEngine:
         model = self._model
         segments: List[Tuple[float, float, str]] = []
         confidences: list[float] = []
-        for seg in model.transcribe(audio_path, language="ru", beam_size=5)[0]:
+        vad_enabled = str(getattr(stt_cfg, "vad", "webrtc") or "").casefold() not in {"", "none", "off", "false"}
+        transcribe_options = {
+            "language": language,
+            "beam_size": 8,
+            "best_of": 5,
+            "temperature": 0.0,
+            "condition_on_previous_text": False,
+            "vad_filter": vad_enabled,
+        }
+        if vad_enabled:
+            transcribe_options["vad_parameters"] = {
+                "min_silence_duration_ms": 300,
+                "speech_pad_ms": 200,
+            }
+        for seg in model.transcribe(audio_path, **transcribe_options)[0]:
             segments.append((seg.start, seg.end, seg.text))
             if getattr(seg, "avg_logprob", None) is not None:
                 import math
@@ -156,13 +176,41 @@ class STTEngine:
             ) from exc
 
         log.info("STT: слушаю микрофон %.1fс...", timeout)
-        recording = sd.rec(
-            int(timeout * sample_rate),
-            samplerate=sample_rate,
-            channels=1,
-            dtype="int16",
-        )
-        sd.wait()
+        frames = int(timeout * sample_rate)
+        recording = None
+        last_error: Exception | None = None
+        for device in self._input_device_candidates(sd):
+            try:
+                recording = sd.rec(
+                    frames,
+                    samplerate=sample_rate,
+                    channels=1,
+                    dtype="int16",
+                    device=device,
+                )
+                sd.wait()
+                self._active_input_device = device
+                break
+            except Exception as exc:
+                last_error = exc
+                log.debug("STT: вход %r недоступен: %s", device, exc)
+        if recording is None:
+            detail = str(last_error) if last_error else "нет входных устройств"
+            raise RuntimeError(f"Микрофон недоступен: {detail}") from last_error
+
+        # Normalize microphone level without changing speech timing.  The
+        # previous path sent raw int16 capture straight to Whisper; quiet
+        # Windows inputs then lose Russian consonants before decoding.
+        try:
+            import numpy as np  # type: ignore
+            signal = np.asarray(recording, dtype=np.float32)
+            signal -= float(signal.mean())
+            peak = float(np.max(np.abs(signal))) if signal.size else 0.0
+            if peak > 0.0:
+                signal *= min(1.0, 30000.0 / peak)
+            recording = np.clip(signal, -32768.0, 32767.0).astype(np.int16)
+        except Exception as exc:
+            log.debug("STT preprocessing skipped: %s", exc)
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             wav.write(tmp.name, sample_rate, recording)
@@ -176,6 +224,29 @@ class STTEngine:
                 os.unlink(tmp_path)
             except OSError:
                 pass
+
+    def _input_device_candidates(self, sd) -> list[object]:
+        configured = getattr(getattr(self._settings, "voice", None), "input_device_index", None)
+        candidates: list[object] = []
+        if isinstance(configured, numbers.Integral) and int(configured) >= 0:
+            candidates.append(int(configured))
+        try:
+            default_input = sd.default.device[0]
+            if isinstance(default_input, numbers.Integral) and int(default_input) >= 0:
+                candidates.append(int(default_input))
+        except Exception:
+            pass
+        try:
+            for index, info in enumerate(sd.query_devices()):
+                if int(info.get("max_input_channels", 0)) > 0:
+                    candidates.append(index)
+        except Exception:
+            pass
+        unique: list[object] = []
+        for item in candidates:
+            if item not in unique:
+                unique.append(item)
+        return unique
 
     def transcribe_with_confidence_from_mic(self, timeout: float = 5.0) -> tuple[str, float]:
         return self.listen_once(timeout=timeout), float(getattr(self, "last_confidence", 1.0))
@@ -230,4 +301,7 @@ class VoiceActivityDetector:
     def available(self) -> bool: return self._vad is not None
     def is_speech(self, frame: bytes, sample_rate: int = 16000) -> bool:
         if self._vad is None: return bool(frame and any(frame))
-        return bool(self._vad.is_speech(frame, sample_rate))
+        try:
+            return bool(self._vad.is_speech(frame, sample_rate))
+        except Exception:
+            return bool(frame and any(frame))

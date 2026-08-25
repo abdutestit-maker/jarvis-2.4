@@ -79,6 +79,16 @@ class FakeProvider:
                 node["value"] = text
         return {"ok": True, "action_taken": True}
 
+    def press(self, selector, key: str):
+        matches = self.find(selector) if not isinstance(selector, int) else [self.nodes[selector]]
+        if not matches:
+            return {"ok": False, "action_taken": False}
+        if key.casefold() == "enter":
+            self.engine._page.url = "fixture://local/search?query=JARVIS"
+            self.nodes[3]["text"] = "search:JARVIS"
+            self.nodes[3]["value"] = "search:JARVIS"
+        return {"ok": True, "action_taken": True}
+
     def read_page(self):
         return {"ok": True, "text": " ".join(str(node.get("text", "")) for node in self.nodes)}
 
@@ -123,6 +133,20 @@ def test_find_result_contains_confidence_summary_hash_and_alternatives() -> None
     assert result.element_summary["automation_id"] == "apply"
     assert result.dom_hash == bridge.session.dom_hash
     assert result.fingerprint_for("session-1").startswith("sf1:")
+
+
+def test_css_selector_string_is_normalized_to_dom_css() -> None:
+    class CSSProvider(FakeProvider):
+        def find(self, selector):
+            assert selector.css == 'input[type="search"], #searchInput'
+            return [dict(self.nodes[0])]
+
+    bridge = BrowserBridge(CSSProvider(), session_id_factory=lambda: "session-1")
+    bridge.open("fixture://local")
+    result = bridge.find('input[type="search"], #searchInput')
+
+    assert result.found is True
+    assert result.selector_type == "css"
 
 
 def test_stale_dom_blocks_mutation_until_reresolve() -> None:
@@ -176,6 +200,58 @@ def test_type_requires_verified_value_readback_without_returning_text() -> None:
     assert result.success is True
     assert result.verification["method"] == "semantic_value_readback"
     assert "JARVIS" not in result.to_dict()["observed_state"].__repr__()
+
+
+def test_press_enter_requires_observed_page_change() -> None:
+    provider = FakeProvider()
+    bridge = BrowserBridge(provider, session_id_factory=lambda: "session-1")
+    bridge.open("fixture://local")
+    bridge.type(DOMSelector(automation_id="profile"), "JARVIS")
+
+    result = bridge.press(DOMSelector(automation_id="profile"), "Enter")
+
+    assert result.success is True
+    assert result.verification["method"] == "post_key_observation"
+    assert result.observed_state["url"].endswith("search?query=JARVIS")
+
+
+def test_tool_press_defaults_to_focused_element() -> None:
+    from core.actions.browser_bridge import BrowserBridgeTool
+    from core.actions.base import ToolContext
+
+    class FocusProvider(FakeProvider):
+        def find(self, selector):
+            if selector.css == ":focus":
+                return [dict(self.nodes[0])]
+            return super().find(selector)
+
+    bridge = BrowserBridge(FocusProvider(), session_id_factory=lambda: "session-1")
+    bridge.open("fixture://local")
+    tool = BrowserBridgeTool(bridge)
+    result = tool.run(
+        {"action": "press", "key": "Enter"},
+        ToolContext(settings=None, extra={"browser_bridge": bridge}),
+    )
+
+    assert result.ok is True
+    assert result.output["verification"]["method"] == "post_key_observation"
+
+
+def test_focus_only_click_uses_semantic_postcondition() -> None:
+    class FocusProvider(FakeProvider):
+        def click(self, selector, confirm: bool = False):
+            return {
+                "ok": True,
+                "action_taken": True,
+                "postcondition": {"focused": True},
+            }
+
+    bridge = BrowserBridge(FocusProvider(), session_id_factory=lambda: "session-1")
+    bridge.open("fixture://local")
+    result = bridge.click(DOMSelector(automation_id="profile"))
+
+    assert result.success is True
+    assert result.verification["method"] == "semantic_click_postcondition"
 
 
 def test_secret_metadata_is_redacted_from_observation_and_find_result() -> None:

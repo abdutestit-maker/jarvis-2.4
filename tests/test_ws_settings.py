@@ -67,7 +67,7 @@ def test_ws_cloud_settings_are_masked_persisted_and_preserved(tmp_path: Path):
     config_path = tmp_path / "settings.json"
     settings = Settings()
     settings.source_path = config_path
-    settings.api_keys.deepseek = "old-secret-key"
+    settings.api_keys.deepinfra = "old-secret-key"
     settings.launcher.greeting_enabled = False
     settings.save_config()
 

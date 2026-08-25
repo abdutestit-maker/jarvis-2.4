@@ -77,6 +77,20 @@ _TRIVIAL_RE = re.compile(
     re.IGNORECASE,
 )
 
+_AMBIGUOUS_FOLLOWUP_RE = re.compile(
+    r"^\s*(что именно|какой именно|который именно|а какой|а что|и что|ну и|"
+    r"а теперь|продолжай|дальше|интересно|почему|зачем|как так)\s*[?!.,…-]*\s*$",
+    re.IGNORECASE,
+)
+
+_AMBIGUOUS_ACTION_RE = re.compile(
+    r"^\s*(открой|закрой|включи|выключи|поставь|напомни|запиши|сохрани|"
+    r"удали|отправь|пошли|напиши|сделай|создай|перемести|скопируй)"
+    r"(?:\s+(?:это|его|её|ее|там|тут|мне|ему|ей|файл|файла|приложение|"
+    r"сообщение|напоминание|что-нибудь|что нибудь|что-то|что то))?\s*[?!.,…-]*\s*$",
+    re.IGNORECASE,
+)
+
 _SIMPLE_COMMAND_RE = re.compile(
     r"\b(открой|запусти|закрой|включи|выключи|сделай (тише|громче)|громкость|"
     r"напомни|погода|статус|open|launch|close|volume)\b",
@@ -249,6 +263,14 @@ def classify_conversation(goal: str, intent: str) -> tuple:
     if not text:
         return False, ""
 
+    # A bare follow-up or an action verb without a concrete target is not an
+    # authorization to touch the system.  Keep it on the conversational path
+    # so the brain can use history and ask one natural clarification.
+    if _AMBIGUOUS_FOLLOWUP_RE.match(text):
+        return True, "неоднозначное продолжение без действия"
+    if _AMBIGUOUS_ACTION_RE.match(text):
+        return True, "действие без конкретной цели"
+
     # Явный глагол действия — точно не разговор (даже если есть «расскажи»:
     # «расскажи и найди» — действие).
     if _ACTION_VERB_RE.search(text):
@@ -345,7 +367,7 @@ class ModelRouter:
         cx = estimate_complexity(goal, context_tokens, multi_step_hint)
 
         # 1) Приватность (§15) — жёстко локально, без внешних API.
-        if cx.private:
+        if cx.private and not bool(getattr(self._settings, "deepseek_brain_mode", False)):
             return RoutingDecision(
                 tier=Tier.FAST,
                 complexity=cx,
@@ -425,13 +447,30 @@ class ModelRouter:
     def _semantic_decision(self, goal: str, cx: TaskComplexity, role: Any,
                            context_tokens: int) -> RoutingDecision:
         from core.brain import BrainRequest, NoRouteAvailable, PrivacyClass
-        privacy = PrivacyClass.LOCAL_ONLY if cx.private else PrivacyClass.PERSONAL
+        privacy = (
+            PrivacyClass.PERSONAL
+            if bool(getattr(self._settings, "deepseek_brain_mode", False))
+            else (PrivacyClass.LOCAL_ONLY if cx.private else PrivacyClass.PERSONAL)
+        )
         try:
             route = self._brain_fabric.select_route(BrainRequest(
                 user_request=goal, role=role, privacy=privacy,
                 context_tokens=context_tokens,
             ))
         except NoRouteAvailable as exc:
+            if bool(getattr(self._settings, "deepseek_brain_mode", False)):
+                # Production migration has one brain by design. Preserve the
+                # selected provider/model in telemetry, but let execution
+                # surface the exact provider failure instead of routing local.
+                return RoutingDecision(
+                    tier=self._role_to_tier(role), complexity=cx,
+                    reason=f"DeepInfra route unavailable: {exc}",
+                    fallback_chain=[], forced_local=False,
+                    provider=str(getattr(self._settings, "deepseek_provider", "deepinfra")),
+                    model=str(getattr(self._settings, "deepseek_model", "")),
+                    role=role.value, reason_code="DEEPINFRA_UNAVAILABLE",
+                    request_text=goal,
+                )
             log.debug("BrainFabric semantic route unavailable, legacy fallback: %s", exc)
             saved = self._brain_fabric
             self._brain_fabric = None

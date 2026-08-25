@@ -114,6 +114,13 @@ def assistant_output_from_outcome(outcome: Any) -> AssistantOutput:
     debug = {
         "mode": mode,
         "verified": bool(getattr(outcome, "verified", False)),
+        "tool_used": getattr(outcome, "tool_used", None),
+        "verification": (
+            getattr(outcome, "verification").to_dict()
+            if getattr(outcome, "verification", None) is not None
+            else None
+        ),
+        "degraded": bool(getattr(outcome, "degraded", False)),
         "trace": trace,
     }
     technical = "\n".join(str(item) for item in trace)

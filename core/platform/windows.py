@@ -146,8 +146,30 @@ class NativeWindowsProvider(WindowsAutomationProvider):
             target = int(cls.window_inspect(title)["handle"])
         if win32gui.IsIconic(target):
             win32gui.ShowWindow(target, win32con.SW_RESTORE)
-        win32gui.SetForegroundWindow(target)
-        return {"handle": target, "title": win32gui.GetWindowText(target), "focused": True}
+        method = "win32"
+        try:
+            win32gui.SetForegroundWindow(target)
+        except Exception:
+            # Windows foreground-lock rules can reject a direct Win32 call
+            # from a background backend.  pywinauto performs the required UIA
+            # focus sequence without coordinate guessing.
+            import pythoncom
+            pythoncom.CoInitialize()
+            from pywinauto import Desktop
+            Desktop(backend="uia").window(handle=target).set_focus()
+            method = "uia"
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if int(win32gui.GetForegroundWindow()) == target:
+                return {
+                    "handle": target,
+                    "title": win32gui.GetWindowText(target),
+                    "focused": True,
+                    "observed": True,
+                    "method": method,
+                }
+            time.sleep(0.1)
+        raise RuntimeError(f"window did not become foreground: {win32gui.GetWindowText(target)}")
 
     @staticmethod
     def file_read(path: str) -> str:

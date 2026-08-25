@@ -28,6 +28,18 @@ _ROOT = _install_root()
 os.environ.setdefault("JARVIS_HOME", str(_ROOT))
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+# PyInstaller makes Playwright default to its transient _MEI directory.  The
+# browser is a production runtime resource, not part of that one-file payload.
+_browser_candidates = (
+    _ROOT / "runtime" / "playwright-browsers",
+    _ROOT / "jarvis" / "src-tauri" / "target" / "release" / "resources"
+    / "jarvis-runtime" / "runtime" / "playwright-browsers",
+)
+for _browser_root in _browser_candidates:
+    if (_browser_root / "chromium-1234").is_dir():
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_browser_root)
+        break
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 

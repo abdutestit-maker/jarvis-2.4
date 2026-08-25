@@ -1,10 +1,8 @@
-"""Build a self-contained Windows installer for the local JARVIS runtime.
+"""Build a self-contained Windows installer for the production JARVIS runtime.
 
-The stock Tauri NSIS bundler cannot memory-map a multi-gigabyte GGUF on some
-Windows hosts.  This builder keeps the same Tauri application and resource
-layout, but packages it with the official 7-Zip SFX module.  The archive is
-stored (the GGUF is already compressed), so the installer is deterministic and
-does not spend hours trying to compress model weights.
+The conversational brain is remote DeepSeek through DeepInfra.  The bundle
+contains the native GUI/backend and local Piper/Whisper assets, but no GGUF or
+llama-server executable.
 """
 
 from __future__ import annotations
@@ -31,10 +29,6 @@ DEFAULT_OUTPUT = (
     / "nsis"
     / "J.A.R.V.I.S._4.0.0_x64-setup.exe"
 )
-
-EXPECTED_MODEL_NAME = "Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf"
-EXPECTED_MODEL_SHA256 = "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc"
-
 
 def _find_7z(explicit: str | None) -> Path:
     candidates = []
@@ -64,58 +58,52 @@ def _sha256(path: Path) -> str:
 
 
 def _verify_payload(app_bundle: Path) -> None:
-    # Legacy marker kept for compatibility checks; v4 payloads use the
-    # Ministral GGUF discovered below instead of qwen3-4b-instruct-q5_k_m.gguf.
     required = [
         app_bundle / "jarvis-frontend.exe",
         app_bundle / "resources" / "jarvis-runtime" / "runtime" / "jarvis-backend.exe",
         app_bundle / "resources" / "jarvis-runtime" / "runtime" / "piper" / "piper.exe",
-        app_bundle / "resources" / "jarvis-runtime" / "data" / "models",
+        app_bundle / "resources" / "jarvis-runtime" / "data" / "models" / "piper",
+        app_bundle / "resources" / "jarvis-runtime" / "data" / "models" / "stt",
+        app_bundle / "resources" / "jarvis-runtime" / "data" / "brain" / "provider-secrets.dpapi",
     ]
     missing = [str(path) for path in required if not path.exists()]
     model_dir = app_bundle / "resources" / "jarvis-runtime" / "data" / "models"
-    models = list(model_dir.glob("*.gguf"))
-    expected_model = model_dir / EXPECTED_MODEL_NAME
-    if not models:
-        missing.append(f"{model_dir}/*.gguf")
-    elif not expected_model.is_file():
-        missing.append(str(expected_model))
-    elif _sha256(expected_model) != EXPECTED_MODEL_SHA256:
-        raise ValueError(
-            f"Bundled model hash mismatch for {expected_model.name}: "
-            f"{_sha256(expected_model)}"
-        )
     voice_dir = model_dir / "piper"
     if not list(voice_dir.glob("*.onnx")):
         missing.append(f"{voice_dir}/*.onnx")
     if missing:
         raise FileNotFoundError("Installer payload is incomplete: " + ", ".join(missing))
+    stale_local_assets = list(model_dir.glob("*.gguf")) + list(
+        (app_bundle / "resources" / "jarvis-runtime" / "runtime").glob("llama-server*")
+    )
+    if stale_local_assets:
+        raise ValueError(
+            "DeepSeek production payload contains local LLM assets: "
+            + ", ".join(str(item) for item in stale_local_assets)
+        )
+    config_path = app_bundle / "resources" / "jarvis-runtime" / "config" / "settings.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    if not config.get("deepseek_brain_mode") or config.get("offline_mode"):
+        raise ValueError("Installer config is not DeepSeek production mode")
+    credential = config.get("credential_store", {})
+    if credential.get("backend") != "dpapi" or credential.get("required_in_production") is not True:
+        raise ValueError("Installer config does not require the packaged DPAPI credential")
+    credential_path = app_bundle / "resources" / "jarvis-runtime" / credential.get(
+        "path", "data/brain/provider-secrets.dpapi"
+    )
+    if not credential_path.is_file() or credential_path.stat().st_size < 64:
+        raise ValueError("Installer payload has no verified packaged DeepInfra credential")
 
 
 def _sync_runtime_resource(app_bundle: Path) -> None:
     """Keep the release payload aligned with the staged local runtime.
 
     ``tauri build --no-bundle`` builds the frontend executable but does not
-    refresh bundled resources.  Without this explicit sync an installer can
-    silently reuse a previous GGUF from ``target/release``.
+    refresh bundled resources.  Always copy the staged production runtime so
+    an old local-model payload cannot survive in ``target/release``.
     """
     source = ROOT / "jarvis" / "src-tauri" / "resources" / "jarvis-runtime"
     target = app_bundle / "resources" / "jarvis-runtime"
-    source_model = source / "data" / "models" / EXPECTED_MODEL_NAME
-    target_model = target / "data" / "models" / EXPECTED_MODEL_NAME
-    if not source_model.is_file():
-        raise FileNotFoundError(f"Staged runtime model is missing: {source_model}")
-    source_hash = _sha256(source_model)
-    if source_hash != EXPECTED_MODEL_SHA256:
-        raise ValueError(f"Staged runtime model hash mismatch: {source_hash}")
-    target_hash = _sha256(target_model) if target_model.is_file() else ""
-    if target_hash == source_hash:
-        # Runtime diagnostics are transient and must never ship from a prior
-        # launch attempt.  The staged source has no logs directory.
-        stale_logs = target / "logs"
-        if not (source / "logs").exists() and stale_logs.exists():
-            shutil.rmtree(stale_logs)
-        return
     if target.exists():
         shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -192,8 +180,8 @@ def build(app_bundle: Path, output: Path, seven_zip: Path) -> dict[str, object]:
     os.close(config_fd)
     config = Path(config_name)
     try:
-        # The model is already quantized; Copy mode avoids wasteful recompression
-        # and lets 7-Zip handle files larger than the 32-bit NSIS mmap limit.
+        # Copy mode keeps the runtime deterministic and avoids wasting time on
+        # already-compressed voice/model assets.
         command = [
             str(seven_zip),
             "a",
@@ -238,7 +226,7 @@ def build(app_bundle: Path, output: Path, seven_zip: Path) -> dict[str, object]:
         "console_free_runtime": True,
         "bundled_backend": "resources/jarvis-runtime/runtime/jarvis-backend.exe",
         "bundled_voice": "resources/jarvis-runtime/runtime/piper/piper.exe",
-        "bundled_model": "resources/jarvis-runtime/data/models/Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
+        "brain": "deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731",
     }
     return result
 

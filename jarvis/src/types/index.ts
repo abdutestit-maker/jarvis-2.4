@@ -35,6 +35,17 @@ export interface ThemeSettings {
 /* ===== Settings (frontend-only) ===== */
 export interface AppSettings extends ThemeSettings {
   reduceMotion: boolean;
+  primaryAccent: string;
+  secondaryAccent: string;
+  tertiaryAccent: string;
+  energyAccent: string;
+  successAccent: string;
+  errorAccent: string;
+  backgroundBase: string;
+  panelTint: string;
+  glowIntensity: number;
+  saturation: number;
+  contrast: number;
 }
 
 /* ===== White Room / first run ===== */

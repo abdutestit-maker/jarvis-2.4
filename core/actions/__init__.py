@@ -32,6 +32,8 @@ from core.actions import (  # noqa: F401
     weather,
     screen_capture,
     browser_bridge,
+    browser_automation,
+    computer_use,
     media,
     time,
     public_data,

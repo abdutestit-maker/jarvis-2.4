@@ -18,11 +18,13 @@ def test_ministral_profile_is_explicit_and_single_model():
     assert profile.n_ctx <= 8192
 
 
-def test_production_config_selects_local_ministral_and_denis():
+def test_production_config_selects_deepseek_brain_and_denis_voice():
     settings = load_config(Path("config/settings.json"))
-    assert settings.model_family == "ministral"
-    assert settings.tier_providers.get("fast") == "local"
-    assert "Ministral" in settings.model_tiers.get("fast")
+    assert settings.model_family == "deepseek"
+    assert settings.deepseek_brain_mode is True
+    assert settings.offline_mode is False
+    assert settings.tier_providers.get("fast") == "deepinfra"
+    assert settings.model_tiers.get("fast") == "deepseek-ai/DeepSeek-V4-Flash-0731"
     assert settings.voice.voice == "ru_RU-denis-medium"
     assert settings.voice.resolved_primary_piper_model.name == "ru_RU-denis-medium.onnx"
 

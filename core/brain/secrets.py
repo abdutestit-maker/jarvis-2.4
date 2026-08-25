@@ -45,8 +45,19 @@ class MemorySecretStore(SecretStore):
 
 class EnvironmentSecretStore(SecretStore):
     def get(self, reference: str) -> str | None:
-        names = (reference, f"ATLAS_SECRET_{reference.upper().replace('-', '_')}")
+        normalized = reference.upper().replace('-', '_')
+        aliases = {
+            "DEEPINFRA": "DEEPINFRA_API_KEY",
+            "DEEPINFRA_API_KEY": "DEEPINFRA_API_KEY",
+        }
+        names = (
+            reference,
+            aliases.get(normalized, ""),
+            f"ATLAS_SECRET_{normalized}",
+        )
         for name in names:
+            if not name:
+                continue
             value = os.environ.get(name, "").strip()
             if value:
                 return value

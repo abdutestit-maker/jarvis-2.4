@@ -30,7 +30,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from core.actions.base import ActionResult
 from core.utils.logger import get_logger
@@ -236,6 +236,45 @@ def verify_process_running(result: ActionResult) -> VerificationResult:
     if not result.ok:
         return VerificationResult(False, "process_running", result.error or "ok=False")
 
+    app_name = str((result.args or {}).get("name") or "").casefold()
+    launch_args = str((result.args or {}).get("args") or "")
+    if app_name in {"explorer", "проводник"} and launch_args:
+        match = re.search(r"/select,\s*\"?(.+?)\"?$", launch_args, re.IGNORECASE)
+        requested = Path(match.group(1)).expanduser().resolve().parent if match else Path(launch_args.strip('"')).expanduser().resolve()
+        deadline = time.time() + 4.0
+        last_locations: List[str] = []
+        while time.time() < deadline:
+            try:
+                import os
+                import pythoncom
+                import win32com.client
+                from urllib.parse import unquote, urlparse
+
+                pythoncom.CoInitialize()
+                last_locations = []
+                for window in win32com.client.Dispatch("Shell.Application").Windows():
+                    location_url = str(getattr(window, "LocationURL", "") or "")
+                    if not location_url.casefold().startswith("file:"):
+                        continue
+                    parsed = urlparse(location_url)
+                    location = unquote(parsed.path).lstrip("/")
+                    if parsed.netloc:
+                        location = f"//{parsed.netloc}/{location}"
+                    observed = Path(location).resolve()
+                    last_locations.append(str(observed))
+                    if os.path.normcase(str(observed)) == os.path.normcase(str(requested)):
+                        return VerificationResult(
+                            True, "explorer_location",
+                            f"проводник физически открыт в {requested}", strict=True,
+                        )
+            except Exception as exc:
+                last_locations = [f"{type(exc).__name__}: {exc}"]
+            time.sleep(0.25)
+        return VerificationResult(
+            False, "explorer_location",
+            f"целевая папка {requested} не наблюдалась; окна={last_locations[:3]}", strict=True,
+        )
+
     # The launcher returns the concrete PID when it owns the process. A PID
     # probe is stronger and faster than waiting for a GUI name scan while a
     # Windows app paints its first frame.
@@ -299,7 +338,20 @@ def verify_file_search(result: ActionResult) -> VerificationResult:
     ))
     if not_found:
         return VerificationResult(False, "file_search", "файл(ы) не найдены запросом")
-    return VerificationResult(True, "file_search", "найдены совпадения")
+    candidates: List[Path] = []
+    for line in _output_text(result).splitlines():
+        stripped = line.strip()
+        if stripped.startswith("FILE "):
+            candidates.append(Path(stripped[5:].split(" | ", 1)[0]).expanduser())
+    existing = [path for path in candidates if path.is_file()]
+    if candidates and not existing:
+        return VerificationResult(False, "file_search", "пути из результата не существуют")
+    if existing:
+        return VerificationResult(
+            True, "file_search",
+            f"фактически существуют: {[str(path) for path in existing[:3]]}",
+        )
+    return VerificationResult(False, "file_search", "результат не содержит проверяемых путей")
 
 
 def verify_non_empty_output(result: ActionResult) -> VerificationResult:
@@ -391,6 +443,52 @@ def verify_play_music(result: ActionResult) -> VerificationResult:
     return VerificationResult(False, "media_surface", result.error or "медиаточка не открыта")
 
 
+def verify_computer_action(result: ActionResult) -> VerificationResult:
+    """Computer tools: physical backend plus a post-action observation."""
+    if not result.ok:
+        return VerificationResult(False, "computer_observation", result.error or "ok=False")
+    output = result.output if isinstance(result.output, Mapping) else {}
+    if not output.get("physical"):
+        return VerificationResult(False, "computer_physical", "physical backend was not active")
+    if result.tool == "computer_screenshot":
+        path = Path(str(output.get("path") or ""))
+        if path.is_file() and path.stat().st_size > 100:
+            return VerificationResult(True, "physical_screenshot", f"PNG captured: {path}")
+        return VerificationResult(False, "physical_screenshot", "PNG file is missing or empty")
+    args = result.args or {}
+    action = str(args.get("action") or "")
+    backend = output.get("backend_result") if isinstance(output.get("backend_result"), Mapping) else {}
+    if action == "move" and backend.get("observed_x") == backend.get("px") \
+            and backend.get("observed_y") == backend.get("py"):
+        return VerificationResult(True, "cursor_position", "cursor reached requested coordinates")
+    if output.get("observed"):
+        return VerificationResult(True, "computer_observation", "active window or screen changed after physical input")
+    return VerificationResult(False, "computer_observation", "physical input was sent but the requested outcome was not observed")
+
+
+def verify_browser_bridge(result: ActionResult) -> VerificationResult:
+    """BrowserBridge: verify navigation or semantic post-action observation."""
+    if not result.ok:
+        return VerificationResult(False, "browser_observation", result.error or "ok=False")
+    output = result.output if isinstance(result.output, Mapping) else {}
+    action = str((result.args or {}).get("action") or "")
+    if action in {"open", "navigate", "observe"}:
+        url = str(output.get("url") or "")
+        dom_hash = str(output.get("dom_hash") or "")
+        if url.startswith(("http://", "https://")) and dom_hash:
+            return VerificationResult(True, "browser_navigation", f"observed {url}")
+        return VerificationResult(False, "browser_navigation", "URL/DOM observation is missing")
+    if action in {"click", "type", "press", "download"}:
+        verification = output.get("verification") if isinstance(output.get("verification"), Mapping) else {}
+        if output.get("action_taken") and verification.get("ok"):
+            return VerificationResult(True, str(verification.get("method") or "browser_action"),
+                                      str(verification.get("detail") or "post-action state observed"))
+        return VerificationResult(False, "browser_action", str(output.get("error") or "action outcome was not observed"))
+    if action in {"read", "extract", "inspect_dom", "find", "wait", "close"} and output:
+        return VerificationResult(True, "browser_observation", "browser result is non-empty")
+    return VerificationResult(False, "browser_observation", "browser result is empty")
+
+
 def default_verify(result: ActionResult) -> VerificationResult:
     """Fallback: доверяем ok, но ЧЕСТНО помечаем strict=False (§14)."""
     if result.ok:
@@ -403,8 +501,8 @@ def default_verify(result: ActionResult) -> VerificationResult:
 def verify_action_result(result: ActionResult) -> VerificationResult:
     """Главная точка входа: фактическая проверка результата инструмента.
 
-    Никогда не бросает исключений — при падении verifier-а честно
-    деградирует до ``default_verify``.
+    Ошибка verifier-а — это ошибка проверки, а не успешное действие. Она
+    возвращается с точной причиной и строгим ``verified=False``.
     """
     tool = getattr(result, "tool", "") or ""
     verifier = _VERIFIERS.get(tool)
@@ -412,7 +510,13 @@ def verify_action_result(result: ActionResult) -> VerificationResult:
         try:
             return verifier(result)
         except Exception as exc:
-            log.warning("Verifier для '%s' упал: %s — fallback на trust_ok", tool, exc)
+            log.warning("Verifier для '%s' упал: %s", tool, exc)
+            return VerificationResult(
+                False,
+                "verifier_error",
+                f"{type(exc).__name__}: {exc}",
+                strict=True,
+            )
     return default_verify(result)
 
 
@@ -434,3 +538,7 @@ register_verifier("play_music", verify_play_music)
 register_verifier("weather", verify_non_empty_output)
 register_verifier("add_reminder", verify_reminder_registered)
 register_verifier("list_reminders", verify_non_empty_output)
+register_verifier("computer_mouse", verify_computer_action)
+register_verifier("computer_keyboard", verify_computer_action)
+register_verifier("computer_screenshot", verify_computer_action)
+register_verifier("browser_bridge", verify_browser_bridge)

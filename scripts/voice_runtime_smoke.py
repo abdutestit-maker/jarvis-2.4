@@ -24,9 +24,10 @@ def main() -> int:
         if len(sys.argv) > 1
         else PROJECT_ROOT / "artifacts" / "voice_runtime_hotfix" / "smoke.wav"
     )
-    expected_runtime = (
-        PROJECT_ROOT / "data" / "runtime" / "piper" / "piper.exe"
-    ).resolve()
+    expected_runtimes = {
+        (PROJECT_ROOT / "data" / "runtime" / "piper" / "piper.exe").resolve(),
+        (PROJECT_ROOT / "runtime" / "piper" / "piper.exe").resolve(),
+    }
     tts = PiperTTS(load_config())
     actual_runtime = Path(tts._binary).resolve() if tts._binary else None
 
@@ -34,10 +35,10 @@ def main() -> int:
         "success": False,
         "input": PHRASE,
         "runtime": str(actual_runtime) if actual_runtime else None,
-        "expected_runtime": str(expected_runtime),
+        "expected_runtime": [str(path) for path in sorted(expected_runtimes)],
         "output": str(output),
     }
-    if actual_runtime != expected_runtime:
+    if actual_runtime not in expected_runtimes:
         result["error"] = "unvalidated_piper_runtime"
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 2

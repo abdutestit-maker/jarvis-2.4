@@ -76,6 +76,7 @@ except ImportError:  # pragma: no cover - exercised only in minimal runtimes
     requests = _RequestsFallback()
 
 from core.security.redaction import redact_text
+from core.llm.tool_calls import ToolCallResponse, parse_tool_calls
 
 from .models import (
     BrainRequest, BrainResult, HealthSnapshot, HealthStatus,
@@ -113,12 +114,15 @@ class OpenAICompatibleProvider(BrainProvider):
         try:
             response = self._session.get(
                 f"{self.config.base_url}/models", headers=self._headers(),
-                timeout=min(self._timeout, 1.0),
+                # DeepInfra can need several seconds for the first request.
+                # A one-second probe made a healthy production runtime look
+                # unavailable and blocked the READY handshake.
+                timeout=min(max(self._timeout, 5.0), 15.0),
             )
             status = HealthStatus.AVAILABLE if response.ok else HealthStatus.DEGRADED
             return HealthSnapshot(status=status, latency_ms=(time.perf_counter() - started) * 1000,
                                   recent_success=response.ok)
-        except requests.RequestException as exc:
+        except (requests.RequestException, ProviderUnavailable) as exc:
             return HealthSnapshot(status=HealthStatus.OFFLINE,
                                   latency_ms=(time.perf_counter() - started) * 1000,
                                   failures=1, last_error=redact_text(str(exc))[:240])
@@ -195,6 +199,52 @@ class OpenAICompatibleProvider(BrainProvider):
             raw=data,
         )
 
+    def chat_with_tools(self, request: BrainRequest, tools: list[dict[str, Any]], *,
+                        model: str | None = None,
+                        tool_choice: str | dict[str, Any] = "auto") -> ToolCallResponse:
+        """Native OpenAI tool call for the single production brain."""
+        selected = self._select_model(request, model)
+        self._cancelled.clear()
+        messages = [dict(item) for item in request.messages]
+        if not messages:
+            messages = [{"role": "user", "content": request.user_request}]
+        if request.system:
+            messages.insert(0, {"role": "system", "content": request.system})
+        payload: dict[str, Any] = {
+            "model": selected,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "stream": False,
+        }
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+        response = None
+        try:
+            response = self._session.post(
+                f"{self.config.base_url}/chat/completions",
+                headers=self._headers(), json=payload, timeout=self._timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except requests.Timeout as exc:
+            raise ProviderUnavailable(f"provider {self.name} timed out") from exc
+        except requests.RequestException as exc:
+            raise ProviderUnavailable(redact_text(f"provider {self.name} unavailable: {exc}")) from exc
+        except ValueError as exc:
+            raise ProviderResponseError(f"provider {self.name} returned malformed JSON") from exc
+        finally:
+            if response is not None:
+                response.close()
+        try:
+            return parse_tool_calls(data)
+        except ValueError as exc:
+            raise ProviderResponseError(
+                f"provider {self.name} returned invalid tool response: {exc}"
+            ) from exc
+
     def stream(self, request: BrainRequest, *, model: str | None = None) -> Iterator[str]:
         profile = self.capabilities(self._select_model(request, model))
         if not profile.streaming:
@@ -224,7 +274,14 @@ class OpenAICompatibleProvider(BrainProvider):
                         break
                     try:
                         payload = json.loads(raw)
-                        chunk = payload["choices"][0]["delta"].get("content", "")
+                        choices = payload.get("choices", [])
+                        # DeepInfra may send a terminal usage/metadata frame
+                        # with an empty choices array.  It is not malformed
+                        # content and must not invalidate text already read.
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {})
+                        chunk = delta.get("content", "") if isinstance(delta, dict) else ""
                     except (ValueError, KeyError, IndexError, TypeError) as exc:
                         raise ProviderResponseError("malformed streaming response") from exc
                     if chunk:

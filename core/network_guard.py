@@ -10,9 +10,9 @@
       ``file://``, ``ftp://``, ``gopher://``, не-IP-литерал с опасным именем
       (``localhost``), а также «дефолтные» имена метаданных облаков.
 
-Метод: разрешаем имя хоста в IP (чтобы не обойти через DNS-rebinding/
-внутреннее имя) и проверяем, что результирующий IP НЕ входит в
-запрещённые сети. Блокировка происходит ДО ``requests.get``.
+Метод: разрешаем имя хоста в IP, проверяем все ответы DNS и подключаемся
+к уже проверенному IP, сохраняя исходное имя для HTTP Host и TLS SNI.
+Редиректы проверяются и пинятся отдельно на каждом переходе.
 
 Публичный API:
     ``is_ssrf_blocked(url) -> bool`` — True, если URL заблокирован.
@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import socket
 import urllib.request
@@ -133,6 +134,75 @@ def is_ssrf_blocked(url: str) -> bool:
     return False
 
 
+
+def _validated_ip_for_host(host: str, port: int | None) -> str:
+    """Возвращает проверенный IP, к которому будет выполнено подключение."""
+    parsed = urlparse(f"//{host}")
+    hostname = (parsed.hostname or host).strip("[]").lower()
+    target_port = int(port or parsed.port or 443)
+    try:
+        infos = socket.getaddrinfo(hostname, target_port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError) as exc:
+        raise SSRFBlocked(f"DNS не разрешён SSRF-защитой: {hostname}") from exc
+    for info in infos:
+        addr = str(info[4][0]).split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        if _ip_in_blocked_network(ip):
+            raise SSRFBlocked(f"DNS вернул внутренний IP для {hostname}")
+        return addr
+    raise SSRFBlocked(f"DNS не вернул TCP-адрес для {hostname}")
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection, использующий IP, проверенный до connect()."""
+
+    def __init__(self, host, port=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, **kwargs):
+        super().__init__(host, port=port, timeout=timeout, **kwargs)
+        self._validated_ip = _validated_ip_for_host(host, port or 80)
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection(
+            (self._validated_ip, self.port), self.timeout, self.source_address
+        )
+        if self._tunnel_host:
+            self._tunnel()
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPSConnection с проверенным IP и исходным TLS server_hostname."""
+
+    def __init__(self, host, port=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, **kwargs):
+        super().__init__(host, port=port, timeout=timeout, **kwargs)
+        self._validated_ip = _validated_ip_for_host(host, port or 443)
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection(
+            (self._validated_ip, self.port), self.timeout, self.source_address
+        )
+        if self._tunnel_host:
+            self._tunnel()
+        server_hostname = self._tunnel_host or self.host
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=server_hostname)
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):  # type: ignore[override]
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):  # type: ignore[override]
+        return self.do_open(
+            _PinnedHTTPSConnection,
+            req,
+            context=self._context,
+            check_hostname=self._check_hostname,
+        )
+
+
 def assert_safe_url(url: str) -> str:
     """Бросает ``SSRFBlocked``, если URL заблокирован; иначе возвращает URL.
 
@@ -161,6 +231,10 @@ class _ValidatedRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def safe_urlopen(request: object, *, timeout: float) -> Any:
-    """Open an HTTPS/HTTP request with per-hop SSRF validation."""
-    opener = urllib.request.build_opener(_ValidatedRedirectHandler())
+    """Open an HTTP(S) request after validation and DNS pinning per hop."""
+    url = getattr(request, "full_url", request)
+    assert_safe_url(str(url))
+    opener = urllib.request.build_opener(
+        _ValidatedRedirectHandler(), _PinnedHTTPHandler(), _PinnedHTTPSHandler()
+    )
     return opener.open(request, timeout=timeout)

@@ -34,11 +34,24 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "pystray>=0.19",
-    "Pillow>=10.0,<11",
+    "Pillow>=10.4,<13",
     "piper-tts>=1.3",
     "pydantic>=2.8,<3",
-    "numpy<2",
+    "numpy>=1.26,<3",
+    "jsonschema>=4.23,<5",
     "pypdf>=5.0",
+    "python-docx>=1.2",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
+    "pytesseract>=0.3.13",
+    "mss>=10.0",
+    "pygetwindow>=0.0.9",
+    "pycaw>=20251023; sys_platform == 'win32'",
+    "plyer>=2.1",
+    "win10toast>=0.9; sys_platform == 'win32'",
+    "webrtcvad-wheels>=2.0.14",
+    "openwakeword>=0.6",
+    "PyAudio>=0.2.14",
     "pywin32>=310,<312; sys_platform == 'win32'",
     "pywinauto==0.6.9; sys_platform == 'win32'",
     # Браузерная автоматизация (SPRINT P2-B): единственная зависимость для
@@ -48,14 +61,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-stt = ["faster-whisper>=1.0.3"]
+stt = ["faster-whisper>=1.0.3", "sounddevice>=0.4", "scipy>=1.11"]
 dev = ["pytest>=8.3", "pytest-mock>=3.14", "flake8>=7.1", "mypy>=1.11"]
 
 [project.scripts]
 jarvis = "main:main"
 
 [tool.setuptools]
-packages = ["config", "core", "core.llm", "core.utils"]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["config*", "core*", "hud*", "persona*"]
+exclude = ["tests*", "artifacts*", "data*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

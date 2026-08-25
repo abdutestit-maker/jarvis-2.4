@@ -68,6 +68,15 @@ log = get_logger(__name__)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8771
+_DEFAULT_ALLOWED_ORIGINS = frozenset({
+    "http://localhost:1420",
+    "http://127.0.0.1:1420",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+})
 
 # Маппинг статусов миссии -> entity state фронтенда
 _STATUS_TO_STATE = {
@@ -179,7 +188,7 @@ class JarvisWSServer:
             rid = getattr(tls, "cid", None)
             if rid and getattr(tls, "started", False) and not getattr(tls, "ended", False):
                 tls.ended = True
-                _emit_jarvis_event("event:jarvis:end", rid, {"content": text, "model": "local"})
+                _emit_jarvis_event("event:jarvis:end", rid, {"content": text, "model": self._brain_model_label()})
                 self._emit({"type": "state", "state": "idle"})
                 return
             # Стримленная миссия этого потока: финальный текст закрывает
@@ -189,15 +198,16 @@ class JarvisWSServer:
             if mission_rid:
                 self._streaming_started.discard(mission_rid)
                 _emit_jarvis_event("event:jarvis:end", mission_rid,
-                                   {"content": text, "model": "local"})
+                                   {"content": text, "model": self._brain_model_label()})
                 self._emit({"type": "state", "state": "idle"})
                 return
             response_id = uuid4().hex
             _emit_jarvis_event("event:jarvis:start", response_id, {"content": ""})
-            _emit_jarvis_event("event:jarvis:end", response_id, {"content": text, "model": "local"})
+            _emit_jarvis_event("event:jarvis:end", response_id, {"content": text, "model": self._brain_model_label()})
             self._emit({"type": "state", "state": "idle"})
 
         orchestrator._output_callback = _cb
+
         # Proactor is an existing system-trigger source.  Preserve its output
         # callback (notifications/TTS) and mirror it as a distinct UI event;
         # it never becomes a user command or an action request.
@@ -223,6 +233,14 @@ class JarvisWSServer:
             self._system_monitor = SystemMonitor(SystemTriggerEngine(configured, emit=lambda event, text: self._emit({"type": "event", "event": {"type": "event:system_initiated", "payload": {"text": text}, "timestamp": _now_ms()}}))) if configured else None
         except Exception as exc:
             log.warning("System triggers disabled: %s", exc)
+
+    def _brain_model_label(self) -> str:
+        if bool(getattr(self._settings, "deepseek_brain_mode", False)):
+            return str(
+                getattr(self._settings, "deepseek_model", "")
+                or "deepseek-ai/DeepSeek-V4-Flash-0731"
+            )
+        return "local"
 
     # ----------------------------------------------------------------- #
     #  Sprint 5 — ALWAYS-ON TTS + приветствие
@@ -297,7 +315,7 @@ class JarvisWSServer:
             "event": {
                 "type": "event:jarvis:end",
                 "payload": {"id": rid, "kind": "jarvis",
-                            "content": text, "model": "local"},
+                            "content": text, "model": self._brain_model_label()},
                 "timestamp": _now_ms(),
             },
         })
@@ -309,6 +327,7 @@ class JarvisWSServer:
     # ----------------------------------------------------------------- #
     async def _handler(self, ws):
         peer = getattr(ws, "remote_address", "?")
+        readiness_task = None
         log.info("WS клиент подключён: %s", peer)
         if not self._origin_allowed(ws):
             await ws.close(code=1008, reason="origin not allowed")
@@ -350,13 +369,40 @@ class JarvisWSServer:
                 "ready": bool(diagnostics.get("warmup_ready")),
                 "diagnostics": warmup,
             }))
+            if runtime_state == "loading_model":
+                async def _publish_readiness() -> None:
+                    wait_ready = getattr(self._orch, "wait_for_runtime_ready", None)
+                    if not callable(wait_ready):
+                        return
+                    await asyncio.to_thread(wait_ready)
+                    try:
+                        updated = self._orch.runtime_diagnostics()
+                    except Exception as exc:
+                        log.warning("Не удалось обновить readiness WS: %s", exc)
+                        updated = {}
+                    updated_warmup = updated.get("warmup") if isinstance(updated, dict) else {}
+                    if not isinstance(updated_warmup, dict):
+                        updated_warmup = {}
+                    updated_state = (
+                        "ready" if updated.get("warmup_ready") and updated_warmup.get("state") == "ready" else
+                        "unavailable" if updated_warmup.get("state") == "unavailable" else
+                        "starting"
+                    )
+                    self._emit({
+                        "type": "runtime_status",
+                        "state": updated_state,
+                        "ready": updated_state == "ready",
+                        "diagnostics": updated_warmup,
+                    })
+
+                readiness_task = asyncio.create_task(_publish_readiness())
             try:
                 from core.memory.profile import load_profile
                 has_name = bool((load_profile(self._settings).get("name") or "").strip())
             except Exception:
                 has_name = False
             await ws.send(json.dumps({"type": "profile", "has_name": has_name}))
-            if first_client:
+            if first_client and not bool(getattr(self._settings, "deepseek_brain_mode", False)):
                 # Пауза, чтобы фронт успел подписаться на события.
                 await asyncio.sleep(0.5)
                 self._send_startup_greeting()
@@ -367,6 +413,8 @@ class JarvisWSServer:
         except Exception as exc:  # pragma: no cover - network edge
             log.error("WS соединение упало: %s", exc)
         finally:
+            if readiness_task is not None:
+                readiness_task.cancel()
             with self._lock:
                 self._clients.discard(ws)
                 self._authorized_clients.discard(ws)
@@ -527,6 +575,8 @@ class JarvisWSServer:
             raise ValueError("base_url должен быть корректным http(s) URL")
         if parsed.username or parsed.password:
             raise ValueError("base_url не должен содержать учётные данные")
+        from core.network_guard import assert_safe_url
+        assert_safe_url(url)
         return url
 
     @staticmethod
@@ -693,8 +743,8 @@ class JarvisWSServer:
 
                 install = getattr(self._orch, "install_stream_sink", None)
                 try:
-                    # The socket is deliberately available before the local
-                    # model finishes warming.  Hold the command in this
+                    # The socket is deliberately available before the
+                    # configured brain finishes its readiness probe. Hold the command in this
                     # executor worker until that one-time readiness event is
                     # complete; otherwise the first real request is reported
                     # as a false "not responding" result while llama-server
@@ -702,7 +752,17 @@ class JarvisWSServer:
                     wait_ready = getattr(self._orch, "wait_for_runtime_ready", None)
                     if callable(wait_ready):
                         self._emit({"type": "state", "state": "loading_model"})
-                        wait_ready()
+                        ready_state = wait_ready()
+                        if str(ready_state) != "ready":
+                            diagnostics = {}
+                            try:
+                                diagnostics = dict(self._orch.runtime_diagnostics() or {})
+                            except Exception:
+                                diagnostics = {}
+                            warmup = diagnostics.get("warmup") if isinstance(diagnostics, dict) else {}
+                            detail = warmup.get("error") if isinstance(warmup, dict) else None
+                            detail = detail or f"state={ready_state}"
+                            raise RuntimeError(f"runtime не готов: {detail}")
                     if callable(install):
                         install(_sink)
                     if channel == "voice" and hasattr(self._orch, "cognitive"):
@@ -726,6 +786,43 @@ class JarvisWSServer:
                         self._emit({
                             "type": "mission:ack",
                             "mission_id": state["mission_id"],
+                        })
+                    if isinstance(state, dict) and state.get("tool"):
+                        tool_name = str(state.get("tool") or "")
+                        verified = bool(state.get("verified"))
+                        output = state.get("assistant_output")
+                        debug = output.get("debug", {}) if isinstance(output, dict) else {}
+                        verification = debug.get("verification") if isinstance(debug, dict) else None
+                        self._emit({
+                            "type": "event",
+                            "event": {
+                                "type": "event:tool",
+                                "payload": {
+                                    "id": f"tool-{uuid4().hex}",
+                                    "kind": "tool",
+                                    "tool": tool_name,
+                                    "content": tool_name,
+                                    "status": "completed" if verified else "failed",
+                                    "verified": verified,
+                                    "verification": verification,
+                                },
+                                "timestamp": _now_ms(),
+                            },
+                        })
+                        self._emit({
+                            "type": "event",
+                            "event": {
+                                "type": "event:result",
+                                "payload": {
+                                    "id": f"result-{uuid4().hex}",
+                                    "kind": "result",
+                                    "content": str(state.get("response") or ""),
+                                    "status": "verified" if verified else "failed",
+                                    "verified": verified,
+                                    "verification": verification,
+                                },
+                                "timestamp": _now_ms(),
+                            },
                         })
                     if isinstance(state, dict) and state.get("assistant_output"):
                         # Typed diagnostics channel for Developer Mode. The
@@ -764,8 +861,16 @@ class JarvisWSServer:
                                 "payload": {
                                     "id": tls.cid,
                                     "kind": "jarvis",
-                                    "content": tls.streamed or "Сэр, ответ не сформирован.",
-                                    "model": "local",
+                                    "content": tls.streamed or (
+                                        "Ошибка DeepInfra/DeepSeek runtime: поток завершился без текста."
+                                        if bool(getattr(self._settings, "deepseek_brain_mode", False))
+                                        else "Ошибка локального runtime: поток завершился без текста."
+                                    ),
+                                    "model": (
+                                        "deepseek-ai/DeepSeek-V4-Flash-0731"
+                                        if bool(getattr(self._settings, "deepseek_brain_mode", False))
+                                        else "local"
+                                    ),
                                 },
                                 "timestamp": _now_ms(),
                             },
@@ -793,7 +898,57 @@ class JarvisWSServer:
 
                 def _dispatch_confirm(cid_: str, approve_: bool) -> None:
                     try:
-                        self._orch.answer_confirmation(cid_, approve_)
+                        state = self._orch.answer_confirmation(cid_, approve_)
+                        if not isinstance(state, dict):
+                            return
+                        tool_name = str(state.get("tool") or "")
+                        verified = bool(state.get("verified"))
+                        output = state.get("assistant_output")
+                        debug = output.get("debug", {}) if isinstance(output, dict) else {}
+                        verification = debug.get("verification") if isinstance(debug, dict) else None
+                        if tool_name:
+                            self._emit({
+                                "type": "event",
+                                "event": {
+                                    "type": "event:tool",
+                                    "payload": {
+                                        "id": f"tool-{uuid4().hex}",
+                                        "kind": "tool",
+                                        "tool": tool_name,
+                                        "content": tool_name,
+                                        "status": "completed" if verified else "failed",
+                                        "verified": verified,
+                                        "verification": verification,
+                                    },
+                                    "timestamp": _now_ms(),
+                                },
+                            })
+                            self._emit({
+                                "type": "event",
+                                "event": {
+                                    "type": "event:result",
+                                    "payload": {
+                                        "id": f"result-{uuid4().hex}",
+                                        "kind": "result",
+                                        "content": str(state.get("response") or ""),
+                                        "status": "verified" if verified else "failed",
+                                        "verified": verified,
+                                        "verification": verification,
+                                    },
+                                    "timestamp": _now_ms(),
+                                },
+                            })
+                        if isinstance(output, dict):
+                            self._emit({"type": "assistant_output", "output": output})
+                        if state.get("needs_confirmation"):
+                            self._emit({
+                                "type": "confirmation_required",
+                                "confirmation_id": state.get("confirmation_id"),
+                                "prompt": state.get("response", ""),
+                                "tool": tool_name,
+                                "risk": {},
+                            })
+                        self._emit({"type": "state", "state": "idle"})
                     except Exception as exc:
                         log.error("Ошибка ответа на подтверждение из WS: %s", exc)
 
@@ -918,8 +1073,8 @@ class JarvisWSServer:
                         "payload": {
                             "id": event.task_id,
                             "kind": "jarvis",
-                            "content": "Сэр, задача не завершилась. Попробуйте ещё раз.",
-                            "model": "local",
+                            "content": f"Ошибка выполнения миссии: {payload.get('error') or 'точная причина не передана backend.'}",
+                            "model": self._brain_model_label(),
                         },
                         "timestamp": _now_ms(),
                     },
@@ -959,7 +1114,7 @@ class JarvisWSServer:
                     "payload": {
                         "id": event.task_id,
                         "content": payload.get("text", ""),
-                        "model": payload.get("model", "local"),
+                        "model": payload.get("model", self._brain_model_label()),
                     },
                     "timestamp": _now_ms(),
                 },
@@ -989,7 +1144,7 @@ class JarvisWSServer:
                                 "id": event.task_id,
                                 "kind": "jarvis",
                                 "content": "Задача отменена.",
-                                "model": "local",
+                                "model": self._brain_model_label(),
                             },
                             "timestamp": _now_ms(),
                         },
@@ -1088,8 +1243,14 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
         log.warning("Автопрофиль локальной модели пропущен: %s", exc)
     settings.ensure_directories()
     orch = Orchestrator(settings)
+    configured_origins = {
+        item.strip().rstrip("/")
+        for item in os.environ.get("JARVIS_ALLOWED_ORIGINS", "").split(",")
+        if item.strip()
+    }
     server = JarvisWSServer(orch, host=host, port=port,
-                            auth_token=os.environ.get("JARVIS_WS_TOKEN") or None)
+                            auth_token=os.environ.get("JARVIS_WS_TOKEN") or None,
+                            allowed_origins=configured_origins or set(_DEFAULT_ALLOWED_ORIGINS))
     server.start()
     try:
         while True:

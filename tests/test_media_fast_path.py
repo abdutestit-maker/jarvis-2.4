@@ -41,7 +41,7 @@ def test_mood_context_does_not_become_an_implicit_network_query():
     opener.assert_called_once()
 
 
-def test_planner_cannot_turn_bare_music_into_youtube_search(settings):
+def test_network_music_search_is_not_mistaken_for_verified_playback(settings):
     agent = Agent(settings, config=AgentConfig(enable_skill_forge=False))
     capability = CAPABILITIES.get("play_music")
     with patch("core.actions.media._open_target", return_value=True) as opener, \
@@ -57,9 +57,10 @@ def test_planner_cannot_turn_bare_music_into_youtube_search(settings):
             caps=[capability] if capability is not None else [],
         )
 
-    assert outcome.verified is True
-    assert "музыкальный плеер" in outcome.text.lower()
-    opener.assert_called_once()
+    assert outcome.verified is False
+    assert outcome.tool_used == "play_music"
+    assert "Ошибка действия play_music" in outcome.text
+    assert opener.called
     browser.assert_not_called()
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import signal
 import sys
 import threading
+from pathlib import Path
 from typing import Optional
 
 from config import load_config
@@ -23,14 +24,26 @@ log = get_logger(__name__)
 # Глобальный оркестратор для signal handler
 _orchestrator: Optional[Orchestrator] = None
 _shutdown_event = threading.Event()
+_shutdown_lock = threading.Lock()
+_shutdown_started = False
+
+
+def _shutdown_once() -> None:
+    """Останавливает оркестратор ровно один раз, включая путь через сигнал."""
+    global _shutdown_started
+    with _shutdown_lock:
+        if _shutdown_started:
+            return
+        _shutdown_started = True
+    if _orchestrator:
+        _orchestrator.shutdown()
 
 
 def signal_handler(signum: int, frame) -> None:
     """Обработчик SIGINT/SIGTERM — graceful shutdown."""
     log.info("Получен сигнал %s, завершение...", signum)
     _shutdown_event.set()
-    if _orchestrator:
-        _orchestrator.shutdown()
+    _shutdown_once()
 
 
 def print_banner() -> None:
@@ -54,7 +67,7 @@ def print_banner() -> None:
     print("         'продолжить' / 'resume' — возобновить TTS очередь")
     print("         'статус' / 'status' — статус системы")
     print("         'модели' / 'models' — список зарегистрированных моделей/голосов")
-    print("         'подтвердить' / 'reject' — ответ на запрос подтверждения (HIGH-risk)")
+    print("         'подтвердить' / 'отклонить' — ответ на запрос подтверждения (HIGH-risk)")
     print("         'модель добавить' — интерактивно зарегистрировать локальную GGUF")
     print("         'голос добавить' — интерактивно зарегистрировать голос Piper")
     print("         'голос тест' — озвучить тестовую фразу (Jarvis/irina)")
@@ -69,7 +82,7 @@ def _cmd_add_model(settings) -> None:
         path = input("  Путь к файлу *.gguf > ").strip().strip('"')
         name = input("  Логическое имя (напр. qwen-coder-local) > ").strip()
         print("  Доступные роли: fast, analyst, coder, architect, embedding")
-        role = input("  Роль (тір) > ").strip().lower()
+        role = input("  Роль (тир) > ").strip().lower()
         if role not in ("fast", "analyst", "coder", "architect", "embedding"):
             print("  ⚠ Неизвестная роль, использую 'coder'")
             role = "coder"
@@ -138,9 +151,13 @@ def _answer_confirm(orchestrator, confirmation_id: str, approved: bool) -> None:
 def main() -> int:
     """Главная функция."""
     global _orchestrator
+    global _shutdown_started
 
     # Настройка логирования
     setup_logging(level="INFO", console=True)
+    _shutdown_event.clear()
+    with _shutdown_lock:
+        _shutdown_started = False
 
     # Загрузка конфигурации
     settings = load_config()
@@ -151,21 +168,20 @@ def main() -> int:
         log.warning("Автопрофиль локальной модели пропущен: %s", exc)
     settings.ensure_directories()
 
-    # Создание оркестратора
-    _orchestrator = Orchestrator(settings)
-
-    # Регистрация signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    # Запуск
-    _orchestrator.start()
-
-    print_banner()
-
-    # REPL цикл
     _confirmation_id: Optional[str] = None
+    exit_code = 0
     try:
+        # Создание и запуск находятся в одном жизненном цикле с REPL.
+        _orchestrator = Orchestrator(settings)
+
+        # Регистрация signal handlers
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        _orchestrator.start()
+
+        print_banner()
+
+        # REPL цикл
         while not _shutdown_event.is_set():
             try:
                 user_input = input("\n🎙  Сёр > ").strip()
@@ -251,13 +267,16 @@ def main() -> int:
 
     except KeyboardInterrupt:
         pass
+    except Exception as exc:
+        log.exception("Ошибка запуска или работы Jarvis: %s", exc)
+        exit_code = 1
     finally:
         print("\n👋 Завершение работы...")
-        _orchestrator.shutdown()
-        _shutdown_event.wait(timeout=5)
+        _shutdown_event.set()
+        _shutdown_once()
         print("Готово.")
 
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

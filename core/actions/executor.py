@@ -20,7 +20,12 @@ __all__ = ["ToolExecutor", "execute_tool", "validate_args", "tool_timeout_for"]
 
 log = get_logger(__name__)
 
-_WEB_TOOLS = frozenset({"web_search", "web_fetch", "weather", "browser_open", "browser_click", "browser_type", "browser_scroll", "browser_close", "browser_screenshot"})
+_WEB_TOOLS = frozenset({
+    "web_search", "web_fetch", "weather",
+    "browser_bridge", "browser_automation",
+    "browser_open", "browser_click", "browser_type", "browser_scroll",
+    "browser_close", "browser_screenshot",
+})
 _SYSTEM_TOOLS = frozenset({"system_status", "volume", "open_app", "close_app", "add_reminder", "list_reminders", "cancel_reminder", "current_time", "play_music", "screenshot", "clipboard_read", "clipboard_write", "key_press", "type_text", "screen_capture"})
 
 

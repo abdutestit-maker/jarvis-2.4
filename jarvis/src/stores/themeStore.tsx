@@ -18,10 +18,29 @@ import type { AppSettings, ThemeName, UserProfile } from '@/types';
 const SETTINGS_KEY = 'jarvis.settings.v3';
 const PROFILE_KEY = 'jarvis.profile.v3';
 
+function hexToRgb(hex: string): string {
+  const value = hex.replace('#', '');
+  const normalized = value.length === 3 ? value.split('').map((part) => part + part).join('') : value;
+  const parsed = Number.parseInt(normalized, 16);
+  if (!Number.isFinite(parsed)) return '17, 21, 34';
+  return `${(parsed >> 16) & 255}, ${(parsed >> 8) & 255}, ${parsed & 255}`;
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'olympus',
   transparency: 0.35,
   reduceMotion: false,
+  primaryAccent: '#38d9e6',
+  secondaryAccent: '#9b6cff',
+  tertiaryAccent: '#ff4fa3',
+  energyAccent: '#ff9f43',
+  successAccent: '#62e6a7',
+  errorAccent: '#ff526d',
+  backgroundBase: '#05060b',
+  panelTint: '#111522',
+  glowIntensity: 0.72,
+  saturation: 1.12,
+  contrast: 1.04,
 };
 
 function loadSettings(): AppSettings {
@@ -53,6 +72,10 @@ interface ThemeContextValue {
   setTransparency: (v: number) => void;
   setReduceMotion: (v: boolean) => void;
   setBackgroundUrl: (url: string | undefined) => void;
+  setPalette: (palette: Partial<Pick<AppSettings, 'primaryAccent' | 'secondaryAccent' | 'tertiaryAccent' | 'energyAccent' | 'successAccent' | 'errorAccent' | 'backgroundBase' | 'panelTint'>>) => void;
+  setGlowIntensity: (v: number) => void;
+  setSaturation: (v: number) => void;
+  setContrast: (v: number) => void;
   completeOnboarding: (name: string, honorific?: string) => void;
   updateProfile: (p: Partial<UserProfile>) => void;
 }
@@ -81,6 +104,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     el.setAttribute('data-theme', settings.theme);
     el.setAttribute('data-reduce-motion', reduceMotion ? 'true' : 'false');
     el.style.setProperty('--transparency', String(settings.transparency));
+    el.style.setProperty('--accent-primary', settings.primaryAccent);
+    el.style.setProperty('--accent-secondary', settings.secondaryAccent);
+    el.style.setProperty('--accent-tertiary', settings.tertiaryAccent);
+    el.style.setProperty('--accent-energy', settings.energyAccent);
+    el.style.setProperty('--accent-success', settings.successAccent);
+    el.style.setProperty('--accent-error', settings.errorAccent);
+    el.style.setProperty('--surface-base', settings.backgroundBase);
+    el.style.setProperty('--surface-panel-rgb', hexToRgb(settings.panelTint));
+    el.style.setProperty('--glow-intensity', String(settings.glowIntensity));
+    el.style.setProperty('--ui-saturation', String(settings.saturation));
+    el.style.setProperty('--ui-contrast', String(settings.contrast));
     if (settings.backgroundUrl) {
       el.style.setProperty('--personal-bg', `url("${settings.backgroundUrl}")`);
     } else {
@@ -107,6 +141,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setSettings((s) => ({ ...s, transparency: Math.max(0, Math.min(1, v)) })),
       setReduceMotion: (v) => setSettings((s) => ({ ...s, reduceMotion: v })),
       setBackgroundUrl: (url) => setSettings((s) => ({ ...s, backgroundUrl: url })),
+      setPalette: (palette) => setSettings((s) => ({ ...s, ...palette })),
+      setGlowIntensity: (v) => setSettings((s) => ({ ...s, glowIntensity: Math.max(0, Math.min(1, v)) })),
+      setSaturation: (v) => setSettings((s) => ({ ...s, saturation: Math.max(0.7, Math.min(1.5, v)) })),
+      setContrast: (v) => setSettings((s) => ({ ...s, contrast: Math.max(0.85, Math.min(1.25, v)) })),
       completeOnboarding: (name, honorific = 'сэр') => {
         setProfile({ name: name.trim() || 'Guest', honorific, createdAt: Date.now() });
       },

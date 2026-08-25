@@ -55,6 +55,7 @@ __all__ = [
     "WakeWordConfig",
     "ShadowConfig",
     "BrainPolicyConfig",
+    "CredentialStoreConfig",
     "Settings",
     "ConfigError",
     "load_config",
@@ -95,6 +96,7 @@ class ApiKeys(_Section):
     """API-ключи провайдеров. Пустая строка == ключ не задан."""
 
     deepseek: str = ""
+    deepinfra: str = ""
     kimi: str = ""
     claude: str = ""
     openrouter: str = ""
@@ -115,6 +117,7 @@ class ApiEndpoints(_Section):
     """OpenAI-совместимые базовые URL провайдеров."""
 
     deepseek: str = "https://api.deepseek.com/v1"
+    deepinfra: str = "https://api.deepinfra.com/v1/openai"
     kimi: str = "https://api.moonshot.ai/v1"
     claude: str = "https://api.anthropic.com/v1"
     openrouter: str = "https://openrouter.ai/api/v1"
@@ -139,11 +142,11 @@ class ModelTiers(_Section):
     означает пять загрузок: фабрика разделяет физический backend по пути.
     """
 
-    fast: str = "qwen-4b-local"
-    analyst: str = "deepseek-v4-flash"
-    coder: str = "kimi-k3"
-    architect: str = "claude-opus-5"
-    research: str = "deepseek-v4-flash"
+    fast: str = "deepseek-ai/DeepSeek-V4-Flash-0731"
+    analyst: str = "deepseek-ai/DeepSeek-V4-Flash-0731"
+    coder: str = "deepseek-ai/DeepSeek-V4-Flash-0731"
+    architect: str = "deepseek-ai/DeepSeek-V4-Flash-0731"
+    research: str = "deepseek-ai/DeepSeek-V4-Flash-0731"
 
     def get(self, tier_key: str) -> Optional[str]:
         raw = getattr(self, tier_key, None)
@@ -161,11 +164,11 @@ class TierProviders(_Section):
     ``fast`` по умолчанию = ``local`` (llama-cpp-python, без сети).
     """
 
-    fast: str = LOCAL_PROVIDER
-    analyst: str = "deepseek"
-    coder: str = "kimi"
-    architect: str = "claude"
-    research: str = "deepseek"
+    fast: str = "deepinfra"
+    analyst: str = "deepinfra"
+    coder: str = "deepinfra"
+    architect: str = "deepinfra"
+    research: str = "deepinfra"
 
     def get(self, tier_key: str) -> str:
         raw = getattr(self, tier_key, None)
@@ -340,6 +343,9 @@ class VoiceConfig(_Section):
     # P5 §5.9: параметры STT-движка (faster-whisper, MIT).
     stt_model: str = "small"          # размер модели faster-whisper
     stt_device: str = "cpu"           # cpu / cuda
+    # Индекс устройства PortAudio. Пустое значение включает авто-поиск
+    # рабочего входа вместо слепого использования системного default.
+    input_device_index: Optional[int] = None
     piper_model_path: str = "data/models/piper/ru_RU-dmitri-medium.onnx"
     # New production voice can be rolled out without invalidating older
     # manifests that still expose piper_model_path.  The primary path wins.
@@ -635,6 +641,16 @@ class BrainPolicyConfig(_Section):
         return resolve_path(self.providers_path)
 
 
+class CredentialStoreConfig(_Section):
+    """Central credential indirection used by production and future backends."""
+
+    provider: str = "deepinfra"
+    reference: str = "DEEPINFRA_API_KEY"
+    backend: str = "dpapi"
+    path: str = "data/brain/provider-secrets.dpapi"
+    required_in_production: bool = True
+
+
 # --------------------------------------------------------------------------- #
 #  Корневая модель
 # --------------------------------------------------------------------------- #
@@ -669,6 +685,11 @@ class Settings(BaseModel):
     #: manifest is HTTPS-only and SHA-256 verified; an existing user model is
     #: never replaced just because a newer profile is recommended.
     auto_download_models: bool = True
+    #: Production migration switch: one DeepInfra brain owns dialogue,
+    #: planning and tool decisions. Local GGUF is not a fallback in this mode.
+    deepseek_brain_mode: bool = False
+    deepseek_model: str = "deepseek-ai/DeepSeek-V4-Flash-0731"
+    deepseek_provider: str = "deepinfra"
 
     local_model: LocalModelConfig = Field(default_factory=LocalModelConfig)
     local_coder_model: LocalCoderModelConfig = Field(default_factory=LocalCoderModelConfig)
@@ -684,6 +705,7 @@ class Settings(BaseModel):
     wake_word: WakeWordConfig = Field(default_factory=WakeWordConfig)
     shadow: ShadowConfig = Field(default_factory=ShadowConfig)
     brain_policy: BrainPolicyConfig = Field(default_factory=BrainPolicyConfig)
+    credential_store: CredentialStoreConfig = Field(default_factory=CredentialStoreConfig)
     system_triggers: List[Dict[str, Any]] = Field(default_factory=list)
 
     #: Откуда конфиг был загружен (не сериализуется в JSON).
